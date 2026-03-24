@@ -1865,6 +1865,25 @@ def warn_max_tokens_total : Warning<
 
 def note_max_tokens_total_override : Note<"total token limit set here">;
 
+// Learn Pragma Diagnostics
+def warn_pragma_learn_activated : Warning<
+  "#pragma learn activated with directive: %0">,
+  InGroup<DiagGroup<"pragma-learn">>;
+
+def err_pragma_learn_unknown_directive : Error<
+  "unknown directive for #pragma learn: %0">;
+
+def note_pragma_learn_available_directives : Note<
+  "available directives: warn, print">;
+
+def warn_pragma_learn_warn_directive : Warning<
+  "#pragma learn warn: This is a custom warning from learn pragma">,
+  InGroup<DiagGroup<"pragma-learn">>;
+
+def remark_pragma_learn_print : Remark<
+  "#pragma learn print will insert printf statement here">,
+  InGroup<DiagGroup<"pragma-learn">>;
+
 // HLSL Parser Diagnostics
 
 def err_expected_semantic_identifier : Error<
