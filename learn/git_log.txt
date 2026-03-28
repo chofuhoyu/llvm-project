@@ -1,0 +1,721 @@
+commit d0e29c3a88f054d08b14d1bfc8dac801b96c091d
+Author: gorun <307532500@qq.com>
+Date:   Tue Mar 24 19:24:49 2026 +0800
+
+    添加 #pragma learn 功能的实现，包括指令处理、诊断消息和测试文件
+
+diff --git a/LEARN_PRAGMA_ADVANCED_EXAMPLE.cpp b/LEARN_PRAGMA_ADVANCED_EXAMPLE.cpp
+new file mode 100644
+index 000000000000..ad8d4168ef99
+--- /dev/null
++++ b/LEARN_PRAGMA_ADVANCED_EXAMPLE.cpp
+@@ -0,0 +1,355 @@
++// 高级示例：展示如何扩展#pragma learn功能
++// 这个文件不是要编译的，而是作为参考代码
++
++// ============================================
++// 示例1：使用AST Consumer实现printf插入
++// ============================================
++
++#include "clang/AST/ASTConsumer.h"
++#include "clang/AST/RecursiveASTVisitor.h"
++#include "clang/Frontend/CompilerInstance.h"
++#include "clang/Frontend/FrontendAction.h"
++#include "clang/Tooling/Tooling.h"
++#include "llvm/Support/raw_ostream.h"
++
++using namespace clang;
++
++// 存储#pragma learn print位置的信息
++struct LearnPrintLocation {
++    SourceLocation Loc;
++    std::string Message;
++};
++
++static std::vector<LearnPrintLocation> PrintLocations;
++
++// 扩展的PragmaLearnHandler - 存储位置信息
++struct AdvancedPragmaLearnHandler : public PragmaHandler {
++    AdvancedPragmaLearnHandler() : PragmaHandler("learn") {}
++    
++    void HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer,
++                      Token &FirstToken) override {
++        SourceLocation PragmaLoc = FirstToken.getLocation();
++        
++        Token Tok;
++        PP.Lex(Tok);
++        
++        if (Tok.isNot(tok::identifier)) {
++            return;
++        }
++        
++        IdentifierInfo *Directive = Tok.getIdentifierInfo();
++        PP.Lex(Tok);
++        
++        if (Directive->isStr("print")) {
++            // 存储位置信息供后续使用
++            LearnPrintLocation LocInfo;
++            LocInfo.Loc = PragmaLoc;
++            LocInfo.Message = "Print statement inserted by #pragma learn";
++            PrintLocations.push_back(LocInfo);
++        }
++    }
++};
++
++// AST Visitor - 遍历AST并插入printf
++class LearnASTVisitor : public RecursiveASTVisitor<LearnASTVisitor> {
++public:
++    explicit LearnASTVisitor(ASTContext &Context) : Context(Context) {}
++    
++    bool VisitStmt(Stmt *S) {
++        // 检查语句位置是否匹配我们存储的#pragma learn print位置
++        for (const auto &LocInfo : PrintLocations) {
++            if (Context.getSourceManager().isBeforeInTranslationUnit(
++                    LocInfo.Loc, S->getBeginLoc())) {
++                // 在这里插入printf调用
++                llvm::errs() << "Would insert printf at: " 
++                             << LocInfo.Loc.printToString(Context.getSourceManager()) 
++                             << "\n";
++            }
++        }
++        return true;
++    }
++    
++private:
++    ASTContext &Context;
++};
++
++// AST Consumer
++class LearnASTConsumer : public ASTConsumer {
++public:
++    explicit LearnASTConsumer(ASTContext &Context) : Visitor(Context) {}
++    
++    void HandleTranslationUnit(ASTContext &Context) override {
++        Visitor.TraverseDecl(Context.getTranslationUnitDecl());
++    }
++    
++private:
++    LearnASTVisitor Visitor;
++};
++
++// Frontend Action
++class LearnFrontendAction : public ASTFrontendAction {
++public:
++    std::unique_ptr<ASTConsumer> CreateASTConsumer(
++        CompilerInstance &CI, StringRef InFile) override {
++        return std::make_unique<LearnASTConsumer>(CI.getASTContext());
++    }
++};
++
++// ============================================
++// 示例2：支持更多指令和参数
++// ============================================
++
++struct EnhancedPragmaLearnHandler : public PragmaHandler {
++    EnhancedPragmaLearnHandler() : PragmaHandler("learn") {}
++    
++    void HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer,
++                      Token &FirstToken) override {
++        SourceLocation PragmaLoc = FirstToken.getLocation();
++        
++        Token Tok;
++        PP.Lex(Tok);
++        
++        if (Tok.is(tok::eod)) {
++            PP.Diag(PragmaLoc, diag::err_pragma_missing_argument)
++                << "learn" << true << "identifier";
++            return;
++        }
++        
++        if (Tok.isNot(tok::identifier)) {
++            PP.Diag(Tok.getLocation(), diag::err_pragma_learn_unknown_directive)
++                << Tok.getName();
++            return;
++        }
++        
++        IdentifierInfo *Directive = Tok.getIdentifierInfo();
++        PP.Lex(Tok);
++        
++        // 处理带参数的指令
++        if (Directive->isStr("warn")) {
++            handleWarnDirective(PP, PragmaLoc, Tok);
++        } else if (Directive->isStr("print")) {
++            handlePrintDirective(PP, PragmaLoc, Tok);
++        } else if (Directive->isStr("info")) {
++            handleInfoDirective(PP, PragmaLoc, Tok);
++        } else if (Directive->isStr("trace")) {
++            handleTraceDirective(PP, PragmaLoc, Tok);
++        } else if (Directive->isStr("assert")) {
++            handleAssertDirective(PP, PragmaLoc, Tok);
++        } else {
++            PP.Diag(PragmaLoc, diag::err_pragma_learn_unknown_directive)
++                << Directive->getName();
++            PP.Diag(PragmaLoc, diag::note_pragma_learn_available_directives);
++        }
++    }
++    
++private:
++    void handleWarnDirective(Preprocessor &PP, SourceLocation Loc, Token &Tok) {
++        // 支持自定义警告消息
++        std::string Message = "Custom warning from #pragma learn";
++        
++        if (Tok.is(tok::string_literal)) {
++            Message = PP.getSpelling(Tok);
++            // 去掉引号
++            if (Message.size() >= 2) {
++                Message = Message.substr(1, Message.size() - 2);
++            }
++            PP.Lex(Tok);
++        }
++        
++        PP.Diag(Loc, diag::warn_pragma_learn_warn_directive) << Message;
++    }
++    
++    void handlePrintDirective(Preprocessor &PP, SourceLocation Loc, Token &Tok) {
++        // 支持printf格式字符串
++        std::string Format = "Hello from #pragma learn";
++        
++        if (Tok.is(tok::string_literal)) {
++            Format = PP.getSpelling(Tok);
++            if (Format.size() >= 2) {
++                Format = Format.substr(1, Format.size() - 2);
++            }
++            PP.Lex(Tok);
++        }
++        
++        // 存储格式字符串供CodeGen使用
++        PP.Diag(Loc, diag::remark_pragma_learn_print) << Format;
++    }
++    
++    void handleInfoDirective(Preprocessor &PP, SourceLocation Loc, Token &Tok) {
++        // 发出信息性备注
++        PP.Diag(Loc, diag::remark_pragma_learn_print) 
++            << "Info message from #pragma learn";
++    }
++    
++    void handleTraceDirective(Preprocessor &PP, SourceLocation Loc, Token &Tok) {
++        // 跟踪指令 - 可以用于函数进入/退出跟踪
++        PP.Diag(Loc, diag::remark_pragma_learn_print)
++            << "Trace point from #pragma learn";
++    }
++    
++    void handleAssertDirective(Preprocessor &PP, SourceLocation Loc, Token &Tok) {
++        // 断言指令
++        PP.Diag(Loc, diag::warn_pragma_learn_warn_directive)
++            << "Assertion point from #pragma learn";
++    }
++};
++
++// ============================================
++// 示例3：支持作用域（push/pop）
++// ============================================
++
++struct ScopedPragmaLearnHandler : public PragmaHandler {
++    ScopedPragmaLearnHandler() : PragmaHandler("learn") {}
++    
++    void HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer,
++                      Token &FirstToken) override {
++        SourceLocation PragmaLoc = FirstToken.getLocation();
++        
++        Token Tok;
++        PP.Lex(Tok);
++        
++        if (Tok.isNot(tok::identifier)) {
++            return;
++        }
++        
++        IdentifierInfo *Directive = Tok.getIdentifierInfo();
++        PP.Lex(Tok);
++        
++        if (Directive->isStr("push")) {
++            // 保存当前状态
++            StateStack.push(CurrentState);
++            PP.Diag(PragmaLoc, diag::remark_pragma_learn_print)
++                << "Pushed learn pragma state";
++        } else if (Directive->isStr("pop")) {
++            // 恢复之前的状态
++            if (!StateStack.empty()) {
++                CurrentState = StateStack.top();
++                StateStack.pop();
++                PP.Diag(PragmaLoc, diag::remark_pragma_learn_print)
++                    << "Popped learn pragma state";
++            } else {
++                PP.Diag(PragmaLoc, diag::warn_pragma_learn_warn_directive)
++                    << "No state to pop";
++            }
++        } else if (Directive->isStr("warn")) {
++            CurrentState.WarnEnabled = true;
++            PP.Diag(PragmaLoc, diag::warn_pragma_learn_warn_directive);
++        } else if (Directive->isStr("nowarn")) {
++            CurrentState.WarnEnabled = false;
++            PP.Diag(PragmaLoc, diag::remark_pragma_learn_print)
++                << "Warnings disabled";
++        }
++    }
++    
++private:
++    struct LearnState {
++        bool WarnEnabled = false;
++        bool PrintEnabled = false;
++        bool TraceEnabled = false;
++    };
++    
++    LearnState CurrentState;
++    std::stack<LearnState> StateStack;
++};
++
++// ============================================
++// 示例4：使用注解token传递信息给Parser
++// ============================================
++
++// 首先需要在TokenKinds.def中添加新的token类型
++// def annot_pragma_learn : Annotation;
++
++struct AnnotatingPragmaLearnHandler : public PragmaHandler {
++    AnnotatingPragmaLearnHandler() : PragmaHandler("learn") {}
++    
++    void HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer,
++                      Token &FirstToken) override {
++        SourceLocation StartLoc = FirstToken.getLocation();
++        
++        Token Tok;
++        PP.Lex(Tok);
++        
++        if (Tok.isNot(tok::identifier)) {
++            return;
++        }
++        
++        IdentifierInfo *Directive = Tok.getIdentifierInfo();
++        PP.Lex(Tok);
++        
++        // 确定指令类型
++        enum LearnDirectiveKind {
++            LDK_Warn,
++            LDK_Print,
++            LDK_Info,
++            LDK_Unknown
++        };
++        
++        LearnDirectiveKind Kind = LDK_Unknown;
++        if (Directive->isStr("warn")) Kind = LDK_Warn;
++        else if (Directive->isStr("print")) Kind = LDK_Print;
++        else if (Directive->isStr("info")) Kind = LDK_Info;
++        
++        // 跳过直到行尾
++        while (Tok.isNot(tok::eod)) {
++            PP.Lex(Tok);
++        }
++        
++        SourceLocation EndLoc = Tok.getLocation();
++        
++        // 创建注解token
++        MutableArrayRef<Token> Toks(
++            PP.getPreprocessorAllocator().Allocate<Token>(1), 1);
++        
++        Toks[0].startToken();
++        Toks[0].setKind(tok::annot_pragma_learn); // 需要定义这个token类型
++        Toks[0].setLocation(StartLoc);
++        Toks[0].setAnnotationEndLoc(EndLoc);
++        
++        // 存储指令类型作为注解值
++        Toks[0].setAnnotationValue(
++            reinterpret_cast<void*>(static_cast<uintptr_t>(Kind)));
++        
++        // 将注解token注入到token流中
++        PP.EnterTokenStream(Toks, /*DisableMacroExpansion=*/true,
++                            /*IsReinject=*/false);
++    }
++};
++
++// 然后在Parser中添加处理函数
++// void Parser::HandlePragmaLearn() {
++//     assert(Tok.is(tok::annot_pragma_learn));
++//     LearnDirectiveKind Kind = static_cast<LearnDirectiveKind>(
++//         reinterpret_cast<uintptr_t>(Tok.getAnnotationValue()));
++//     SourceLocation Loc = ConsumeAnnotationToken();
++//     
++//     // 根据Kind执行相应操作
++//     switch (Kind) {
++//         case LDK_Warn:
++//             // 处理warn指令
++//             break;
++//         case LDK_Print:
++//             // 处理print指令
++//             break;
++//         // ...
++//     }
++// }
++
++// ============================================
++// 总结
++// ============================================
++
++/*
++这些示例展示了多种扩展#pragma learn的方式：
++
++1. 基础实现 - 当前已实现的版本
++2. AST Consumer - 用于真正的代码插入
++3. 增强指令 - 支持参数和更多指令类型
++4. 作用域管理 - push/pop状态
++5. 注解token - 通过token流与Parser通信
++
++选择哪种方式取决于具体需求：
++- 简单诊断 -> 基础实现
++- 代码插入 -> AST Consumer + CodeGen
++- 复杂解析 -> 注解token + Parser处理
++- 状态管理 -> push/pop作用域
++*/
+diff --git a/LEARN_PRAGMA_IMPLEMENTATION.md b/LEARN_PRAGMA_IMPLEMENTATION.md
+new file mode 100644
+index 000000000000..454dd292ef85
+--- /dev/null
++++ b/LEARN_PRAGMA_IMPLEMENTATION.md
+@@ -0,0 +1,145 @@
++# #pragma learn 实现总结
++
++## 概述
++本文档总结了在clang中实现新的 `#pragma learn` 功能的完整过程。
++
++## 实现的功能
++
++### 1. 支持的指令
++- `#pragma learn warn` - 生成自定义警告
++- `#pragma learn print` - 标记需要插入printf语句的位置
++- 错误处理：未知指令时提供错误提示
++
++### 2. 诊断消息
++- `warn_pragma_learn_activated` - pragma激活警告
++- `err_pragma_learn_unknown_directive` - 未知指令错误
++- `note_pragma_learn_available_directives` - 可用指令提示
++- `warn_pragma_learn_warn_directive` - warn指令的自定义警告
++- `remark_pragma_learn_print` - print指令的备注
++
++## 修改的文件
++
++### 1. `/home/gorun/code/llvm-project/clang/include/clang/Basic/DiagnosticParseKinds.td`
++添加了新的诊断消息定义。
++
++### 2. `/home/gorun/code/llvm-project/clang/lib/Parse/ParsePragma.cpp`
++- 添加了 `PragmaLearnHandler` 结构体定义
++- 实现了 `HandlePragma` 方法
++- 在 `initializePragmaHandlers()` 中注册handler
++- 在 `resetPragmaHandlers()` 中注销handler
++
++### 3. `/home/gorun/code/llvm-project/clang/include/clang/Parse/Parser.h`
++添加了 `LearnPragmaHandler` 成员变量。
++
++## 实现细节
++
++### PragmaLearnHandler 的工作流程
++
++1. **接收pragma** - 当预处理器遇到 `#pragma learn` 时调用
++2. **解析指令** - 读取下一个token作为指令
++3. **验证参数** - 检查是否缺少参数或参数类型错误
++4. **处理指令** - 根据指令类型执行相应操作
++5. **发出诊断** - 生成警告、错误或备注信息
++
++### 代码结构
++
++```cpp
++struct PragmaLearnHandler : public PragmaHandler {
++  PragmaLearnHandler() : PragmaHandler("learn") {}
++  void HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer,
++                    Token &FirstToken) override;
++};
++```
++
++## 测试文件
++
++创建了 `/home/gorun/code/llvm-project/test_learn_pragma.c` 用于测试：
++
++```c
++#include <stdio.h>
++
++void test_warn_directive() {
++    #pragma learn warn
++}
++
++void test_print_directive() {
++    #pragma learn print
++}
++
++int main() {
++    test_warn_directive();
++    test_print_directive();
++    return 0;
++}
++```
++
++## 编译和测试
++
++### 编译clang
++```bash
++cd /home/gorun/code/llvm-project/build
++cmake --build . -j$(nproc)
++```
++
++### 测试新pragma
++```bash
++./bin/clang -Wall -Wextra test_learn_pragma.c
++```
++
++## 扩展建议
++
++### 1. 真正的printf插入
++当前实现只是发出备注信息。要真正插入printf语句，需要：
++
++- 在Sema阶段跟踪#pragma learn print的位置
++- 在CodeGen阶段插入printf调用
++- 或者使用AST Consumer在AST遍历时插入
++
++### 2. 添加更多指令
++可以轻松扩展支持更多指令：
++
++```cpp
++else if (Directive->isStr("info")) {
++    PP.Diag(PragmaLoc, diag::remark_pragma_learn_info);
++} else if (Directive->isStr("debug")) {
++    PP.Diag(PragmaLoc, diag::warn_pragma_learn_debug);
++}
++```
++
++### 3. 支持参数
++让指令接受参数：
++
++```cpp
++#pragma learn warn "Custom warning message"
++#pragma learn print "Variable x = %d", x
++```
++
++### 4. 作用域控制
++让pragma只在特定作用域内生效：
++
++```cpp
++#pragma learn push
++#pragma learn warn
++// ... code ...
++#pragma learn pop
++```
++
++## 在clang中添加pragma的通用步骤
++
++1. **定义诊断消息** - 在 `Diagnostic*.td` 文件中
++2. **创建PragmaHandler** - 继承 `PragmaHandler` 类
++3. **实现HandlePragma** - 处理pragma逻辑
++4. **注册Handler** - 在 `initializePragmaHandlers()` 中
++5. **注销Handler** - 在 `resetPragmaHandlers()` 中
++6. **添加成员变量** - 在 `Parser.h` 中
++7. **测试验证** - 创建测试文件
++
++## 参考资料
++
++- clang源代码中的其他pragma实现（如 `PragmaLoopHintHandler`）
++- `clang/include/clang/Lex/Pragma.h` - PragmaHandler基类定义
++- `clang/lib/Parse/ParsePragma.cpp` - 所有pragma实现
++
++## 总结
++
++这个实现展示了如何在clang中添加一个新的pragma。虽然print指令的完整功能（实际插入printf）需要更复杂的实现（涉及AST遍历和代码生成），但当前的实现已经提供了一个完整的框架，展示了pragma处理的基本流程。
+diff --git a/clang/include/clang/Basic/DiagnosticParseKinds.td b/clang/include/clang/Basic/DiagnosticParseKinds.td
+index 19edc7f7a3b2..3a16944bf527 100644
+--- a/clang/include/clang/Basic/DiagnosticParseKinds.td
++++ b/clang/include/clang/Basic/DiagnosticParseKinds.td
+@@ -1865,6 +1865,25 @@ def warn_max_tokens_total : Warning<
+ 
+ def note_max_tokens_total_override : Note<"total token limit set here">;
+ 
++// Learn Pragma Diagnostics
++def warn_pragma_learn_activated : Warning<
++  "#pragma learn activated with directive: %0">,
++  InGroup<DiagGroup<"pragma-learn">>;
++
++def err_pragma_learn_unknown_directive : Error<
++  "unknown directive for #pragma learn: %0">;
++
++def note_pragma_learn_available_directives : Note<
++  "available directives: warn, print">;
++
++def warn_pragma_learn_warn_directive : Warning<
++  "#pragma learn warn: This is a custom warning from learn pragma">,
++  InGroup<DiagGroup<"pragma-learn">>;
++
++def remark_pragma_learn_print : Remark<
++  "#pragma learn print will insert printf statement here">,
++  InGroup<DiagGroup<"pragma-learn">>;
++
+ // HLSL Parser Diagnostics
+ 
+ def err_expected_semantic_identifier : Error<
+diff --git a/clang/include/clang/Parse/Parser.h b/clang/include/clang/Parse/Parser.h
+index 08a3d88ee6a3..c24078ab094e 100644
+--- a/clang/include/clang/Parse/Parser.h
++++ b/clang/include/clang/Parse/Parser.h
+@@ -7091,6 +7091,7 @@ private:
+   std::unique_ptr<PragmaHandler> MaxTokensTotalPragmaHandler;
+   std::unique_ptr<PragmaHandler> ExportHandler;
+   std::unique_ptr<PragmaHandler> RISCVPragmaHandler;
++  std::unique_ptr<PragmaHandler> LearnPragmaHandler;
+ 
+   /// Initialize all pragma handlers.
+   void initializePragmaHandlers();
+diff --git a/clang/lib/Parse/ParsePragma.cpp b/clang/lib/Parse/ParsePragma.cpp
+index 734d095d74cd..9f8fca51a3dc 100644
+--- a/clang/lib/Parse/ParsePragma.cpp
++++ b/clang/lib/Parse/ParsePragma.cpp
+@@ -396,6 +396,13 @@ struct PragmaMaxTokensTotalHandler : public PragmaHandler {
+                     Token &FirstToken) override;
+ };
+ 
++/// PragmaLearnHandler - "\#pragma learn ...".
++struct PragmaLearnHandler : public PragmaHandler {
++  PragmaLearnHandler() : PragmaHandler("learn") {}
++  void HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer,
++                    Token &FirstToken) override;
++};
++
+ struct PragmaExportHandler : public PragmaHandler {
+   explicit PragmaExportHandler() : PragmaHandler("export") {}
+   void HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer,
+@@ -574,6 +581,10 @@ void Parser::initializePragmaHandlers() {
+     RISCVPragmaHandler = std::make_unique<PragmaRISCVHandler>(Actions);
+     PP.AddPragmaHandler("clang", RISCVPragmaHandler.get());
+   }
++
++  // Register our custom #pragma learn handler
++  LearnPragmaHandler = std::make_unique<PragmaLearnHandler>();
++  PP.AddPragmaHandler(LearnPragmaHandler.get());
+ }
+ 
+ void Parser::resetPragmaHandlers() {
+@@ -713,6 +724,10 @@ void Parser::resetPragmaHandlers() {
+     PP.RemovePragmaHandler("clang", RISCVPragmaHandler.get());
+     RISCVPragmaHandler.reset();
+   }
++
++  // Unregister our custom #pragma learn handler
++  PP.RemovePragmaHandler(LearnPragmaHandler.get());
++  LearnPragmaHandler.reset();
+ }
+ 
+ void Parser::HandlePragmaUnused() {
+@@ -4219,6 +4234,60 @@ void PragmaMaxTokensTotalHandler::HandlePragma(Preprocessor &PP,
+   PP.overrideMaxTokens(MaxTokens, Loc);
+ }
+ 
++// Handle '#pragma learn <directive>'.
++void PragmaLearnHandler::HandlePragma(Preprocessor &PP,
++                                        PragmaIntroducer Introducer,
++                                        Token &FirstToken) {
++  SourceLocation PragmaLoc = FirstToken.getLocation();
++  
++  // Lex the next token to get the directive
++  Token Tok;
++  PP.Lex(Tok);
++  
++  if (Tok.is(tok::eod)) {
++    PP.Diag(PragmaLoc, diag::err_pragma_missing_argument)
++        << "learn" << /*Expected=*/true << "identifier";
++    return;
++  }
++  
++  if (Tok.isNot(tok::identifier)) {
++    PP.Diag(Tok.getLocation(), diag::err_pragma_learn_unknown_directive)
++        << Tok.getName();
++    PP.Diag(PragmaLoc, diag::note_pragma_learn_available_directives);
++    return;
++  }
++  
++  IdentifierInfo *Directive = Tok.getIdentifierInfo();
++  PP.Lex(Tok); // Consume the directive token
++  
++  // Check for extra tokens after the directive
++  if (Tok.isNot(tok::eod)) {
++    PP.Diag(Tok.getLocation(), diag::warn_pragma_extra_tokens_at_eol)
++        << "learn";
++    // Continue processing anyway
++  }
++  
++  // Emit a warning that the pragma was activated
++  PP.Diag(PragmaLoc, diag::warn_pragma_learn_activated)
++      << Directive->getName();
++  
++  // Handle different directives
++  if (Directive->isStr("warn")) {
++    // Emit a custom warning
++    PP.Diag(PragmaLoc, diag::warn_pragma_learn_warn_directive);
++  } else if (Directive->isStr("print")) {
++    // For print directive, we just emit a remark for now
++    // In a real implementation, we would need to track this
++    // and insert printf during code generation
++    PP.Diag(PragmaLoc, diag::remark_pragma_learn_print);
++  } else {
++    // Unknown directive
++    PP.Diag(PragmaLoc, diag::err_pragma_learn_unknown_directive)
++        << Directive->getName();
++    PP.Diag(PragmaLoc, diag::note_pragma_learn_available_directives);
++  }
++}
++
+ static void zOSPragmaHandlerHelper(Preprocessor &PP, Token &Tok,
+                                    tok::TokenKind TokKind) {
+   Token AnnotTok;
+diff --git a/test_learn_pragma.c b/test_learn_pragma.c
+new file mode 100644
+index 000000000000..a8596a44b525
+--- /dev/null
++++ b/test_learn_pragma.c
+@@ -0,0 +1,54 @@
++// Test file for #pragma learn functionality
++#include <stdio.h>
++
++void test_warn_directive() {
++    printf("Testing #pragma learn warn\n");
++    
++    // This should generate a warning
++    #pragma learn warn
++    
++    printf("After #pragma learn warn\n");
++}
++
++void test_print_directive() {
++    printf("Testing #pragma learn print\n");
++    
++    // This should mark where to insert printf
++    #pragma learn print
++    
++    printf("After #pragma learn print\n");
++}
++
++void test_unknown_directive() {
++    printf("Testing unknown directive\n");
++    
++    // This should generate an error
++    #pragma learn unknown
++    
++    printf("After unknown directive\n");
++}
++
++void test_multiple_directives() {
++    printf("Testing multiple directives\n");
++    
++    #pragma learn warn
++    #pragma learn print
++    
++    printf("After multiple directives\n");
++}
++
++int main() {
++    printf("=== Testing #pragma learn ===\n\n");
++    
++    test_warn_directive();
++    printf("\n");
++    
++    test_print_directive();
++    printf("\n");
++    
++    test_multiple_directives();
++    printf("\n");
++    
++    printf("=== Test complete ===\n");
++    return 0;
++}
