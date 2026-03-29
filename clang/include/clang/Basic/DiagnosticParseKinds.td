@@ -1884,6 +1884,12 @@ def remark_pragma_learn_print : Remark<
   "#pragma learn print will insert printf statement here">,
   InGroup<DiagGroup<"pragma-learn">>;
 
+def note_pragma_learn_insert_printf : Note<
+  "inserting printf statement here">;
+
+def note_pragma_learn_add_include : Note<
+  "adding #include <%0> for printf">;
+
 // HLSL Parser Diagnostics
 
 def err_expected_semantic_identifier : Error<

@@ -14,6 +14,7 @@
   - [步骤 5：注册和注销 Handler](#步骤-5注册和注销-handler)
 - [核心接口和原理](#核心接口和原理)
 - [测试验证](#测试验证)
+- [高级实现：使用 FixItHint 自动插入代码](#高级实现：使用-fixit-hint-自动插入代码)
 
 ---
 
@@ -150,10 +151,41 @@ void PragmaLearnHandler::HandlePragma(Preprocessor &PP,
     // Emit a custom warning
     PP.Diag(PragmaLoc, diag::warn_pragma_learn_warn_directive);
   } else if (Directive->isStr("print")) {
-    // For print directive, we just emit a remark for now
-    // In a real implementation, we would need to track this
-    // and insert printf during code generation
-    PP.Diag(PragmaLoc, diag::remark_pragma_learn_print);
+    // Parse optional identifier argument for print directive
+    std::string PrintIdentifier;
+    if (Tok.is(tok::identifier)) {
+      PrintIdentifier = Tok.getIdentifierInfo()->getName().str();
+      PP.Lex(Tok); // Consume the identifier
+    }
+    
+    // Find the end of the pragma line to insert after it
+    SourceLocation InsertLoc = PragmaLoc;
+    while (true) {
+      bool Invalid = false;
+      const char *Ptr = SM.getCharacterData(InsertLoc, &Invalid);
+      if (Invalid || !*Ptr) break;
+      
+      if (*Ptr == '\n' || *Ptr == '\r') {
+        break;
+      }
+      InsertLoc = InsertLoc.getLocWithOffset(1);
+    }
+
+    // Move to beginning of next line
+    InsertLoc = InsertLoc.getLocWithOffset(1);
+    
+    // Build the printf statement
+    std::string PrintfStmt;
+    if (PrintIdentifier.empty()) {
+      PrintfStmt = "    printf(\"#pragma learn print directive received\\n\");\n";
+    } else {
+      PrintfStmt = "    printf(\"#pragma learn print directive received identifier " + PrintIdentifier + "\\n\");\n";
+    }
+
+    // Create diagnostic and add FixItHint to insert printf
+    DiagnosticBuilder DiagBuilder = PP.Diag(PragmaLoc, diag::remark_pragma_learn_print);
+    DiagBuilder << FixItHint::CreateInsertion(InsertLoc, PrintfStmt);
+    PP.Diag(PragmaLoc, diag::note_pragma_learn_insert_printf);
   } else {
     // Unknown directive
     PP.Diag(PragmaLoc, diag::err_pragma_learn_unknown_directive)
@@ -381,16 +413,254 @@ cmake --build . -j$(nproc)  # 编译 Clang
 
 ---
 
-## 总结
+## 高级实现：使用 FixItHint 自动插入代码
 
-在 Clang 中添加自定义 pragma 的关键步骤：
+### 概述
 
-1. ✅ 在 `.td` 文件中定义诊断消息
-2. ✅ 创建继承自 `PragmaHandler` 的类
-3. ✅ 实现 `HandlePragma()` 方法处理逻辑
-4. ✅ 在 `Parser` 中添加成员变量
-5. ✅ 在 `initializePragmaHandlers()` 中注册
-6. ✅ 在 `resetPragmaHandlers()` 中注销
-7. ✅ 编译并测试
+在基础版本中，`#pragma learn print` 只是发出一个备注信息。在高级版本中，我们将使用 Clang 的 `FixItHint` 机制来：
+1. 自动插入 `printf` 语句
+2. 支持可选的标识符参数
+3. 自动检测并添加缺失的 `stdio.h` 或 `cstdio` 头文件
 
-这个流程适用于大多数简单的 pragma 实现。对于更复杂的功能，可能需要与 AST、Sema 或 CodeGen 阶段集成。
+### 新增的诊断消息
+
+首先，在 `DiagnosticParseKinds.td` 中添加新的诊断消息：
+
+```td
+def note_pragma_learn_insert_printf : Note&lt;
+  "inserting printf statement here"&gt;;
+
+def note_pragma_learn_add_include : Note&lt;
+  "adding #include &lt;%0&gt; for printf"&gt;;
+```
+
+### 更新 HandlePragma 方法
+
+在 `ParsePragma.cpp` 中更新 `PragmaLearnHandler::HandlePragma()` 方法：
+
+#### 1. 解析可选参数
+
+```cpp
+else if (Directive-&gt;isStr("print")) {
+  // Parse optional identifier argument for print directive
+  std::string PrintIdentifier;
+  if (Tok.is(tok::identifier)) {
+    PrintIdentifier = Tok.getIdentifierInfo()-&gt;getName().str();
+    PP.Lex(Tok); // Consume the identifier
+  }
+```
+
+#### 2. 找到插入位置
+
+```cpp
+// Get the source manager to find insertion points
+SourceManager &amp;SM = PP.getSourceManager();
+
+// Find the end of the pragma line to insert after it
+SourceLocation InsertLoc = PragmaLoc;
+while (true) {
+  bool Invalid = false;
+  const char *Ptr = SM.getCharacterData(InsertLoc, &amp;Invalid);
+  if (Invalid || !*Ptr) break;
+  
+  if (*Ptr == '\n' || *Ptr == '\r') {
+    break;
+  }
+  InsertLoc = InsertLoc.getLocWithOffset(1);
+}
+
+// Move to beginning of next line
+InsertLoc = InsertLoc.getLocWithOffset(1);
+```
+
+#### 3. 构建 printf 语句并使用 FixItHint 插入
+
+```cpp
+// Build the printf statement
+std::string PrintfStmt;
+if (PrintIdentifier.empty()) {
+  PrintfStmt = "    printf(\"#pragma learn print directive received\\n\");\n";
+} else {
+  PrintfStmt = "    printf(\"#pragma learn print directive received identifier " + PrintIdentifier + "\\n\");\n";
+}
+
+// Create diagnostic and add FixItHint to insert printf
+DiagnosticBuilder DiagBuilder = PP.Diag(PragmaLoc, diag::remark_pragma_learn_print);
+DiagBuilder << FixItHint::CreateInsertion(InsertLoc, PrintfStmt);
+PP.Diag(PragmaLoc, diag::note_pragma_learn_insert_printf);
+```
+
+#### 4. 检测并自动添加头文件
+
+```cpp
+// Check if we need to add stdio.h include
+const LangOptions &amp;LangOpts = PP.getLangOpts();
+std::string StdioHeader = LangOpts.CPlusPlus ? "cstdio" : "stdio.h";
+
+// Check if the file already includes stdio.h or cstdio
+bool HasStdioInclude = false;
+FileID MainFileID = SM.getMainFileID();
+SourceLocation FileStart = SM.getLocForStartOfFile(MainFileID);
+SourceLocation CurrentPos = FileStart;
+
+// Scan the beginning of the file for includes
+const unsigned ScanLimit = 10000;
+unsigned Scanned = 0;
+while (Scanned &lt; ScanLimit) {
+  bool Invalid = false;
+  const char *Ptr = SM.getCharacterData(CurrentPos, &amp;Invalid);
+  if (Invalid || !*Ptr) break;
+  
+  if (*Ptr == '#') {
+    // ... check if it's an include for stdio.h or cstdio ...
+    // (详见完整实现代码)
+  }
+  
+  CurrentPos = CurrentPos.getLocWithOffset(1);
+  Scanned++;
+}
+
+// If no stdio include found, add one
+if (!HasStdioInclude) {
+  std::string IncludeStmt = "#include &lt;" + StdioHeader + "&gt;\n";
+  PP.Diag(FileStart, diag::note_pragma_learn_add_include) &lt;&lt; StdioHeader;
+  DiagnosticBuilder IncludeDiag = PP.Diag(FileStart, diag::remark_pragma_learn_print);
+  IncludeDiag &lt;&lt; FixItHint::CreateInsertion(FileStart, IncludeStmt);
+}
+```
+
+### FixItHint 核心接口
+
+| 方法 | 说明 |
+|------|------|
+| `FixItHint::CreateInsertion(Loc, Text)` | 在指定位置插入文本 |
+| `FixItHint::CreateReplacement(Range, Text)` | 替换指定范围的文本 |
+| `FixItHint::CreateRemoval(Range)` | 删除指定范围的文本 |
+
+使用方式：
+```cpp
+DiagnosticBuilder Diag = PP.Diag(Loc, diag::some_diagnostic);
+Diag &lt;&lt; FixItHint::CreateInsertion(InsertLoc, "code to insert");
+```
+
+### 编译 Clang
+
+```bash
+cd /home/gorun/code/llvm-project/build
+cmake --build . -j$(nproc)
+```
+
+### 使用 -fixit 选项自动应用修改
+
+**重要说明**：使用 `-fixit` 需要分两步进行：
+
+1. **第一步**：使用 `-fsyntax-only -Xclang -fixit` 修改源文件（只进行语法检查和修改，不编译）
+2. **第二步**：正常编译修改后的文件
+
+```bash
+# C 语言测试 - 步骤1: 修改文件
+./bin/clang -fsyntax-only -Xclang -fixit test_pragma_print.c
+
+# C 语言测试 - 步骤2: 编译修改后的文件
+./bin/clang test_pragma_print.c -o test_pragma_print
+
+# C++ 语言测试 - 步骤1: 修改文件
+./bin/clang++ -fsyntax-only -Xclang -fixit test_pragma_print.cpp
+
+# C++ 语言测试 - 步骤2: 编译修改后的文件
+./bin/clang++ test_pragma_print.cpp -o test_pragma_print_cpp
+```
+
+**注意**：请确保测试文件中已经包含了必要的头文件（`#include &lt;stdio.h&gt;` 或 `#include &lt;cstdio&gt;`）和 `main()` 函数。
+
+### 测试文件示例
+
+创建 `test_pragma_print.c`（确保包含 stdio.h 和 main 函数）：
+
+```c
+#include &lt;stdio.h&gt;
+
+void test_without_identifier() {
+    #pragma learn print
+}
+
+void test_with_identifier() {
+    #pragma learn print abc
+}
+
+int main() {
+    test_without_identifier();
+    test_with_identifier();
+    return 0;
+}
+```
+
+使用 `-fsyntax-only -Xclang -fixit` 修改后，文件会自动修改为：
+
+```c
+#include &lt;stdio.h&gt;
+void test_without_identifier() {
+    #pragma learn print
+    printf("#pragma learn print directive received\n");
+}
+
+void test_with_identifier() {
+    #pragma learn print abc
+    printf("#pragma learn print directive received identifier abc\n");
+}
+
+int main() {
+    test_without_identifier();
+    test_with_identifier();
+    return 0;
+}
+```
+
+### 支持的语法
+
+```c
+// 基本用法 - 不带参数
+#pragma learn print
+
+// 带标识符参数
+#pragma learn print variable_name
+#pragma learn print abc
+#pragma learn print my_test_id
+```
+
+### C++ 支持
+
+在 C++ 模式下，会自动检测并添加 `#include &lt;cstdio&gt;` 而不是 `#include &lt;stdio.h&gt;`。
+
+### 关键实现要点
+
+1. **位置计算** - 使用 `SourceManager` 和字符扫描找到正确的插入位置
+2. **头文件检测** - 扫描文件开头检查是否已包含必要的头文件
+3. **语言感知** - 根据 `LangOptions.CPlusPlus` 选择正确的头文件
+4. **FixIt 集成** - 通过 `DiagnosticBuilder` 传递 `FixItHint`
+
+---
+
+## 完整文件清单
+
+### 修改的文件
+1. `clang/include/clang/Basic/DiagnosticParseKinds.td` - 添加诊断消息
+2. `clang/lib/Parse/ParsePragma.cpp` - 实现 pragma 处理逻辑
+3. `clang/include/clang/Parse/Parser.h` - 添加 handler 成员变量
+
+### 新增的测试和文档文件
+1. `learn/how_to_pragma.md` - 本文档
+2. `learn/LEARN_PRAGMA_IMPLEMENTATION.md` - 实现总结
+3. `learn/LEARN_PRAGMA_ADVANCED_EXAMPLE.cpp` - 高级示例代码
+4. `learn/test_learn_pragma.c` - 基础测试文件
+5. `learn/test_pragma_print.c` - 高级功能 C 测试文件
+6. `learn/test_pragma_print.cpp` - 高级功能 C++ 测试文件
+
+---
+
+## 参考资料
+
+- Clang 源代码中的 `FixItHint` 使用例子
+- `clang/include/clang/Basic/Diagnostic.h` - 诊断系统
+- `clang/include/clang/Lex/Preprocessor.h` - 预处理器接口
+- `clang/include/clang/Basic/SourceManager.h` - 源码位置管理
