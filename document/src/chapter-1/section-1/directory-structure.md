@@ -1,10 +1,10 @@
 # 1.1.1 目录结构详解
 
-LLVM本体项目位于仓库的 `llvm/` 目录下。本节将详细解析该目录下的主要文件和文件夹的组织方式及其用途。
+LLVM项目的目录结构不是随意安排的，而是经过深思熟虑的设计，反映了编译器基础设施的架构原则。理解这个组织结构，不仅能帮助我们快速找到需要的代码，更能揭示LLVM的模块化设计思想。
 
-## 顶层目录结构
+## 顶层目录结构的设计逻辑
 
-LLVM本体的顶层目录位于 [llvm/](/llvm/)，其主要内容如下：
+当我们查看 [llvm/](/llvm/) 目录时，会发现其组织方式遵循几个重要的软件工程原则。让我们分析每个目录存在的意义及其设计动机。
 
 ```
 llvm/
@@ -26,206 +26,229 @@ llvm/
 └── README.txt          # 项目说明
 ```
 
-以下是对各个主要目录的详细说明：
+### 为什么这样组织？
 
-## include/llvm/ - 公共头文件
+这个目录结构体现了几个核心的设计原则：
 
-[llvm/include/llvm/](/llvm/include/llvm/) 目录包含了LLVM的所有公共头文件。这些头文件定义了LLVM的API接口，供外部代码和LLVM内部其他模块使用。
+1. **接口与实现分离**：`include/`和`lib/`的分离是这一原则的典型体现
+2. **功能模块化**：每个目录对应一个独立的功能模块
+3. **测试与生产代码分离**：`test/`和`unittests/`独立于生产代码
+4. **工具与库分离**：可执行工具在`tools/`，库代码在`lib/`
+5. **构建逻辑独立**：`cmake/`目录专门存放构建系统逻辑
 
-该目录按功能模块组织成多个子目录：
+让我们逐个深入分析这些目录。
 
-| 子目录 | 主要功能 | 代表性文件 |
-|-------|---------|-----------|
-| [ADT/](/llvm/include/llvm/ADT/) | 代数数据类型（Algebraic Data Types）- LLVM自定义的容器和数据结构 | [ArrayRef.h](/llvm/include/llvm/ADT/ArrayRef.h), [DenseMap.h](/llvm/include/llvm/ADT/DenseMap.h), [SmallVector.h](/llvm/include/llvm/ADT/SmallVector.h) |
-| [IR/](/llvm/include/llvm/IR/) | 中间表示核心 - LLVM IR的核心类定义 | [Module.h](/llvm/include/llvm/IR/Module.h), [Function.h](/llvm/include/llvm/IR/Function.h), [Instruction.h](/llvm/include/llvm/IR/Instruction.h), [Type.h](/llvm/include/llvm/IR/Type.h) |
-| [Analysis/](/llvm/include/llvm/Analysis/) | 分析框架 - 各种程序分析Pass | [LoopInfo.h](/llvm/include/llvm/Analysis/LoopInfo.h), [Dominators.h](/llvm/include/llvm/Analysis/Dominators.h) |
-| [CodeGen/](/llvm/include/llvm/CodeGen/) | 代码生成基础设施 - 从IR到机器码的转换 | [MachineFunction.h](/llvm/include/llvm/CodeGen/MachineFunction.h), [SelectionDAG.h](/llvm/include/llvm/CodeGen/SelectionDAG.h) |
-| [MC/](/llvm/include/llvm/MC/) | 机器码层 - 汇编器、反汇编器支持 | [MCInst.h](/llvm/include/llvm/MC/MCInst.h), [MCStreamer.h](/llvm/include/llvm/MC/MCStreamer.h) |
-| [Support/](/llvm/include/llvm/Support/) | 支持库 - 平台抽象、工具函数 | [raw_ostream.h](/llvm/include/llvm/Support/raw_ostream.h), [ErrorHandling.h](/llvm/include/llvm/Support/ErrorHandling.h) |
-| [Target/](/llvm/include/llvm/Target/) | 目标架构抽象 - 目标无关的后端接口 | [TargetMachine.h](/llvm/include/llvm/Target/TargetMachine.h) |
-| [Transforms/](/llvm/include/llvm/Transforms/) | 优化变换 - IR优化Pass | [PassManager.h](/llvm/include/llvm/Transforms/PassManager.h) |
-| [TableGen/](/llvm/include/llvm/TableGen/) | TableGen核心 - TableGen解析器和记录 | [Record.h](/llvm/include/llvm/TableGen/Record.h) |
+## include/llvm/ - 公共头文件的设计
 
-## lib/ - 库实现代码
+[llvm/include/llvm/](/llvm/include/llvm/) 目录包含了LLVM的所有公共头文件。这不仅仅是一个存放头文件的地方，更是LLVM向外部世界展示的API边界。
 
-[llvm/lib/](/llvm/lib/) 目录包含了LLVM所有库的实现代码。该目录的组织结构与 `include/llvm/` 基本对应，每个头文件目录都有一个对应的实现目录。
+### 为什么头文件和实现分离？
 
-主要子目录包括：
+这种分离有几个重要的好处：
 
-- `lib/ADT/` - ADT库的实现
-- `lib/IR/` - IR核心的实现
-- `lib/Analysis/` - 分析Pass的实现
-- `lib/CodeGen/` - 代码生成的实现
-- `lib/MC/` - 机器码层的实现
-- `lib/Support/` - 支持库的实现
-- `lib/Target/` - 各目标架构的后端实现
-  - `lib/Target/X86/` - X86后端
-  - `lib/Target/ARM/` - ARM后端
-  - `lib/Target/AArch64/` - AArch64后端
-  - `lib/Target/RISCV/` - RISC-V后端
-  - 等等...
-- `lib/Transforms/` - 优化变换的实现
-  - `lib/Transforms/Scalar/` - 标量优化
-  - `lib/Transforms/IPO/` - 过程间优化
-  - `lib/Transforms/InstCombine/` - 指令组合
-  - 等等...
-- `lib/TableGen/` - TableGen的实现
-- `lib/Bitcode/` - 位码读写
-- `lib/BinaryFormat/` - 二进制格式支持
-- `lib/DebugInfo/` - 调试信息支持
-- `lib/ExecutionEngine/` - 执行引擎
-- `lib/Linker/` - 链接器
-- `lib/LTO/` - 链接时优化
-- `lib/Object/` - 对象文件处理
-- `lib/ProfileData/` - 性能分析数据
-- `lib/Remarks/` - 优化remark支持
-- `lib/TextAPI/` - 文本API支持
-- `lib/WindowsManifest/` - Windows清单支持
-- `lib/XRay/` - XRay跟踪支持
+1. **编译速度优化**：修改实现文件不需要重新编译依赖头文件的所有代码
+2. **API稳定**：公共头文件定义了稳定的接口，实现可以独立演进
+3. **模块化编译**：每个库可以独立编译，然后链接在一起
+4. **文档化接口**：头文件作为API文档，说明如何使用LLVM的功能
 
-每个目标后端目录（如 `lib/Target/X86/`）通常包含：
-- 目标描述的TableGen文件（`.td`）
-- 指令选择、寄存器分配、调度等的实现
-- 汇编器、反汇编器支持
+### 子目录的组织逻辑
 
-## tools/ - 独立工具
+头文件按功能模块组织成多个子目录，这种组织方式反映了LLVM的内部架构：
 
-[llvm/tools/](/llvm/tools/) 目录包含了多个独立的可执行工具，这些工具是LLVM功能的命令行接口。主要工具包括：
+| 子目录 | 主要功能 | 设计意图分析 |
+|-------|---------|-------------|
+| [ADT/](/llvm/include/llvm/ADT/) | 代数数据类型 | LLVM需要比STL更高性能或更特殊的容器，因此实现了自己的一套 |
+| [IR/](/llvm/include/llvm/IR/) | 中间表示核心 | 这是LLVM的心脏，定义了IR的核心数据结构 |
+| [Analysis/](/llvm/include/llvm/Analysis/) | 分析框架 | 各种程序分析Pass的接口定义 |
+| [CodeGen/](/llvm/include/llvm/CodeGen/) | 代码生成基础设施 | 从IR到机器码转换的抽象层 |
+| [MC/](/llvm/include/llvm/MC/) | 机器码层 | 汇编器、反汇编器的抽象，与具体目标解耦 |
+| [Support/](/llvm/include/llvm/Support/) | 支持库 | 平台抽象层，隐藏操作系统差异 |
+| [Target/](/llvm/include/llvm/Target/) | 目标架构抽象 | 定义所有目标后端都需要实现的接口 |
+| [Transforms/](/llvm/include/llvm/Transforms/) | 优化变换 | IR优化Pass的接口 |
+| [TableGen/](/llvm/include/llvm/TableGen/) | TableGen核心 | LLVM特有的代码生成工具 |
 
-| 工具 | 功能 | 说明 |
-|-----|------|------|
-| [llc](/llvm/tools/llc/) | LLVM静态编译器 | 将LLVM IR编译为目标机器码或汇编 |
-| [opt](/llvm/tools/opt/) | LLVM优化器 | 对LLVM IR运行优化Pass |
-| [llvm-dis](/llvm/tools/llvm-dis/) | LLVM反汇编器 | 将位码反汇编为人类可读的IR |
-| [llvm-as](/llvm/tools/llvm-as/) | LLVM汇编器 | 将人类可读的IR汇编为位码 |
-| [llvm-link](/llvm/tools/llvm-link/) | LLVM链接器 | 链接多个LLVM模块 |
-| [lli](/llvm/tools/lli/) | LLVM解释器 | 直接执行LLVM IR |
-| [llvm-mc](/llvm/tools/llvm-mc/) | 机器码工具 | 汇编、反汇编机器码 |
-| [llvm-nm](/llvm/tools/llvm-nm/) | 符号表工具 | 列出目标文件中的符号 |
-| [llvm-objdump](/llvm/tools/llvm-objdump/) | 目标文件反汇编 | 反汇编目标文件 |
-| [llvm-readobj](/llvm/tools/llvm-readobj/) | 目标文件信息 | 显示目标文件的详细信息 |
-| [llvm-dwarfdump](/llvm/tools/llvm-dwarfdump/) | DWARF调试信息 | 转储DWARF调试信息 |
-| [clang](/clang/) | C/C++/Objective-C编译器 | 独立的项目，不在llvm/tools/中 |
+### ADT目录的特殊性
 
-每个工具通常有自己的子目录，包含该工具的源代码和CMakeLists.txt。
+[ADT/](/llvm/include/llvm/ADT/) 目录值得特别关注。LLVM为什么不直接使用STL，而是要实现自己的容器？
 
-## utils/ - 工具脚本和TableGen
+从历史和实践来看，有几个关键原因：
+
+1. **性能需求**：编译器对性能极其敏感，LLVM的容器针对特定使用模式进行了优化
+2. **内存布局控制**：LLVM需要精确控制内存布局，例如SmallVector的内联存储
+3. **特殊功能**：PointerUnion、PointerIntPair等是STL没有的特殊容器
+4. **历史原因**：LLVM起源时STL还不够成熟，编译器也不够完善
+5. **ABI稳定**：LLVM可以控制自己的ABI，不依赖特定STL实现
+
+## lib/ - 库实现的组织策略
+
+[llvm/lib/](/llvm/lib/) 目录包含了LLVM所有库的实现代码。其组织结构与`include/llvm/`基本对应，这种对应关系不是偶然的。
+
+### 为什么一一对应？
+
+这种设计有几个重要的优势：
+
+1. **易于定位**：看到一个头文件，就能很容易找到对应的实现
+2. **模块化编译**：每个目录可以编译成独立的库
+3. **依赖清晰**：目录结构反映了模块之间的依赖关系
+4. **团队协作**：不同团队可以在不同目录工作，减少冲突
+
+### Target目录的特殊结构
+
+[lib/Target/](/llvm/lib/Target/) 目录特别值得关注。每个目标架构都有自己的独立目录：
+
+```
+lib/Target/
+├── X86/       # X86后端
+├── ARM/       # ARM后端
+├── AArch64/   # AArch64后端
+├── RISCV/     # RISC-V后端
+└── ...
+```
+
+**为什么每个后端独立目录？**
+
+这种设计体现了LLVM的目标抽象理念：
+
+1. **隔离性**：每个后端独立，修改一个后端不影响其他后端
+2. **可插拔**：可以选择性地编译某些后端，减少编译时间和二进制大小
+3. **一致接口**：所有后端都实现相同的接口，通过Target/目录的抽象层访问
+4. **易于扩展**：添加新的目标架构只需添加新目录
+
+每个目标后端目录通常包含：
+- **TableGen文件**（`.td`）：描述目标架构的指令、寄存器等
+- **指令选择实现**：将IR映射到目标指令
+- **寄存器分配支持**：描述寄存器类和分配策略
+- **汇编器/反汇编器**：与目标相关的汇编支持
+
+## tools/ - 工具与库的分离
+
+[llvm/tools/](/llvm/tools/) 目录包含了多个独立的可执行工具。这种工具与库分离的设计是LLVM架构的重要特点。
+
+### 为什么工具独立？
+
+这种设计有几个重要的考虑：
+
+1. **库复用**：核心功能作为库，可以被多个工具使用
+2. **灵活组合**：用户可以选择需要的工具，不需要全部安装
+3. **独立演进**：工具可以独立更新，不影响核心库
+4. **测试友好**：每个工具可以独立测试
+
+### 工具的设计哲学
+
+LLVM的工具遵循"小而美"的Unix哲学：
+
+| 工具 | 功能 | 设计理念 |
+|-----|------|---------|
+| [llc](/llvm/tools/llc/) | LLVM静态编译器 | 专注于IR到机器码的转换 |
+| [opt](/llvm/tools/opt/) | LLVM优化器 | 专注于IR的分析和变换 |
+| [llvm-dis](/llvm/tools/llvm-dis/) | LLVM反汇编器 | 专注于位码到文本IR的转换 |
+| [llvm-as](/llvm/tools/llvm-as/) | LLVM汇编器 | 专注于文本IR到位码的转换 |
+| [llvm-link](/llvm/tools/llvm-link/) | LLVM链接器 | 专注于IR模块的链接 |
+
+每个工具都专注于做好一件事，然后通过组合使用来完成复杂的任务。这与传统的单一大编译器设计形成鲜明对比。
+
+## utils/ - 构建时工具与TableGen
 
 [llvm/utils/](/llvm/utils/) 目录包含各种实用脚本和工具，其中最重要的是TableGen相关的代码。
 
-主要子目录：
+### TableGen为什么在这里？
 
-- [utils/TableGen/](/llvm/utils/TableGen/) - TableGen工具实现
-  - [llvm-tblgen.cpp](/llvm/utils/TableGen/llvm-tblgen.cpp) - TableGen主程序入口
-  - 各种Emitter实现（如 `RegisterInfoEmitter.cpp`, `InstrInfoEmitter.cpp` 等）
-- `utils/bugpoint/` - Bugpoint工具（自动测试用例缩减）
-- `utils/lit/` - LLVM集成测试工具
-- `utils/FileCheck/` - FileCheck测试工具
-- `utils/not/` - NOT工具（用于测试）
-- `utils/count/` - COUNT工具（用于测试）
-- `utils/PerfectShuffle/` - 完美洗牌生成
-- `utils/Release/` - 发布脚本
-- `utils/benchmark/` - 基准测试工具
-- `utils/git/` - Git相关脚本
-- `utils/codegen-diff/` - 代码生成差异比较
-- `utils/llvm-build/` - LLVM构建工具
-- `utils/convertyaml/` - YAML转换工具
-- `utils/abtest/` - A/B测试工具
+TableGen是LLVM中一个非常特殊的工具，值得单独讨论：
 
-TableGen是LLVM中非常重要的工具，它使用特定的领域特定语言（DSL）来描述目标架构、指令集、寄存器等信息，然后生成相应的C++代码。详见[1.4节 TableGen详解](../section-4/README.md)。
+1. **构建时工具**：TableGen在构建LLVM时运行，生成C++代码
+2. **不是最终用户工具**：最终用户通常不需要直接使用TableGen
+3. **目标描述语言**：使用特定的DSL描述目标架构
+4. **代码生成器**：生成指令选择、寄存器信息等C++代码
 
-## cmake/ - CMake模块
+从 [llvm-tblgen.cpp](/llvm/utils/TableGen/llvm-tblgen.cpp) 可以看出，TableGen是一个相对独立的工具，但对LLVM的构建至关重要。
 
-[llvm/cmake/](/llvm/cmake/) 目录包含了LLVM构建系统所需的CMake模块文件。这些模块定义了LLVM特有的CMake函数、宏和变量。
+### TableGen的工作原理
 
-主要模块文件位于 `cmake/modules/` 目录：
+TableGen的工作流程体现了元编程的思想：
 
-| 模块 | 功能 | 详见 |
-|-----|------|------|
-| [AddLLVM.cmake](/llvm/cmake/modules/AddLLVM.cmake) | 添加LLVM库和可执行文件 | [1.3节](../section-3/README.md) |
-| [LLVM-Build.cmake](/llvm/cmake/modules/LLVM-Build.cmake) | LLVM构建配置 | [1.3节](../section-3/README.md) |
-| [TableGen.cmake](/llvm/cmake/modules/TableGen.cmake) | TableGen代码生成支持 | [1.3节](../section-3/README.md) |
-| [HandleLLVMOptions.cmake](/llvm/cmake/modules/HandleLLVMOptions.cmake) | 编译选项处理 | [1.3节](../section-3/README.md) |
-| [LLVM-Config.cmake](/llvm/cmake/modules/LLVM-Config.cmake) | LLVM配置工具 | [1.3节](../section-3/README.md) |
+1. **编写.td文件**：使用TableGen DSL描述目标架构
+2. **TableGen解析**：llvm-tblgen解析.td文件，构建内存中的记录结构
+3. **Emitter生成**：不同的Emitter（如RegisterInfoEmitter、InstrInfoEmitter）生成不同的C++代码
+4. **编译生成的代码**：生成的C++代码被编译进LLVM库
 
-详见[1.3节 CMake构建系统详解](../section-3/README.md)。
+这种设计使得添加新的目标架构或修改现有架构变得更加容易，不需要手写大量重复的C++代码。
 
-## test/ - 测试用例
+## test/与unittests/ - 测试策略的体现
 
-[llvm/test/](/llvm/test/) 目录包含了LLVM的回归测试套件。这些测试使用LLVM的lit测试工具运行，通常配合FileCheck使用。
+LLVM有两个独立的测试目录：[test/](/llvm/test/)和[unittests/](/llvm/unittests/)。这种区分反映了LLVM的多层次测试策略。
 
-测试按功能组织：
+### 为什么两种测试？
 
-- `test/Analysis/` - 分析Pass测试
-- `test/Assembler/` - 汇编器测试
-- `test/Bitcode/` - 位码读写测试
-- `test/CodeGen/` - 代码生成测试
-  - `test/CodeGen/X86/` - X86代码生成测试
-  - `test/CodeGen/ARM/` - ARM代码生成测试
-  - 等等...
-- `test/ExecutionEngine/` - 执行引擎测试
-- `test/Feature/` - 特性测试
-- `test/Instrumentation/` - 插装测试
-- `test/Linker/` - 链接器测试
-- `test/MC/` - 机器码层测试
-- `test/Other/` - 其他测试
-- `test/Support/` - 支持库测试
-- `test/TableGen/` - TableGen测试
-- `test/Transforms/` - 变换Pass测试
-  - `test/Transforms/Scalar/` - 标量优化测试
-  - `test/Transforms/IPO/` - 过程间优化测试
-  - 等等...
-- `test/Verifier/` - IR验证器测试
-- `test/tools/` - 工具测试
+1. **集成测试**：test/目录包含端到端的集成测试，测试整个工具链
+2. **单元测试**：unittests/目录包含细粒度的单元测试，测试单个组件
+3. **不同的测试框架**：test/使用lit和FileCheck，unittests/使用Google Test
+4. **不同的运行速度**：单元测试通常更快，集成测试更全面
 
-## unittests/ - 单元测试
+### lit和FileCheck的设计
 
-[llvm/unittests/](/llvm/unittests/) 目录包含了LLVM的单元测试，使用Google Test框架编写。这些测试针对LLVM的各个组件进行更细粒度的测试。
+LLVM的测试工具lit和FileCheck值得特别关注：
 
-主要单元测试目录：
+- **lit**：LLVM集成测试工具，并行运行测试，处理依赖关系
+- **FileCheck**：模式匹配工具，验证输出是否符合预期
 
-- `unittests/ADT/` - ADT库单元测试
-- `unittests/IR/` - IR单元测试
-- `unittests/Support/` - 支持库单元测试
-- `unittests/CodeGen/` - 代码生成单元测试
-- `unittests/MC/` - 机器码层单元测试
-- `unittests/Transforms/` - 变换单元测试
-- `unittests/TableGen/` - TableGen单元测试
-- `unittests/ProfileData/` - 性能分析数据单元测试
-- `unittests/DebugInfo/` - 调试信息单元测试
-- 等等...
+这种测试框架的设计体现了LLVM对测试的重视——测试代码和生产代码一样，经过精心设计。
 
-## docs/ - 文档
+## 目录组织原则的深层思考
 
-[llvm/docs/](/llvm/docs/) 目录包含了LLVM的官方文档源文件，主要是reStructuredText格式，使用Sphinx构建。
+LLVM的目录组织不仅仅是代码的存放方式，更是其设计哲学的体现。让我们总结这些原则：
 
-## examples/ - 示例代码
+### 1. 接口与实现分离
 
-[llvm/examples/](/llvm/examples/) 目录包含了一些示例代码，展示如何使用LLVM的API：
+公共头文件在`include/llvm/`，实现在`lib/`对应目录。这种分离：
+- **保护API稳定**：实现可以修改，接口保持不变
+- **支持模块化编译**：修改实现不需要重新编译所有依赖
+- **清晰的边界**：明确哪些是公共API，哪些是内部实现
 
-- `examples/HowToUseJIT/` - 如何使用LLVM JIT
-- `examples/ModuleMaker/` - 如何创建LLVM模块
-- `examples/Kaleidoscope/` - Kaleidoscope语言教程（分章实现）
-  - `examples/Kaleidoscope/Chapter2/` - 第二章：实现解析器和AST
-  - `examples/Kaleidoscope/Chapter3/` - 第三章：代码生成
-  - 等等...
+### 2. 按功能模块组织
 
-## bindings/ - 语言绑定
+每个主要功能模块有独立的目录。这种组织：
+- **高内聚**：相关代码放在一起
+- **低耦合**：模块之间通过明确的接口交互
+- **易于导航**：根据功能快速定位代码
 
-[llvm/bindings/](/llvm/bindings/) 目录包含了LLVM的其他语言绑定，主要是：
+### 3. 目标后端独立
 
-- `bindings/go/` - Go语言绑定
-- `bindings/ocaml/` - OCaml语言绑定
-- `bindings/python/` - Python语言绑定（已弃用，推荐使用llvmlite）
+每个目标架构在`lib/Target/`下有独立目录。这种设计：
+- **可插拔架构**：可以选择编译哪些后端
+- **隔离修改**：修改一个后端不影响其他后端
+- **统一抽象**：所有后端实现相同的接口
 
-## 目录组织原则
+### 4. 工具与库分离
 
-LLVM的目录组织遵循以下几个重要原则：
+库代码在`lib/`，工具在`tools/`。这种分离：
+- **库复用**：核心库可以被多个工具使用
+- **灵活组合**：用户可以选择需要的工具
+- **独立演进**：工具和库可以独立更新
 
-1. **头文件与实现分离** - 公共头文件在 `include/llvm/`，实现在 `lib/` 对应目录
-2. **按功能模块组织** - 每个主要功能模块有独立的目录
-3. **目标后端独立** - 每个目标架构在 `lib/Target/` 下有独立目录
-4. **工具与库分离** - 库代码在 `lib/`，工具在 `tools/`
-5. **测试独立** - 测试代码与生产代码分离
+### 5. 测试独立
 
-理解这些目录结构原则有助于在修改LLVM时找到正确的位置添加或修改代码。
+测试代码与生产代码分离。这种安排：
+- **避免污染**：测试代码不混入生产代码
+- **多种测试策略**：可以使用不同的测试框架
+- **清晰的责任**：明确哪些是测试，哪些是生产代码
+
+## 对修改LLVM的启示
+
+理解LLVM的目录组织结构，对于正确修改LLVM至关重要：
+
+1. **在哪里添加新功能**
+   - 新的IR类：`include/llvm/IR/`和`lib/IR/`
+   - 新的优化Pass：`include/llvm/Transforms/`和`lib/Transforms/`
+   - 新的目标后端：`lib/Target/NewArch/`
+
+2. **如何组织新代码**
+   - 遵循现有目录结构
+   - 头文件和实现分离
+   - 按功能模块组织
+
+3. **什么不该做**
+   - 不要在公共头文件中暴露过多实现细节
+   - 不要随意修改目录结构
+   - 不要将工具和库代码混在一起
+
+LLVM的目录结构是经过多年演进形成的，理解其背后的设计思想，能帮助我们更好地融入这个项目。
