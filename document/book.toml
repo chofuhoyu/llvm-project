@@ -1,0 +1,10 @@
+[book]
+title = "LLVM项目深度研究文档"
+description = "LLVM项目深度研究文档，帮助科研小组了解、使用和修改LLVM及其子项目"
+authors = ["LLVM Research Team"]
+language = "zh"
+multilingual = false
+src = "src"
+
+[output.html]
+mathjax-support = true
