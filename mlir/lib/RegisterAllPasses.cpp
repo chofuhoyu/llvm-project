@@ -36,6 +36,7 @@
 #include "mlir/Dialect/OpenMP/Transforms/Passes.h"
 #include "mlir/Dialect/Quant/Transforms/Passes.h"
 #include "mlir/Dialect/SCF/Transforms/Passes.h"
+#include "mlir/Dialect/Skeleton/Transforms/Passes.h"
 #include "mlir/Dialect/SPIRV/Transforms/Passes.h"
 #include "mlir/Dialect/Shape/Transforms/Passes.h"
 #include "mlir/Dialect/Shard/Transforms/Passes.h"
@@ -85,6 +86,7 @@ void mlir::registerAllPasses() {
   quant::registerQuantPasses();
   registerSCFPasses();
   registerShapePasses();
+  skeleton::registerSkeletonPasses();
   spirv::registerSPIRVPasses();
   tensor::registerTensorPasses();
   tosa::registerTosaPasses();
