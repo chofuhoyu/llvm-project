@@ -29,8 +29,8 @@ struct ConvertCustomMatmul : public OpRewritePattern<CustomMatmulOp> {
 
   LogicalResult matchAndRewrite(CustomMatmulOp op,
                                 PatternRewriter &rewriter) const override {
-    auto matmul = rewriter.create<linalg::MatmulOp>(
-        op.getLoc(), op.getResult().getType(),
+    auto matmul = linalg::MatmulOp::create(
+        rewriter, op.getLoc(), op.getResult().getType(),
         ValueRange{op.getLhs(), op.getRhs()}, op.getOutput());
 
     // Preserve the preference attribute as a discardable attribute
