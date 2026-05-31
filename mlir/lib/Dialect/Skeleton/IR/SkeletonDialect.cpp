@@ -17,6 +17,19 @@
 using namespace mlir;
 using namespace mlir::skeleton;
 
+//===----------------------------------------------------------------------===//
+// PreferenceAttr
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+PreferenceAttr::verify(function_ref<InFlightDiagnostic()> emitError,
+                       std::string value) {
+  if (value != "CPU" && value != "GPU")
+    return emitError() << "expected 'CPU' or 'GPU' for preference attribute, got '"
+                       << value << "'";
+  return success();
+}
+
 // Include the full attribute definitions (storage class + implementations)
 #define GET_ATTRDEF_CLASSES
 #include "mlir/Dialect/Skeleton/IR/SkeletonAttrs.cpp.inc"

@@ -25,6 +25,7 @@ def Skeleton_PreferenceAttr : AttrDef<Skeleton_Dialect, "Preference"> {
   let mnemonic = "preference";
   let parameters = (ins "std::string":$value);
   let assemblyFormat = "`<` $value `>`";
+  let genVerifyDecl = 1;
 }
 
 #endif // SKELETON_ATTRS

@@ -1,4 +1,4 @@
-// RUN: mlir-opt %s -skeleton-to-linalg -split-input-file | FileCheck %s
+// RUN: mlir-opt %s -skeleton-to-linalg -split-input-file -verify-diagnostics | FileCheck %s
 
 // Test: skeleton.custom_matmul without preference → linalg.matmul
 func.func @test_custom_matmul_no_pref(%arg0: tensor<16x8xf32>, %arg1: tensor<8x32xf32>, %arg2: tensor<16x32xf32>) -> tensor<16x32xf32> {
@@ -39,3 +39,12 @@ func.func @test_multiple_matmuls(%arg0: tensor<16x8xf32>, %arg1: tensor<8x32xf32
 // CHECK: linalg.matmul
 // CHECK-SAME: skeleton.preference = #skeleton.preference<CPU>
 // CHECK-NOT: skeleton.custom_matmul
+
+// -----
+
+// Test: invalid preference value is rejected at parse time
+func.func @test_invalid_preference(%arg0: tensor<16x8xf32>, %arg1: tensor<8x32xf32>, %arg2: tensor<16x32xf32>) -> tensor<16x32xf32> {
+  // expected-error@+1 {{expected 'CPU' or 'GPU'}}
+  %0 = skeleton.custom_matmul preference = #skeleton.preference<"FPGA"> ins(%arg0, %arg1 : tensor<16x8xf32>, tensor<8x32xf32>) outs(%arg2 : tensor<16x32xf32>) -> tensor<16x32xf32>
+  return %0 : tensor<16x32xf32>
+}
