@@ -18,6 +18,7 @@ namespace skeleton {
 #include "mlir/Dialect/Skeleton/Transforms/Passes.h.inc"
 
 std::unique_ptr<Pass> createSkeletonToLinalgPass();
+std::unique_ptr<Pass> createSkeletonPreferencePartitionPass();
 
 //===----------------------------------------------------------------------===//
 // Registration

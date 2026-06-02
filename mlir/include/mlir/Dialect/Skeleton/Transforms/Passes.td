@@ -24,4 +24,19 @@ def SkeletonToLinalg : Pass<"skeleton-to-linalg"> {
   ];
 }
 
+def SkeletonPreferencePartition : Pass<"skeleton-preference-partition"> {
+  let summary = "Partition ops by skeleton.preference into separate functions";
+  let description = [{
+    Partitions linalg.matmul ops that carry a skeleton.preference attribute
+    into separate func.func ops. Each outlined function is marked with a
+    skeleton.target attribute ("CPU" or "GPU") and the original op is
+    replaced with a func.call.
+  }];
+  let dependentDialects = [
+    "mlir::func::FuncDialect",
+    "mlir::linalg::LinalgDialect",
+    "mlir::skeleton::SkeletonDialect"
+  ];
+}
+
 #endif // MLIR_DIALECT_SKELETON_PASSES
