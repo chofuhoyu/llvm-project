@@ -97,7 +97,7 @@ struct SkeletonTargetLowerPass
 
       module.walk([&](func::CallOp call) {
         auto callee = call.getCallee();
-        if (!gpuTargetNames.contains(callee.str()))
+        if (!gpuTargetNames.contains(callee))
           return;
         for (unsigned i = 0; i < call.getNumOperands(); ++i) {
           Value operand = call.getOperand(i);
