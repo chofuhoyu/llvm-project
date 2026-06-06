@@ -19,6 +19,7 @@ namespace skeleton {
 
 std::unique_ptr<Pass> createSkeletonToLinalgPass();
 std::unique_ptr<Pass> createSkeletonPreferencePartitionPass();
+std::unique_ptr<Pass> createSkeletonTargetLowerPass();
 
 //===----------------------------------------------------------------------===//
 // Registration

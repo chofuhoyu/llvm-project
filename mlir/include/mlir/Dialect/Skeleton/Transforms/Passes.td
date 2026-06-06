@@ -24,6 +24,21 @@ def SkeletonToLinalg : Pass<"skeleton-to-linalg"> {
   ];
 }
 
+def SkeletonTargetLower : Pass<"skeleton-target-lower"> {
+  let summary = "Lower ops based on skeleton.target attribute";
+  let description = [{
+    Lowers linalg.matmul ops in functions marked with skeleton.target
+    attribute. CPU targets use -convert-linalg-to-loops (scf.for),
+    while GPU targets use -convert-linalg-to-parallel-loops (scf.parallel).
+    Both paths are preceded by one-shot-bufferize.
+  }];
+  let dependentDialects = [
+    "mlir::linalg::LinalgDialect",
+    "mlir::skeleton::SkeletonDialect",
+    "mlir::bufferization::BufferizationDialect"
+  ];
+}
+
 def SkeletonPreferencePartition : Pass<"skeleton-preference-partition"> {
   let summary = "Partition ops by skeleton.preference into separate functions";
   let description = [{

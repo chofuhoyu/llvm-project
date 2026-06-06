@@ -1,6 +1,7 @@
 add_mlir_dialect_library(MLIRSkeletonTransforms
   SkeletonToLinalg.cpp
   SkeletonPreferencePartition.cpp
+  SkeletonTargetLower.cpp
 
   DEPENDS
   MLIRSkeletonPassIncGen
@@ -10,7 +11,11 @@ add_mlir_dialect_library(MLIRSkeletonTransforms
   LINK_LIBS PUBLIC
   MLIRSkeleton
   MLIRLinalgDialect
+  MLIRLinalgTransforms
   MLIRFuncDialect
+  MLIRBufferizationDialect
+  MLIRBufferizationTransforms
   MLIRTransformUtils
   MLIRAnalysis
+  MLIRPass
   )
