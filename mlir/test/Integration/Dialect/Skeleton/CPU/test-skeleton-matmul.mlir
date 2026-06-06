@@ -1,5 +1,4 @@
 // RUN: mlir-opt %s \
-// RUN:   -skeleton-to-linalg \
 // RUN:   -skeleton-preference-partition \
 // RUN:   -skeleton-target-lower \
 // RUN:   -convert-scf-to-cf \
@@ -22,7 +21,7 @@ func.func @main() {
   %B = arith.constant dense<[[5.0, 6.0], [7.0, 8.0]]> : tensor<2x2xf32>
   %C = arith.constant dense<0.0> : tensor<2x2xf32>
 
-  %result = skeleton.custom_matmul preference = #skeleton.preference<"CPU">
+  %result = linalg.matmul {skeleton.preference = #skeleton.preference<"CPU">}
       ins(%A, %B : tensor<2x2xf32>, tensor<2x2xf32>)
       outs(%C : tensor<2x2xf32>) -> tensor<2x2xf32>
 

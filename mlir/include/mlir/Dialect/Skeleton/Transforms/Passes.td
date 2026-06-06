@@ -35,7 +35,8 @@ def SkeletonTargetLower : Pass<"skeleton-target-lower"> {
   let dependentDialects = [
     "mlir::linalg::LinalgDialect",
     "mlir::skeleton::SkeletonDialect",
-    "mlir::bufferization::BufferizationDialect"
+    "mlir::bufferization::BufferizationDialect",
+    "mlir::gpu::GPUDialect"
   ];
 }
 

@@ -10,10 +10,15 @@
 // CPU targets use -convert-linalg-to-loops (scf.for),
 // GPU targets use -convert-linalg-to-parallel-loops (scf.parallel).
 //
+// Bufferization produces host memory (memref.alloc / memref.get_global).
+// For GPU target functions we replace host buffers with gpu.alloc host_shared,
+// which is GPU-accessible managed memory.
+//
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -47,6 +52,15 @@ struct SkeletonTargetLowerPass
     if (targets.empty())
       return;
 
+    // Build a set of GPU target function names.
+    DenseSet<StringRef> gpuTargetNames;
+    for (func::FuncOp func : targets) {
+      if (auto attr = func->getAttrOfType<StringAttr>("skeleton.target")) {
+        if (attr.getValue() == "GPU")
+          gpuTargetNames.insert(func.getSymName());
+      }
+    }
+
     // Step 1: bufferize tensor ops. This pass is module-scoped and
     // requires function-boundaries mode to update function signatures.
     {
@@ -56,6 +70,44 @@ struct SkeletonTargetLowerPass
       pm.addPass(bufferization::createOneShotBufferizePass(bufOpts));
       if (failed(runPipeline(pm, module)))
         return signalPassFailure();
+    }
+
+    // Step 1b: ensure GPU target functions receive GPU-accessible memory.
+    // Bufferization produces host memory (memref.get_global, memref.alloc).
+    // GPU kernels cannot access host memory, so we replace each memref
+    // operand to a GPU call with gpu.alloc host_shared (managed memory).
+    if (!gpuTargetNames.empty()) {
+      OpBuilder builder(&getContext());
+      module.walk([&](func::CallOp call) {
+        auto callee = call.getCallee();
+        if (!gpuTargetNames.contains(callee))
+          return;
+        builder.setInsertionPoint(call);
+        for (unsigned i = 0; i < call.getNumOperands(); ++i) {
+          Value operand = call.getOperand(i);
+          auto memrefType = dyn_cast<MemRefType>(operand.getType());
+          if (!memrefType)
+            continue;
+
+          // Allocate GPU-accessible managed memory.
+          // Use a plain (non-strided) memref type for the allocation.
+          auto allocType = MemRefType::get(memrefType.getShape(),
+                                            memrefType.getElementType());
+          auto gpuAlloc = gpu::AllocOp::create(
+              builder, call.getLoc(), allocType,
+              /*asyncToken=*/Type(),
+              /*asyncDependencies=*/ValueRange{},
+              /*dynamicSizes=*/ValueRange{},
+              /*symbolOperands=*/ValueRange{},
+              /*hostShared=*/true);
+          // Copy data, cast to the expected strided type, and replace operand.
+          memref::CopyOp::create(builder, call.getLoc(), operand,
+                                  gpuAlloc.getMemref());
+          auto casted = memref::CastOp::create(
+              builder, call.getLoc(), memrefType, gpuAlloc.getMemref());
+          call->setOperand(i, casted);
+        }
+      });
     }
 
     // Step 2: lower linalg per function, choosing loops or parallel loops.
