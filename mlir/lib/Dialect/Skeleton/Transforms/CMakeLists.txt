@@ -15,6 +15,8 @@ add_mlir_dialect_library(MLIRSkeletonTransforms
   MLIRFuncDialect
   MLIRBufferizationDialect
   MLIRBufferizationTransforms
+  MLIRMemRefDialect
+  MLIRGPUDialect
   MLIRTransformUtils
   MLIRAnalysis
   MLIRPass

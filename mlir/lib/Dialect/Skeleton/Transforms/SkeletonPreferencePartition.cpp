@@ -13,13 +13,11 @@
 
 #include "mlir/Dialect/Skeleton/IR/SkeletonAttrs.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"
-#include "mlir/Dialect/Skeleton/IR/SkeletonOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 using namespace mlir;
 
@@ -57,7 +55,12 @@ struct SkeletonPreferencePartitionPass
         auto prefAttr = matmul->getDiscardableAttr("skeleton.preference");
         if (!prefAttr)
           return WalkResult::advance();
-        auto pref = cast<PreferenceAttr>(prefAttr);
+        auto pref = dyn_cast<PreferenceAttr>(prefAttr);
+        if (!pref) {
+          matmul.emitWarning("expected #skeleton.preference attribute, got "
+                             "incompatible type; skipping");
+          return WalkResult::advance();
+        }
         worklist.push_back({func, matmul, idx++, pref.getValue()});
         return WalkResult::advance();
       });
@@ -106,18 +109,20 @@ struct SkeletonPreferencePartitionPass
           /*outputs=*/entryBlock->getArguments().slice(numInputs));
 
       // Preserve the preference attribute on the new matmul.
-      if (auto prefAttr = matmul->getDiscardableAttr("skeleton.preference"))
-        newMatmul->setDiscardableAttr("skeleton.preference", prefAttr);
+      // The attribute is guaranteed to exist (filtered in Phase 1).
+      auto prefAttr = matmul->getDiscardableAttr("skeleton.preference");
+      newMatmul->setDiscardableAttr("skeleton.preference", prefAttr);
 
       // Add the return op.
       func::ReturnOp::create(builder, loc, newMatmul.getResults());
 
-      // Insert the new function into the symbol table.
-      symbolTable.insert(outlinedFunc);
+      // Insert the new function into the symbol table; capture the actual
+      // name in case SymbolTable renames it to avoid collisions.
+      StringAttr actualName = symbolTable.insert(outlinedFunc);
 
       // Replace the original matmul with a func.call.
       builder.setInsertionPoint(matmul);
-      auto call = func::CallOp::create(builder, loc, name,
+      auto call = func::CallOp::create(builder, loc, actualName,
                                         matmul.getResultTypes(), callOperands);
       matmul.replaceAllUsesWith(call.getResults());
       matmul.erase();

@@ -41,6 +41,14 @@ LogicalResult CustomMatmulOp::verify() {
   if (outputType != resultType)
     return emitOpError("expects output type to match result type");
 
+  // Check element type compatibility across all operands and result.
+  auto lhsEltType = lhsType.getElementType();
+  if (rhsType.getElementType() != lhsEltType ||
+      outputType.getElementType() != lhsEltType ||
+      resultType.getElementType() != lhsEltType)
+    return emitOpError("expects all operands and result to have the same "
+                       "element type");
+
   // Check K dimension compatibility: lhs dim 1 == rhs dim 0
   if (!lhsType.isDynamicDim(1) && !rhsType.isDynamicDim(0))
     if (lhsType.getDimSize(1) != rhsType.getDimSize(0))

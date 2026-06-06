@@ -42,14 +42,8 @@ PreferenceAttr::verify(function_ref<InFlightDiagnostic()> emitError,
 //===----------------------------------------------------------------------===//
 
 void SkeletonDialect::initialize() {
-  addAttributes<
-#define GET_ATTRDEF_LIST
-#include "mlir/Dialect/Skeleton/IR/SkeletonAttrs.cpp.inc"
-      >();
-  addOperations<
-#define GET_OP_LIST
-#include "mlir/Dialect/Skeleton/IR/SkeletonOps.cpp.inc"
-      >();
+  registerAttributes();
+  registerOperations();
 }
 
 void SkeletonDialect::registerAttributes() {

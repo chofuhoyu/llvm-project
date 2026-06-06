@@ -10,9 +10,7 @@
 #include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonAttrs.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Transforms/DialectConversion.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 

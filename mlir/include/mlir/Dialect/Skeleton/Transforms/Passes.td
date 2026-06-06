@@ -36,6 +36,10 @@ def SkeletonTargetLower : Pass<"skeleton-target-lower"> {
     "mlir::linalg::LinalgDialect",
     "mlir::skeleton::SkeletonDialect",
     "mlir::bufferization::BufferizationDialect",
+    "mlir::memref::MemRefDialect",
+    "mlir::scf::SCFDialect",
+    "mlir::func::FuncDialect",
+    "mlir::arith::ArithDialect",
     "mlir::gpu::GPUDialect"
   ];
 }
