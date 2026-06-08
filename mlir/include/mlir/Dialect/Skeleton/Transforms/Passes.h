@@ -20,6 +20,7 @@ namespace skeleton {
 std::unique_ptr<Pass> createSkeletonToLinalgPass();
 std::unique_ptr<Pass> createSkeletonPreferencePartitionPass();
 std::unique_ptr<Pass> createSkeletonTargetLowerPass();
+std::unique_ptr<Pass> createSkeletonFinalizeMemRefToGpuPass();
 
 //===----------------------------------------------------------------------===//
 // Registration

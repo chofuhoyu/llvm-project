@@ -57,4 +57,21 @@ def SkeletonPreferencePartition : Pass<"skeleton-preference-partition"> {
   ];
 }
 
+def SkeletonFinalizeMemRefToGpu : Pass<"skeleton-finalize-memref-to-gpu"> {
+  let summary = "Lower GPU memory lifecycle ops to LLVM";
+  let description = [{
+    Finalizes GPU memory lifecycle operations inserted by skeleton-target-lower
+    into LLVM IR. Converts gpu.alloc host_shared to mgpuMemAlloc runtime calls,
+    gpu.dealloc to mgpuMemFree, and memref.copy to llvm.intr.memcpy.
+    GPU kernel functions (marked with skeleton.target) are left untouched for
+    the subsequent GPU lowering pipeline.
+  }];
+  let dependentDialects = [
+    "mlir::skeleton::SkeletonDialect",
+    "mlir::memref::MemRefDialect",
+    "mlir::gpu::GPUDialect",
+    "mlir::LLVM::LLVMDialect"
+  ];
+}
+
 #endif // MLIR_DIALECT_SKELETON_PASSES

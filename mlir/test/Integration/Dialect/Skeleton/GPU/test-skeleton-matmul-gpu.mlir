@@ -1,6 +1,7 @@
 // RUN: mlir-opt %s \
 // RUN:   -skeleton-preference-partition \
 // RUN:   -skeleton-target-lower \
+// RUN:   -skeleton-finalize-memref-to-gpu \
 // RUN:   -gpu-map-parallel-loops \
 // RUN:   -convert-parallel-loops-to-gpu \
 // RUN:   -gpu-kernel-outlining \

@@ -2,6 +2,7 @@ add_mlir_dialect_library(MLIRSkeletonTransforms
   SkeletonToLinalg.cpp
   SkeletonPreferencePartition.cpp
   SkeletonTargetLower.cpp
+  SkeletonFinalizeMemRefToGpu.cpp
 
   DEPENDS
   MLIRSkeletonPassIncGen
@@ -17,6 +18,14 @@ add_mlir_dialect_library(MLIRSkeletonTransforms
   MLIRBufferizationTransforms
   MLIRMemRefDialect
   MLIRGPUDialect
+  MLIRLLVMDialect
+  MLIRGPUToGPURuntimeTransforms
+  MLIRMemRefToLLVM
+  MLIRLLVMCommonConversion
+  MLIRAsyncToLLVM
+  MLIRArithDialect
+  MLIRSCFDialect
+  MLIRControlFlowDialect
   MLIRTransformUtils
   MLIRAnalysis
   MLIRPass
