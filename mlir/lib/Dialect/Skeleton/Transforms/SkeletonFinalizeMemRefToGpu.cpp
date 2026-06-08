@@ -73,12 +73,11 @@ struct SkeletonFinalizeMemRefToGpuPass
     target.addLegalDialect<arith::ArithDialect>();
     target.addLegalDialect<cf::ControlFlowDialect>();
 
-    // Legal: gpu.alloc — handled by GPU pipeline (builds descriptors).
-    // Illegal: gpu.memcpy, gpu.dealloc — we convert these here so they
-    // don't reach the GPU pipeline's expand-strided-metadata, which
-    // would break the isConvertibleAndHasIdentityMaps check.
+    // Legal: gpu.alloc and gpu.dealloc — sync versions lowered by
+    // GPU pipeline (gpu-to-llvm, #191661).
+    // Illegal: gpu.memcpy — convert before expand-strided-metadata.
     target.addLegalDialect<gpu::GPUDialect>();
-    target.addIllegalOp<gpu::DeallocOp, gpu::MemcpyOp>();
+    target.addIllegalOp<gpu::MemcpyOp>();
 
     // Legal: memref load/store used inside GPU kernels.
     target.addLegalOp<memref::LoadOp, memref::StoreOp>();

@@ -81,18 +81,12 @@ struct SkeletonTargetLowerPass
     }
 
     // Step 1b: ensure GPU target functions receive GPU-accessible memory.
-    // Bufferization produces host memory (memref.get_global, memref.alloc).
-    // GPU kernels cannot access host memory, so we:
-    //   a) Before each GPU call: gpu.alloc + gpu.memcpy(H→D)
-    //   b) After each GPU call:  gpu.memcpy(D→H) + gpu.dealloc
+    //   a) gpu.alloc (sync, device memory) + gpu.memcpy async (H→D)
+    //   b) gpu.memcpy async (D→H) + gpu.dealloc (sync)
     //   (skip copy-back + dealloc for read-only memref.get_global operands)
     //
-    // GPU ops use async tokens chained serially through all operands:
-    //   gpu.wait → alloc→memcpy(in) → [next operand] → [kernel call]
-    //            → memcpy(out) → dealloc → [next operand]
-    // This satisfies the isAsyncWithOneDependency requirement for all
-    // gpu.alloc (non-hostShared), gpu.memcpy, and gpu.dealloc lowering
-    // patterns. At runtime the stream parameter maps to a null CUDA stream.
+    // gpu.alloc and gpu.dealloc now use sync versions thanks to #191661.
+    // Only gpu.memcpy still requires async (isAsyncWithOneDependency).
     if (!gpuTargetNames.empty()) {
       struct GPUBridgeEntry {
         func::CallOp call;
@@ -119,12 +113,9 @@ struct SkeletonTargetLowerPass
       auto asyncTokenType =
           gpu::AsyncTokenType::get(builder.getContext());
 
-      // Per-call: (gpuMemref, hostMemref) pairs + lastPhaseA token.
-      struct CallBridgeInfo {
-        SmallVector<std::pair<Value, Value>> pairs;
-        Value lastToken;
-      };
-      DenseMap<func::CallOp, CallBridgeInfo> callBridgeInfo;
+      // Phase A: sync alloc + async memcpy(H→D) before each GPU call.
+      DenseMap<func::CallOp, SmallVector<std::pair<Value, Value>>>
+          callGpuMemrefs; // call -> (gpuMemref, hostMemref) pairs
 
       for (auto &entry : bridgeWorklist) {
         builder.setInsertionPoint(entry.call);
@@ -136,35 +127,23 @@ struct SkeletonTargetLowerPass
           continue;
         }
 
-        auto &info = callBridgeInfo[entry.call];
-        // Start async chain for this call (first operand only).
-        if (!info.lastToken) {
-          auto waitOp = gpu::WaitOp::create(builder, entry.call.getLoc(),
-                                             asyncTokenType, {});
-          info.lastToken = waitOp.getAsyncToken();
-        }
-        Value token = info.lastToken;
-
-        // gpu.alloc (device memory, no host_shared).
+        // Sync alloc: no async, no token.
         auto allocType =
             MemRefType::get(entry.hostMemrefType.getShape(),
                             entry.hostMemrefType.getElementType());
         auto allocOp = gpu::AllocOp::create(
             builder, entry.call.getLoc(), allocType,
-            /*asyncToken=*/asyncTokenType,
-            /*asyncDependencies=*/ValueRange{token},
-            /*dynamicSizes=*/ValueRange{},
-            /*symbolOperands=*/ValueRange{},
-            /*hostShared=*/false);
-        token = allocOp.getAsyncToken();
+            /*asyncToken=*/Type(), {},
+            {}, {}, /*hostShared=*/false);
 
-        // gpu.memcpy host → device.
-        auto memcpyIn =
-            gpu::MemcpyOp::create(builder, entry.call.getLoc(),
-                                   /*asyncToken=*/asyncTokenType,
-                                   /*asyncDependencies=*/ValueRange{token},
-                                   allocOp.getMemref(), entry.hostMemref);
-        token = memcpyIn.getAsyncToken();
+        // Async memcpy host → device (only this op needs a token).
+        auto waitOp = gpu::WaitOp::create(builder, entry.call.getLoc(),
+                                           asyncTokenType, {});
+        Value token = waitOp.getAsyncToken();
+        gpu::MemcpyOp::create(builder, entry.call.getLoc(),
+                               /*asyncToken=*/asyncTokenType,
+                               /*asyncDependencies=*/ValueRange{token},
+                               allocOp.getMemref(), entry.hostMemref);
 
         // Cast to strided type and replace call operand.
         auto casted = memref::CastOp::create(
@@ -172,24 +151,24 @@ struct SkeletonTargetLowerPass
             allocOp.getMemref());
         entry.call->setOperand(entry.operandIdx, casted);
 
-        info.pairs.push_back({allocOp.getMemref(), entry.hostMemref});
-        info.lastToken = token;
+        callGpuMemrefs[entry.call].push_back(
+            {allocOp.getMemref(), entry.hostMemref});
       }
 
-      // Phase B: memcpy(out) + dealloc, continuing the async chain.
-      for (auto &kv : callBridgeInfo) {
+      // Phase B: async memcpy(D→H) + sync dealloc after each GPU call.
+      for (auto &kv : callGpuMemrefs) {
         func::CallOp call = kv.first;
-        auto &info = kv.second;
+        auto &pairs = kv.second;
 
         builder.setInsertionPointAfter(call);
-        Value token = info.lastToken; // continue Phase A chain
 
-        // Track which gpu memref corresponds to the call result
-        // (the output memref), so we can replace the call result
-        // with the host memref after copy-back.
+        // Fresh async token for post-kernel memcpy chain.
+        auto waitOp = gpu::WaitOp::create(builder, call.getLoc(),
+                                           asyncTokenType, {});
+        Value token = waitOp.getAsyncToken();
         Value outputHostMemref;
 
-        for (auto &pair : info.pairs) {
+        for (auto &pair : pairs) {
           Value gpuMemref = pair.first;
           Value hostMemref = pair.second;
 
@@ -210,21 +189,18 @@ struct SkeletonTargetLowerPass
             outputHostMemref = hostMemref;
           }
 
-          // gpu.dealloc.
-          auto deallocOp = gpu::DeallocOp::create(
-              builder, call.getLoc(),
-              /*asyncToken=*/asyncTokenType,
-              /*asyncDependencies=*/ValueRange{token},
-              gpuMemref);
-          token = deallocOp.getAsyncToken();
+          // Sync dealloc: no async, no token.
+          gpu::DeallocOp::create(builder, call.getLoc(),
+                                 /*asyncToken=*/Type(),
+                                 /*asyncDependencies=*/ValueRange{},
+                                 gpuMemref);
         }
 
-        // Replace the call result (device memref, now dealloc'd) with
-        // the host memref that received the copy-back.
+        // Replace call result (device memref, now dealloc'd) with the
+        // host memref that received the copy-back.
         if (outputHostMemref) {
-          // The call returns a strided memref; cast the host memref
-          // (which is plain) to match the expected return type.
-          auto retType = cast<MemRefType>(call.getResult(0).getType());
+          auto retType =
+              cast<MemRefType>(call.getResult(0).getType());
           auto retCast = memref::CastOp::create(
               builder, call.getLoc(), retType, outputHostMemref);
           call->getResult(0).replaceAllUsesWith(retCast.getResult());
