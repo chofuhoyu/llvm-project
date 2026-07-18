@@ -61,7 +61,7 @@ struct SkeletonPreferencePartitionPass
                              "incompatible type; skipping");
           return WalkResult::advance();
         }
-        worklist.push_back({func, matmul, idx++, pref.getValue()});
+        worklist.push_back({func, matmul, idx++, pref.getValue().str()});
         return WalkResult::advance();
       });
     });

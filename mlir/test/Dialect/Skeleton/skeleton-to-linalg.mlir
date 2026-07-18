@@ -22,7 +22,7 @@ func.func @test_custom_matmul_with_pref(%arg0: tensor<16x8xf32>, %arg1: tensor<8
 
 // CHECK-LABEL: func @test_custom_matmul_with_pref
 // CHECK: linalg.matmul
-// CHECK-SAME: skeleton.preference = #skeleton.preference<GPU>
+// CHECK-SAME: skeleton.preference = #skeleton.preference<"GPU">
 // CHECK-NOT: skeleton.custom_matmul
 
 // -----
@@ -37,8 +37,37 @@ func.func @test_multiple_matmuls(%arg0: tensor<16x8xf32>, %arg1: tensor<8x32xf32
 // CHECK-LABEL: func @test_multiple_matmuls
 // CHECK: linalg.matmul
 // CHECK: linalg.matmul
-// CHECK-SAME: skeleton.preference = #skeleton.preference<CPU>
+// CHECK-SAME: skeleton.preference = #skeleton.preference<"CPU">
 // CHECK-NOT: skeleton.custom_matmul
+
+// -----
+
+// -----
+
+// Test: skeleton.vector_add without preference → linalg.add
+func.func @test_vector_add_no_pref(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8xf32>) -> tensor<8xf32> {
+  %0 = skeleton.vector_add ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>) outs(%arg2 : tensor<8xf32>) -> tensor<8xf32>
+  return %0 : tensor<8xf32>
+}
+
+// CHECK-LABEL: func @test_vector_add_no_pref
+// CHECK: linalg.add
+// CHECK-SAME: ins({{.*}} : tensor<8xf32>, tensor<8xf32>)
+// CHECK-SAME: outs({{.*}} : tensor<8xf32>)
+// CHECK-NOT: skeleton.vector_add
+
+// -----
+
+// Test: skeleton.vector_add with preference → linalg.add with preserved attr
+func.func @test_vector_add_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8xf32>) -> tensor<8xf32> {
+  %0 = skeleton.vector_add preference = #skeleton.preference<"GPU"> ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>) outs(%arg2 : tensor<8xf32>) -> tensor<8xf32>
+  return %0 : tensor<8xf32>
+}
+
+// CHECK-LABEL: func @test_vector_add_with_pref
+// CHECK: linalg.add
+// CHECK-SAME: skeleton.preference = #skeleton.preference<"GPU">
+// CHECK-NOT: skeleton.vector_add
 
 // -----
 

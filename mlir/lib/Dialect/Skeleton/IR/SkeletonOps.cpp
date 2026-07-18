@@ -66,3 +66,45 @@ LogicalResult CustomMatmulOp::verify() {
 
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// VectorAddOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult VectorAddOp::verify() {
+  // Verify that lhs, rhs, output are 1D tensors (vectors).
+  auto lhsType = cast<RankedTensorType>(getLhs().getType());
+  auto rhsType = cast<RankedTensorType>(getRhs().getType());
+  auto outputType = cast<RankedTensorType>(getOutput().getType());
+  auto resultType = cast<RankedTensorType>(getResult().getType());
+
+  unsigned lhsRank = lhsType.getRank();
+  unsigned rhsRank = rhsType.getRank();
+  unsigned outputRank = outputType.getRank();
+  unsigned resultRank = resultType.getRank();
+
+  if (lhsRank != 1 || rhsRank != 1 || outputRank != 1 || resultRank != 1)
+    return emitOpError("expects all operands to be 1D tensors (vectors)");
+
+  if (outputType != resultType)
+    return emitOpError("expects output type to match result type");
+
+  // Check element type compatibility.
+  auto lhsEltType = lhsType.getElementType();
+  if (rhsType.getElementType() != lhsEltType ||
+      outputType.getElementType() != lhsEltType ||
+      resultType.getElementType() != lhsEltType)
+    return emitOpError("expects all operands and result to have the same "
+                       "element type");
+
+  // Check length compatibility: all vectors must have the same size.
+  if (!lhsType.isDynamicDim(0) && !rhsType.isDynamicDim(0))
+    if (lhsType.getDimSize(0) != rhsType.getDimSize(0))
+      return emitOpError("vector length mismatch between lhs and rhs");
+
+  if (!lhsType.isDynamicDim(0) && !outputType.isDynamicDim(0))
+    if (lhsType.getDimSize(0) != outputType.getDimSize(0))
+      return emitOpError("vector length mismatch between lhs and output");
+
+  return success();
+}

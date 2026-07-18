@@ -13,7 +13,7 @@ func.func @test_single_gpu(%arg0: tensor<16x8xf32>, %arg1: tensor<8x32xf32>, %ar
 // CHECK-LABEL: func private @GPU_matmul_0
 // CHECK-SAME: attributes {skeleton.target = "GPU"}
 // CHECK: linalg.matmul
-// CHECK-SAME: skeleton.preference = #skeleton.preference<GPU>
+// CHECK-SAME: skeleton.preference = #skeleton.preference<"GPU">
 // CHECK: return
 
 // -----
@@ -31,7 +31,7 @@ func.func @test_single_cpu(%arg0: tensor<16x8xf32>, %arg1: tensor<8x32xf32>, %ar
 // CHECK-LABEL: func private @CPU_matmul_0
 // CHECK-SAME: attributes {skeleton.target = "CPU"}
 // CHECK: linalg.matmul
-// CHECK-SAME: skeleton.preference = #skeleton.preference<CPU>
+// CHECK-SAME: skeleton.preference = #skeleton.preference<"CPU">
 // CHECK: return
 
 // -----

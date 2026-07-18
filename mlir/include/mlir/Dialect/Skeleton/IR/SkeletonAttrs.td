@@ -23,7 +23,7 @@ def Skeleton_PreferenceAttr : AttrDef<Skeleton_Dialect, "Preference"> {
     from the frontend annotation down to the compilation pipeline.
   }];
   let mnemonic = "preference";
-  let parameters = (ins "std::string":$value);
+  let parameters = (ins "StringAttr":$value);
   let assemblyFormat = "`<` $value `>`";
   let genVerifyDecl = 1;
 }

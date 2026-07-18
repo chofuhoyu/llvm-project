@@ -23,10 +23,10 @@ using namespace mlir::skeleton;
 
 LogicalResult
 PreferenceAttr::verify(function_ref<InFlightDiagnostic()> emitError,
-                       std::string value) {
+                       StringAttr value) {
   if (value != "CPU" && value != "GPU")
     return emitError() << "expected 'CPU' or 'GPU' for preference attribute, got '"
-                       << value << "'";
+                       << value.getValue() << "'";
   return success();
 }
 

@@ -2159,6 +2159,10 @@ def CIR_IndirectBrOp : CIR_Op<"indirect_br", [
 class CIR_LoopOpBase<string mnemonic> : CIR_Op<mnemonic, [
   LoopOpInterface, NoRegionArguments
 ]> {
+  let arguments = (ins
+    OptionalAttr<CIR_AnnotationArrayAttr>:$annotations
+  );
+
   let extraClassDefinition = [{
     void $cppClass::getSuccessorRegions(
         mlir::RegionBranchPoint point,
@@ -2201,7 +2205,7 @@ class CIR_WhileOpBase<string mnemonic> : CIR_LoopOpBase<mnemonic> {
 
 def CIR_WhileOp : CIR_WhileOpBase<"while"> {
   let regions = (region MinSizedRegion<1>:$cond, MinSizedRegion<1>:$body);
-  let assemblyFormat = "$cond `do` $body attr-dict";
+  let assemblyFormat = "$cond `do` $body ($annotations^)? attr-dict";
 
   let description = [{
     Represents a C/C++ while loop. It consists of two regions:
@@ -2228,7 +2232,7 @@ def CIR_WhileOp : CIR_WhileOpBase<"while"> {
 
 def CIR_DoWhileOp : CIR_WhileOpBase<"do"> {
   let regions = (region MinSizedRegion<1>:$body, MinSizedRegion<1>:$cond);
-  let assemblyFormat = " $body `while` $cond attr-dict";
+  let assemblyFormat = " $body `while` $cond ($annotations^)? attr-dict";
 
   let extraClassDeclaration = [{
     mlir::Region &getEntry() { return getBody(); }
@@ -2290,6 +2294,7 @@ def CIR_ForOp : CIR_LoopOpBase<"for"> {
     `:` `cond` $cond
     `body` $body
     `step` $step
+    ($annotations^)?
     attr-dict
   }];
 

@@ -248,4 +248,28 @@ def CallConvLowering : Pass<"cir-call-conv-lowering", "mlir::ModuleOp"> {
   ];
 }
 
+def CIRLoopToSkeleton : Pass<"cir-loop-to-skeleton"> {
+  let summary = "Convert annotated CIR loops to Skeleton dialect operations";
+  let description = [{
+    Recognizes `cir.for`, `cir.while`, and `cir.do` operations that carry
+    `cir.annotation` attributes and converts them to Skeleton dialect
+    operations.
+
+    The annotation name determines the target skeleton operation type.
+    The first string argument (if present) becomes the skeleton preference.
+
+    Currently supports:
+    - `annotate("skeleton_vector_add", "CPU|GPU")` → `skeleton.vector_add`
+
+    Future enhancements will recognize additional annotation names and
+    produce type-specific operations.
+  }];
+  let constructor = "mlir::createCIRLoopToSkeletonPass()";
+  let dependentDialects = [
+    "cir::CIRDialect",
+    "mlir::skeleton::SkeletonDialect",
+    "mlir::func::FuncDialect"
+  ];
+}
+
 #endif // CLANG_CIR_DIALECT_PASSES_TD

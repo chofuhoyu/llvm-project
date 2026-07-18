@@ -14,6 +14,7 @@ add_clang_library(MLIRCIRTransforms
   GotoSolver.cpp
   IdiomRecognizer.cpp
   LibOpt.cpp
+  CirLoopToSkeleton.cpp
 
   DEPENDS
   MLIRCIRPassIncGen
@@ -34,4 +35,5 @@ add_clang_library(MLIRCIRTransforms
   MLIRCIRTargetLowering
   MLIROpenACCDialect
   MLIROpenMPDialect
+  MLIRSkeleton
 )

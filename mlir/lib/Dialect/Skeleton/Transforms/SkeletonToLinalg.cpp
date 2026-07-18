@@ -41,6 +41,24 @@ struct ConvertCustomMatmul : public OpRewritePattern<CustomMatmulOp> {
   }
 };
 
+struct ConvertVectorAdd : public OpRewritePattern<VectorAddOp> {
+  using OpRewritePattern<VectorAddOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(VectorAddOp op,
+                                PatternRewriter &rewriter) const override {
+    auto addOp = rewriter.create<linalg::AddOp>(
+        op.getLoc(), op.getResult().getType(),
+        ValueRange{op.getLhs(), op.getRhs()}, op.getOutput());
+
+    // Preserve the preference attribute as a discardable attribute
+    if (auto pref = op.getPreferenceAttr())
+      addOp->setAttr("skeleton.preference", pref);
+
+    rewriter.replaceOp(op, addOp->getResults());
+    return success();
+  }
+};
+
 class SkeletonToLinalgPass
     : public impl::SkeletonToLinalgBase<SkeletonToLinalgPass> {
 public:
@@ -48,7 +66,7 @@ public:
 
   void runOnOperation() override {
     RewritePatternSet patterns(&getContext());
-    patterns.add<ConvertCustomMatmul>(&getContext());
+    patterns.add<ConvertCustomMatmul, ConvertVectorAdd>(&getContext());
 
     if (failed(applyPatternsGreedily(getOperation(),
                                      std::move(patterns))))

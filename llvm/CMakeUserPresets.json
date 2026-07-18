@@ -1,0 +1,38 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "debug",
+      "displayName": "Debug Build",
+      "description": "Debug build with assertions enabled",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/../build-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LLVM_ENABLE_ASSERTIONS": "ON",
+        "LLVM_ENABLE_PROJECTS": "clang;mlir",
+        "LLVM_USE_SPLIT_DWARF": "ON",
+        "LLVM_PARALLEL_LINK_JOBS": "1",
+        "LLVM_TARGETS_TO_BUILD": "Native",
+        "LLVM_USE_LINKER": "lld",
+        "CLANG_ENABLE_CIR": "ON",
+        "MLIR_ENABLE_EXECUTION_ENGINE": "ON"
+      }
+    },
+    {
+      "name": "reldeb",
+      "displayName": "RelWithDebInfo Build",
+      "description": "Release build with debug info, inherits all debug preset settings",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/../build-reldeb",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      }
+    }
+  ]
+}

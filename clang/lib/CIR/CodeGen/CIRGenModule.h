@@ -933,6 +933,13 @@ public:
   /// Add global annotations for a global value (GlobalOp or FuncOp).
   void addGlobalAnnotations(const clang::ValueDecl *d, mlir::Operation *gv);
 
+  /// Build (or fetch from the dedup cache) the args ArrayAttr for an
+  /// annotation. Returns the empty ArrayAttr when the annotation has none.
+  mlir::ArrayAttr getOrCreateAnnotationArgs(const clang::AnnotateAttr *attr);
+
+  /// Create cir::AnnotationAttr for a single AnnotateAttr.
+  cir::AnnotationAttr emitAnnotateAttr(const clang::AnnotateAttr *aa);
+
 private:
   /// Search \p currentClass and its non-virtual base subobjects for \p field,
   /// appending CIR field indices along the path from \p currentClass.
@@ -959,13 +966,6 @@ private:
 
   /// Emit all the global annotations.
   void emitGlobalAnnotations();
-
-  /// Build (or fetch from the dedup cache) the args ArrayAttr for an
-  /// annotation. Returns the empty ArrayAttr when the annotation has none.
-  mlir::ArrayAttr getOrCreateAnnotationArgs(const clang::AnnotateAttr *attr);
-
-  /// Create cir::AnnotationAttr for a single AnnotateAttr on a global.
-  cir::AnnotationAttr emitAnnotateAttr(const clang::AnnotateAttr *aa);
 
   /// Return the AST address space of the underlying global variable for D, as
   /// determined by its declaration. Normally this is the same as the address

@@ -17,12 +17,14 @@
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "clang/CIR/Dialect/OpenACC/RegisterOpenACCExtensions.h"
 #include "clang/CIR/Dialect/OpenMP/RegisterOpenMPExtensions.h"
+#include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"
 
 namespace cir {
 
 void registerAllDialects(mlir::DialectRegistry &registry) {
   registry.insert<mlir::BuiltinDialect, cir::CIRDialect, mlir::DLTIDialect,
-                  mlir::omp::OpenMPDialect, mlir::acc::OpenACCDialect>();
+                  mlir::omp::OpenMPDialect, mlir::acc::OpenACCDialect,
+                  mlir::skeleton::SkeletonDialect>();
   // Register extensions to integrate CIR types with OpenACC and OpenMP.
   cir::omp::registerOpenMPExtensions(registry);
   cir::acc::registerOpenACCExtensions(registry);
