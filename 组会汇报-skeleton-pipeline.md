@@ -1,7 +1,5 @@
 # Skeleton Dialect 全流程打通：从 C++ 注解到后端代码生成
 
-> 口头汇报用，语气口语化
-
 ---
 
 ## 一句话概括
@@ -239,6 +237,54 @@ cir.for {
 2. 在 `emitForStmt`/`emitWhileStmt`/`emitDoStmt` 末尾调用 `attachLoopAnnotations`，把 AST 层的 `AnnotateAttr` 翻译成 CIR 层的 `cir.annotation`。
 
 改动不大，但补上了传统路径上"语句级 annotation 无法进入 IR"这个结构性的缺口。
+
+---
+
+## 社区生态定位：相关 PR/Issue 调研
+
+为了明确我们在社区里的位置，我们通过 GitHub 对 llvm-project 仓库做了全面搜索，关键词覆盖了 `CIR annotation`、`cir.for annotation`、`CIR_LoopOpBase`、`attachLoopAnnotations`、`AttributedStmt annotate`、`skeleton dialect` 等。以下是结果。
+
+### 已合入的工作
+
+**PR #193329 — `[CIR] Add __attribute__((annotate(...))) support`**
+- 作者：bcardosolopes（CIR 项目负责人，Bruno Cardoso Lopes）
+- 合入时间：2026 年 4 月
+- 范围：**仅函数和全局变量**
+- 内容：创建了 `cir::AnnotationAttr` 类型、在 `cir.func` 和 `cir.global` 上加 `$annotations` 属性、CIRGen 层的 deferred annotation 机制、LLVM lowering 到 `@llvm.global.annotations`
+- 改动文件：`CIRAttrs.td`、`CIROps.td`、`CIRGenDecl.cpp`、`CIRGenModule.cpp/.h`、`CIRDialect.cpp`、`LowerToLLVM.cpp` 及测试文件 — **没有动 `CIRGenStmt.cpp`**
+- 关键细节：`emitAnnotateAttr` 和 `getOrCreateAnnotationArgs` 被放在 CIRGenModule 的 **private** 区域，原始注释写的是 "on a global"——说明设计意图就是只给全局变量和函数用的
+
+**结论：PR #193329 铺好了 CIR annotation 的基础设施（`cir::AnnotationAttr`），但仅限于函数/全局变量级别，完全不涉及语句.**
+
+### 正在推进的工作
+
+**PR #207551 — `[CIR] Preserve annotate attributes on record declarations`**
+- 作者：RedNicStone
+- 状态：open（尚未合入）
+- 范围：**仅 record（struct/class/union）声明**
+
+### 我们的工作 vs 社区
+
+| 粒度 | 社区状态 | 我们的状态 |
+|------|---------|-----------|
+| 函数/全局变量 annotation | ✅ 已合入（#193329, 2026.04） | 直接复用其基础设施 |
+| record 声明 annotation | 🔲 PR 审核中（#207551） | 不涉及 |
+| **循环/语句 annotation** | **无任何 PR、issue 或讨论** | **本次实现的贡献** |
+| CIR annotation → 下游 dialect | 无 | 本次实现（CIR → Skeleton） |
+
+### 解读
+
+关于循环级 annotation 的所有搜索（`cir.for annotation`、`CIR_LoopOpBase`、`attachLoopAnnotations`、`CIRGenStmt annotation`、`AttributedStmt annotate`）全部返回零结果。这并不意外：
+
+1. 传统 Clang → LLVM IR 路径上语句级 annotation 本来就传不下去（前面分析过了），社区没有这个使用场景。
+2. CIR 在 2026 年 4 月才刚有 annotation 基础设施，社区第一件事自然是把传统用法（函数/全局变量）先支持上，record 声明还在审核中。
+3. 把 annotation 当作优化提示往下游 dialect 传递——这个方向目前没有看到其他人在做。
+
+需要说明的是，我们并没有"打败"社区什么。我们是**站在社区肩膀上做了社区还没想到的事情**：
+- `cir::AnnotationAttr` 是社区给的（#193329）
+- 我们在 `CIR_LoopOpBase` 上用这个现成的 attribute 来做循环级 annotation
+- 然后通过 `cir-loop-to-skeleton` pass 把信息传导到自己的 Skeleton dialect
+- Skeleton dialect 本身是我们项目的工作，不是 llvm-project 社区的一部分
 
 ---
 
