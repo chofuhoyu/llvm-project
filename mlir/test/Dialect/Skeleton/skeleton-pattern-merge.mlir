@@ -1,4 +1,4 @@
-// RUN: mlir-opt %s -skeleton-pattern-merge -split-input-file | FileCheck %s
+// RUN: mlir-opt %s -skeleton-pattern-merge -split-input-file -verify-diagnostics | FileCheck %s
 
 //===----------------------------------------------------------------------===//
 // Test: skeleton.map {pure_fn = @add_fn} → skeleton.vector_add
@@ -48,6 +48,11 @@ func.func @test_no_merge_mul(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: 
 // Test: skeleton.map with preference preserved after merge
 //===----------------------------------------------------------------------===//
 
+func.func @add_fn(%a: f32, %b: f32) -> f32 {
+  %r = arith.addf %a, %b : f32
+  return %r : f32
+}
+
 func.func @test_merge_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8xf32>) -> tensor<8xf32> {
   %r = skeleton.map preference = #skeleton.preference<"GPU"> pure_fn = @add_fn
     ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>)
@@ -56,5 +61,5 @@ func.func @test_merge_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg
 }
 
 // CHECK-LABEL: func @test_merge_with_pref
-// CHECK: skeleton.vector_add preference = #skeleton.preference<"GPU">
+// CHECK: skeleton.vector_add preference = <"GPU">
 // CHECK-NOT: skeleton.map

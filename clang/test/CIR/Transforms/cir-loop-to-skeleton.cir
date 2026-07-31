@@ -1,0 +1,59 @@
+// RUN: cir-opt %s -cir-loop-to-skeleton -split-input-file -verify-diagnostics
+
+// The semi-automatic skeleton path is not yet implemented.  Annotated CIR
+// loops are detected but produce a diagnostic instead of skeleton ops.
+// Use the full manual path (skeleton helper function calls → cir-call-to-
+// skeleton) instead.
+
+// Test 1: annotated cir.for with preference → warning (not yet implemented)
+module {
+  cir.func @test_for_annotated() {
+    // expected-warning@+1 {{semi-automatic skeleton path not yet implemented}}
+    cir.for : cond {
+      %true = cir.const #cir.bool<true> : !cir.bool
+      cir.condition(%true)
+    } body {
+      cir.yield
+    } step {
+      cir.yield
+    } [#cir.annotation<"skeleton_vector_add", ["GPU"]>]
+    cir.return
+  }
+}
+
+// -----
+
+// Test 2: annotated cir.for without preference → warning (default path)
+module {
+  cir.func @test_for_no_pref() {
+    // expected-warning@+1 {{semi-automatic skeleton path not yet implemented}}
+    cir.for : cond {
+      %true = cir.const #cir.bool<true> : !cir.bool
+      cir.condition(%true)
+    } body {
+      cir.yield
+    } step {
+      cir.yield
+    } [#cir.annotation<"skeleton_vector_add">]
+    cir.return
+  }
+}
+
+// -----
+
+// Test 3: unannotated loop is untouched (no warning, no transformation)
+module {
+  cir.func @test_unannotated() {
+    cir.scope {
+      cir.for : cond {
+        %true = cir.const #cir.bool<true> : !cir.bool
+        cir.condition(%true)
+      } body {
+        cir.yield
+      } step {
+        cir.yield
+      }
+    }
+    cir.return
+  }
+}
