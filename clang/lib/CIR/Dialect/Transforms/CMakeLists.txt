@@ -15,6 +15,7 @@ add_clang_library(MLIRCIRTransforms
   IdiomRecognizer.cpp
   LibOpt.cpp
   CirLoopToSkeleton.cpp
+  CirCallToSkeleton.cpp
 
   DEPENDS
   MLIRCIRPassIncGen
@@ -25,8 +26,10 @@ add_clang_library(MLIRCIRTransforms
 
   MLIRABI
   MLIRAnalysis
+  MLIRBufferizationDialect
   MLIRDLTIDialect
   MLIRIR
+  MLIRMemRefDialect
   MLIRPass
   MLIRTransformUtils
 

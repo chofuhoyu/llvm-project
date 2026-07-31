@@ -20,7 +20,9 @@ def SkeletonToLinalg : Pass<"skeleton-to-linalg"> {
   }];
   let dependentDialects = [
     "mlir::linalg::LinalgDialect",
-    "mlir::skeleton::SkeletonDialect"
+    "mlir::skeleton::SkeletonDialect",
+    "mlir::arith::ArithDialect",
+    "mlir::func::FuncDialect"
   ];
 }
 
@@ -71,6 +73,23 @@ def SkeletonFinalizeMemRefToGpu : Pass<"skeleton-finalize-memref-to-gpu"> {
     "mlir::memref::MemRefDialect",
     "mlir::gpu::GPUDialect",
     "mlir::LLVM::LLVMDialect"
+  ];
+}
+
+def SkeletonPatternMerge : Pass<"skeleton-pattern-merge"> {
+  let summary = "Merge skeleton.map + pure_fn patterns into named ops";
+  let description = [{
+    Recognizes skeleton.map ops with simple pure functions and merges them
+    into named skeleton ops for further optimization.
+
+    Currently supports:
+    - skeleton.map {pure_fn = @add_fn} → skeleton.vector_add
+      (where @add_fn body is a single arith.addf of its arguments)
+  }];
+  let dependentDialects = [
+    "mlir::skeleton::SkeletonDialect",
+    "mlir::arith::ArithDialect",
+    "mlir::func::FuncDialect"
   ];
 }
 

@@ -6,8 +6,21 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Converts cir.for, cir.while, and cir.do operations that carry
-// cir.annotation attributes into skeleton.annotate operations.
+// Semi-automatic path (TODO): Converts annotated CIR loops (cir.for, cir.while,
+// cir.do) carrying cir.annotation attributes into Skeleton dialect structured
+// computation operations.
+//
+// The semi-automatic path recognizes annotated for-loops from C/C++ source
+// code and maps them to skeleton operators. This pass currently only detects
+// annotations and emits a diagnostic for unsupported patterns.
+//
+// The full manual path (skeleton helper function calls → skeleton ops) is
+// implemented in CirCallToSkeleton.cpp.
+//
+// TODO items for semi-automatic path:
+//  - Pattern-match loop bodies to produce skeleton.map / skeleton.reduce
+//  - Auto-extract inline computation from loop body into a pure func.func
+//  - Support lambda syntax for inline pure functions
 //
 //===----------------------------------------------------------------------===//
 
@@ -41,16 +54,14 @@ static cir::AnnotationAttr getFirstAnnotation(Operation *op) {
   return dyn_cast<cir::AnnotationAttr>(annotations[0]);
 }
 
-/// Structure to hold data extracted from an annotated loop operation.
+/// Extract loop annotation info. Returns true if the op carries a valid
+/// annotation.
 struct AnnotatedLoopInfo {
   cir::AnnotationAttr annotation;
   StringRef name;
   StringRef preference;
-  Region *bodyRegion;
 };
 
-/// Extract annotation info from a loop op. Returns true if the op carries
-/// a valid annotation.
 static bool extractLoopInfo(Operation *op, AnnotatedLoopInfo &info) {
   auto ann = getFirstAnnotation(op);
   if (!ann)
@@ -73,108 +84,32 @@ static bool extractLoopInfo(Operation *op, AnnotatedLoopInfo &info) {
   return true;
 }
 
-/// Pattern to convert an annotated cir::ForOp to skeleton.annotate.
-struct ConvertAnnotatedForOp : public OpRewritePattern<cir::ForOp> {
-  using OpRewritePattern<cir::ForOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(cir::ForOp op,
-                                PatternRewriter &rewriter) const override {
-    AnnotatedLoopInfo info;
-    if (!extractLoopInfo(op, info))
-      return failure();
-
-    // Create skeleton.annotate as a marker before the loop.
-    rewriter.setInsertionPoint(op);
-    auto annotateOp = rewriter.create<skeleton::AnnotateOp>(
-        op.getLoc(),
-        /*preference=*/nullptr,
-        /*annotation_name=*/nullptr);
-
-    if (!info.name.empty())
-      annotateOp.setAnnotationNameAttr(
-          rewriter.getStringAttr(info.name));
-
-    if (!info.preference.empty()) {
-      annotateOp.setPreferenceAttr(skeleton::PreferenceAttr::get(
-          getContext(), rewriter.getStringAttr(info.preference)));
-    }
-
-    return success();
-  }
-};
-
-/// Pattern to recognize an annotated cir::WhileOp.
-struct ConvertAnnotatedWhileOp : public OpRewritePattern<cir::WhileOp> {
-  using OpRewritePattern<cir::WhileOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(cir::WhileOp op,
-                                PatternRewriter &rewriter) const override {
-    AnnotatedLoopInfo info;
-    if (!extractLoopInfo(op, info))
-      return failure();
-
-    rewriter.setInsertionPoint(op);
-    auto annotateOp = rewriter.create<skeleton::AnnotateOp>(
-        op.getLoc(),
-        /*preference=*/nullptr,
-        /*annotation_name=*/nullptr);
-    if (!info.name.empty())
-      annotateOp.setAnnotationNameAttr(rewriter.getStringAttr(info.name));
-    if (!info.preference.empty())
-      annotateOp.setPreferenceAttr(skeleton::PreferenceAttr::get(
-          getContext(), rewriter.getStringAttr(info.preference)));
-    return success();
-  }
-};
-
-/// Pattern to recognize an annotated cir::DoWhileOp.
-struct ConvertAnnotatedDoWhileOp : public OpRewritePattern<cir::DoWhileOp> {
-  using OpRewritePattern<cir::DoWhileOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(cir::DoWhileOp op,
-                                PatternRewriter &rewriter) const override {
-    AnnotatedLoopInfo info;
-    if (!extractLoopInfo(op, info))
-      return failure();
-
-    rewriter.setInsertionPoint(op);
-    auto annotateOp = rewriter.create<skeleton::AnnotateOp>(
-        op.getLoc(),
-        /*preference=*/nullptr,
-        /*annotation_name=*/nullptr);
-    if (!info.name.empty())
-      annotateOp.setAnnotationNameAttr(rewriter.getStringAttr(info.name));
-    if (!info.preference.empty())
-      annotateOp.setPreferenceAttr(skeleton::PreferenceAttr::get(
-          getContext(), rewriter.getStringAttr(info.preference)));
-    return success();
-  }
-};
-
 class CIRLoopToSkeletonPass
     : public impl::CIRLoopToSkeletonBase<CIRLoopToSkeletonPass> {
 public:
   using CIRLoopToSkeletonBase::CIRLoopToSkeletonBase;
 
   void runOnOperation() override {
-    auto *ctx = &getContext();
     getOperation()->walk([&](Operation *op) {
       AnnotatedLoopInfo info;
       if (!extractLoopInfo(op, info))
         return;
 
-      OpBuilder builder(ctx);
-      builder.setInsertionPoint(op);
-      auto annotateOp = builder.create<skeleton::AnnotateOp>(
-          op->getLoc(),
-          /*preference=*/nullptr,
-          /*annotation_name=*/nullptr);
-      if (!info.name.empty())
-        annotateOp.setAnnotationNameAttr(
-            builder.getStringAttr(info.name));
-      if (!info.preference.empty())
-        annotateOp.setPreferenceAttr(skeleton::PreferenceAttr::get(
-            ctx, builder.getStringAttr(info.preference)));
+      // TODO: Semi-automatic path — pattern-match the loop body to produce
+      // skeleton.map / skeleton.reduce operations.
+      //
+      // The semi-automatic path is not yet implemented. For now, annotated
+      // loops that use the for-loop + annotation pattern emit a warning.
+      // Use the full manual path (skeleton helper function calls) instead.
+      //
+      // Future work:
+      //  - Analyze loop body to recognize computation patterns
+      //  - Auto-extract inline computation into a pure func.func
+      //  - Produce skeleton.map / skeleton.reduce with pure_fn reference
+      //  - Support lambda syntax for inline pure functions
+      op->emitWarning("semi-automatic skeleton path not yet implemented; "
+                      "use the full manual path (skeleton helper function "
+                      "calls) instead");
     });
   }
 };

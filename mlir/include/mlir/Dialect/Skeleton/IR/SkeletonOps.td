@@ -15,30 +15,56 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/OpBase.td"
 
 //===----------------------------------------------------------------------===//
-// Skeleton CustomMatmulOp
+// Skeleton MapOp
 //===----------------------------------------------------------------------===//
 
-def Skeleton_CustomMatmulOp : Op<Skeleton_Dialect, "custom_matmul"> {
-  let summary = "A skeleton custom matrix multiplication operation";
+def Skeleton_MapOp : Op<Skeleton_Dialect, "map"> {
+  let summary = "A skeleton map operation applying a pure function element-wise";
   let description = [{
-    Represents a matrix multiplication pattern annotated by the programmer.
-    Carries a skeleton.preference attribute that indicates the desired target.
-    This operation is lowered to linalg.matmul by the skeleton-to-linalg pass.
+    Applies a pure function (referenced via `pure_fn` attribute) to input
+    tensors element-wise, or executes a nested skeleton computation graph
+    provided in the optional `body` region.
+
+    At least one of `pure_fn` or `body` must be present.
+
+    Example (leaf, pure_fn):
+    ```mlir
+    %r = skeleton.map {preference = #skeleton.preference<"CPU">, pure_fn = @my_add}
+      ins(%A, %B : tensor<?xf32>, tensor<?xf32>)
+      outs(%C : tensor<?xf32>) -> tensor<?xf32>
+    ```
+
+    Example (nested, region body):
+    ```mlir
+    %r = skeleton.map {preference = #skeleton.preference<"GPU">}
+      ins(%matrix : tensor<?x?xf32>)
+      outs(%output : tensor<?xf32>) {
+    ^bb0(%row: tensor<?xf32>, %init: tensor<f32>):
+      %sub = skeleton.reduce {pure_fn = @my_sum}
+        ins(%row : tensor<?xf32>)
+        outs(%init : tensor<f32>) -> tensor<f32>
+      skeleton.yield %sub : tensor<f32>
+    } -> tensor<?xf32>
+    ```
   }];
 
   let arguments = (ins
-    AnyRankedTensor:$lhs,
-    AnyRankedTensor:$rhs,
+    Variadic<AnyRankedTensor>:$inputs,
     AnyRankedTensor:$output,
+    OptionalAttr<FlatSymbolRefAttr>:$pure_fn,
     OptionalAttr<Skeleton_PreferenceAttr>:$preference
   );
 
   let results = (outs AnyRankedTensor:$result);
 
+  let regions = (region AnyRegion:$body);
+
   let assemblyFormat = [{
     (`preference` `=` $preference^)?
-    `ins` `(` $lhs `,` $rhs `:` type($lhs) `,` type($rhs) `)`
+    (`pure_fn` `=` $pure_fn^)?
+    `ins` `(` $inputs `:` type($inputs) `)`
     `outs` `(` $output `:` type($output) `)`
+    ($body^)?
     `->` type($result)
     attr-dict
   }];
@@ -47,22 +73,89 @@ def Skeleton_CustomMatmulOp : Op<Skeleton_Dialect, "custom_matmul"> {
 }
 
 //===----------------------------------------------------------------------===//
-// Skeleton VectorAddOp
+// Skeleton ReduceOp
+//===----------------------------------------------------------------------===//
+
+def Skeleton_ReduceOp : Op<Skeleton_Dialect, "reduce"> {
+  let summary = "A skeleton reduce operation applying a pure function as reduction";
+  let description = [{
+    Reduces an input tensor along its elements using a pure function
+    (referenced via `pure_fn` attribute), or executes a nested skeleton
+    computation graph provided in the optional `body` region.
+
+    At least one of `pure_fn` or `body` must be present.
+
+    The pure function must be a binary associative operation: `(T, T) -> T`.
+
+    Example:
+    ```mlir
+    %r = skeleton.reduce {preference = #skeleton.preference<"CPU">, pure_fn = @my_add}
+      ins(%input : tensor<?xf32>)
+      outs(%init : tensor<f32>) -> tensor<f32>
+    ```
+  }];
+
+  let arguments = (ins
+    AnyRankedTensor:$input,
+    AnyRankedTensor:$output,
+    OptionalAttr<FlatSymbolRefAttr>:$pure_fn,
+    OptionalAttr<Skeleton_PreferenceAttr>:$preference
+  );
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let regions = (region AnyRegion:$body);
+
+  let assemblyFormat = [{
+    (`preference` `=` $preference^)?
+    (`pure_fn` `=` $pure_fn^)?
+    `ins` `(` $input `:` type($input) `)`
+    `outs` `(` $output `:` type($output) `)`
+    ($body^)?
+    `->` type($result)
+    attr-dict
+  }];
+
+  let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// Skeleton YieldOp
+//===----------------------------------------------------------------------===//
+
+def Skeleton_YieldOp : Op<Skeleton_Dialect, "yield", [
+  Terminator, HasParent<"MapOp, ReduceOp">
+]> {
+  let summary = "Yield a value from a skeleton region body";
+  let description = [{
+    Terminates a skeleton operation's region body and yields the result
+    value back to the parent operation.
+  }];
+
+  let arguments = (ins AnyType:$value);
+
+  let assemblyFormat = "$value attr-dict `:` type($value)";
+}
+
+//===----------------------------------------------------------------------===//
+// Skeleton VectorAddOp (named op, product of pattern merge)
 //===----------------------------------------------------------------------===//
 
 def Skeleton_VectorAddOp : Op<Skeleton_Dialect, "vector_add"> {
-  let summary = "A skeleton vector addition operation";
+  let summary = "A named skeleton vector addition operation";
   let description = [{
-    Represents an element-wise vector addition (C[i] = A[i] + B[i])
-    annotated by the programmer. Carries a skeleton.preference attribute
-    indicating the desired execution target. This operation is lowered to
-    linalg.add by the skeleton-to-linalg pass.
+    Represents an element-wise vector addition (C[i] = A[i] + B[i]).
+    This is a named operation produced by merging a skeleton.map with
+    an arith.addf pure function. It carries a skeleton.preference
+    attribute indicating the desired execution target.
+
+    This operation is lowered to linalg.add by the skeleton-to-linalg pass.
 
     Example:
     ```
     %0 = skeleton.vector_add preference = #skeleton.preference<"CPU">
-        ins(%lhs, %rhs : tensor<8xf32>, tensor<8xf32>)
-        outs(%out : tensor<8xf32>) -> tensor<8xf32>
+      ins(%lhs, %rhs : tensor<?xf32>, tensor<?xf32>)
+      outs(%out : tensor<?xf32>) -> tensor<?xf32>
     ```
   }];
 
@@ -84,41 +177,6 @@ def Skeleton_VectorAddOp : Op<Skeleton_Dialect, "vector_add"> {
   }];
 
   let hasVerifier = 1;
-}
-
-//===----------------------------------------------------------------------===//
-// Skeleton AnnotateOp
-//===----------------------------------------------------------------------===//
-
-def Skeleton_AnnotateOp : Op<Skeleton_Dialect, "annotate"> {
-  let summary = "A skeleton annotation marker carrying frontend annotation info";
-  let description = [{
-    Marker operation that carries annotation metadata from C/C++ source
-    through the compilation pipeline. Carries a skeleton.preference attribute
-    and the original annotation name.
-
-    This is the intermediate representation between CIR frontend annotations
-    and structured computation operations like `skeleton.vector_add`. A
-    subsequent skeleton pass can recognize specific annotation names and
-    produce more specific operations.
-
-    Example:
-    ```
-    skeleton.annotate preference = #skeleton.preference<"GPU">
-      name = "skeleton_vector_add"
-    ```
-  }];
-
-  let arguments = (ins
-    OptionalAttr<Skeleton_PreferenceAttr>:$preference,
-    OptionalAttr<StrAttr>:$annotation_name
-  );
-
-  let assemblyFormat = [{
-    (`preference` `=` $preference^)?
-    (`name` `=` $annotation_name^)?
-    attr-dict
-  }];
 }
 
 #endif // SKELETON_OPS

@@ -37,6 +37,7 @@ std::unique_ptr<Pass> createIdiomRecognizerPass(clang::ASTContext *astCtx);
 std::unique_ptr<Pass> createLibOptPass();
 std::unique_ptr<Pass> createLibOptPass(clang::ASTContext *astCtx);
 std::unique_ptr<Pass> createCIRLoopToSkeletonPass();
+std::unique_ptr<Pass> createCIRCallToSkeletonPass();
 
 void populateCIRPreLoweringPasses(mlir::OpPassManager &pm);
 

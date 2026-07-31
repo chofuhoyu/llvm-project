@@ -6,8 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Partitions linalg.matmul ops carrying skeleton.preference into separate
-// func.func ops, replacing each with a func.call.
+// Partitions Linalg ops carrying skeleton.preference into separate func.func
+// ops, replacing each with a func.call.  Supports any linalg::LinalgOp
+// (matmul, add, generic, reduce, etc.).
 //
 //===----------------------------------------------------------------------===//
 
@@ -18,6 +19,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
+#include <vector>
 
 using namespace mlir;
 
@@ -29,6 +31,18 @@ namespace skeleton {
 
 namespace {
 
+/// A generic entry for outlining any Linalg op.
+struct OutlineEntry {
+  func::FuncOp func;
+  Operation *linalgOp;
+  SmallVector<Value> inputs;
+  SmallVector<Value> outputs;
+  SmallVector<Type> resultTypes;
+  unsigned index;
+  std::string preference;
+  std::string opName; // for generating function name
+};
+
 struct SkeletonPreferencePartitionPass
     : public impl::SkeletonPreferencePartitionBase<
           SkeletonPreferencePartitionPass> {
@@ -39,29 +53,37 @@ struct SkeletonPreferencePartitionPass
     MLIRContext *ctx = &getContext();
     SymbolTable symbolTable(module);
 
-    // Phase 1: collect all matmuls to outline, grouped by enclosing function.
-    // We must collect first because modifying the IR during a walk is unsafe.
-    struct OutlineEntry {
-      func::FuncOp func;
-      linalg::MatmulOp matmul;
-      unsigned index;
-      std::string preference;
-    };
-    SmallVector<OutlineEntry> worklist;
+    // Phase 1: collect all Linalg ops with skeleton.preference to outline.
+    std::vector<OutlineEntry> worklist;
 
     module.walk([&](func::FuncOp func) {
       unsigned idx = 0;
-      func.walk([&](linalg::MatmulOp matmul) {
-        auto prefAttr = matmul->getDiscardableAttr("skeleton.preference");
+      func.walk([&](linalg::LinalgOp linalgOp) {
+        auto prefAttr =
+            linalgOp->getDiscardableAttr("skeleton.preference");
         if (!prefAttr)
           return WalkResult::advance();
+
         auto pref = dyn_cast<PreferenceAttr>(prefAttr);
         if (!pref) {
-          matmul.emitWarning("expected #skeleton.preference attribute, got "
-                             "incompatible type; skipping");
+          linalgOp.emitWarning(
+              "expected #skeleton.preference attribute, got "
+              "incompatible type; skipping");
           return WalkResult::advance();
         }
-        worklist.push_back({func, matmul, idx++, pref.getValue().str()});
+
+        OutlineEntry entry;
+        entry.func = func;
+        entry.linalgOp = linalgOp;
+        llvm::append_range(entry.inputs, linalgOp.getDpsInputs());
+        llvm::append_range(entry.outputs, linalgOp.getDpsInits());
+        llvm::append_range(entry.resultTypes,
+                           linalgOp->getResultTypes());
+        entry.index = idx++;
+        entry.preference = pref.getValue().str();
+        entry.opName = linalgOp->getName().stripDialect().str();
+
+        worklist.push_back(entry);
         return WalkResult::advance();
       });
     });
@@ -69,63 +91,65 @@ struct SkeletonPreferencePartitionPass
     if (worklist.empty())
       return;
 
-    // Phase 2: outline each matmul into its own function.
+    // Phase 2: outline each op into its own function.
     OpBuilder builder(ctx);
     for (auto &entry : worklist) {
-      linalg::MatmulOp matmul = entry.matmul;
-      Location loc = matmul.getLoc();
+      Operation *op = entry.linalgOp;
+      Location loc = op->getLoc();
 
-      // Gather operand types for the new function signature.
+      // Gather all operands: inputs first, then outputs.
       SmallVector<Value> callOperands;
-      llvm::append_range(callOperands, matmul.getInputs());
-      llvm::append_range(callOperands, matmul.getOutputs());
-
       SmallVector<Type> operandTypes;
-      for (Value v : callOperands)
+      for (Value v : entry.inputs) {
+        callOperands.push_back(v);
         operandTypes.push_back(v.getType());
+      }
+      for (Value v : entry.outputs) {
+        callOperands.push_back(v);
+        operandTypes.push_back(v.getType());
+      }
 
-      // Build the function type.
       auto funcType =
-          FunctionType::get(ctx, operandTypes, matmul.getResultTypes());
+          FunctionType::get(ctx, operandTypes, entry.resultTypes);
 
       // Create the outlined func.func.
       std::string name =
-          (entry.preference + "_matmul_" + Twine(entry.index)).str();
-      auto outlinedFunc =
-          func::FuncOp::create(loc, name, funcType);
+          (entry.preference + "_" + entry.opName + "_" +
+           Twine(entry.index))
+              .str();
+      auto outlinedFunc = func::FuncOp::create(loc, name, funcType);
       outlinedFunc.setPrivate();
       outlinedFunc->setAttr("skeleton.target",
                             StringAttr::get(ctx, entry.preference));
 
-      // Populate the entry block.
       Block *entryBlock = outlinedFunc.addEntryBlock();
       builder.setInsertionPointToStart(entryBlock);
 
-      // Create the matmul inside the new function using block arguments.
-      unsigned numInputs = matmul.getInputs().size();
-      auto newMatmul = linalg::MatmulOp::create(
-          builder, loc, matmul.getResultTypes(),
-          /*inputs=*/entryBlock->getArguments().slice(0, numInputs),
-          /*outputs=*/entryBlock->getArguments().slice(numInputs));
+      // Clone the op inside the new function using block arguments.
+      IRMapping mapper;
+      // Map block arguments to the original operands.
+      for (unsigned i = 0; i < callOperands.size(); ++i)
+        mapper.map(callOperands[i], entryBlock->getArgument(i));
 
-      // Preserve the preference attribute on the new matmul.
-      // The attribute is guaranteed to exist (filtered in Phase 1).
-      auto prefAttr = matmul->getDiscardableAttr("skeleton.preference");
-      newMatmul->setDiscardableAttr("skeleton.preference", prefAttr);
+      Operation *newOp = builder.clone(*op, mapper);
 
-      // Add the return op.
-      func::ReturnOp::create(builder, loc, newMatmul.getResults());
+      // Preserve the preference attribute on the new op.
+      auto prefAttr = op->getDiscardableAttr("skeleton.preference");
+      if (prefAttr)
+        newOp->setDiscardableAttr("skeleton.preference", prefAttr);
 
-      // Insert the new function into the symbol table; capture the actual
-      // name in case SymbolTable renames it to avoid collisions.
+      // Add return op.
+      func::ReturnOp::create(builder, loc, newOp->getResults());
+
+      // Insert into symbol table.
       StringAttr actualName = symbolTable.insert(outlinedFunc);
 
-      // Replace the original matmul with a func.call.
-      builder.setInsertionPoint(matmul);
+      // Replace the original op with a func.call.
+      builder.setInsertionPoint(op);
       auto call = func::CallOp::create(builder, loc, actualName,
-                                        matmul.getResultTypes(), callOperands);
-      matmul.replaceAllUsesWith(call.getResults());
-      matmul.erase();
+                                       entry.resultTypes, callOperands);
+      op->replaceAllUsesWith(call.getResults());
+      op->erase();
     }
   }
 };

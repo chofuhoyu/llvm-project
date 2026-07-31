@@ -9,10 +9,18 @@
 #include "mlir/Dialect/Skeleton/IR/SkeletonOps.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonAttrs.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Pass/Pass.h"
+#include "mlir/IR/AffineMap.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/SymbolTable.h"
+#include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/TypeSwitch.h"
+
+using namespace mlir;
 
 namespace mlir {
 namespace skeleton {
@@ -22,26 +30,133 @@ namespace skeleton {
 
 namespace {
 
-struct ConvertCustomMatmul : public OpRewritePattern<CustomMatmulOp> {
-  using OpRewritePattern<CustomMatmulOp>::OpRewritePattern;
+//===----------------------------------------------------------------------===//
+// ConvertMapOp (pure_fn, no region) → linalg.generic
+//===----------------------------------------------------------------------===//
 
-  LogicalResult matchAndRewrite(CustomMatmulOp op,
+struct ConvertMapOp : public OpRewritePattern<MapOp> {
+  using OpRewritePattern<MapOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(MapOp op,
                                 PatternRewriter &rewriter) const override {
-    auto matmul = linalg::MatmulOp::create(
-        rewriter, op.getLoc(), op.getResult().getType(),
-        ValueRange{op.getLhs(), op.getRhs()}, op.getOutput());
+    // Only handle the case with pure_fn and no body region.
+    if (!op.getPureFnAttr() || !op.getBody().empty())
+      return failure();
 
-    // Preserve the preference attribute as a discardable attribute
-    if (auto pref = op.getPreferenceAttr()) {
-      matmul->setAttr("skeleton.preference", pref);
-    }
+    auto module = op->getParentOfType<ModuleOp>();
+    if (!module)
+      return failure();
 
-    rewriter.replaceOp(op, matmul->getResults());
+    auto fn = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
+        op, op.getPureFnAttr());
+    if (!fn)
+      return failure();
+
+    // Compute indexing maps and iterator types from the output tensor.
+    auto resultType = cast<RankedTensorType>(op.getResult().getType());
+    unsigned rank = resultType.getRank();
+    auto ctx = rewriter.getContext();
+
+    // Identity map for each operand.
+    SmallVector<AffineMap> indexingMaps;
+    unsigned numOperands = op.getInputs().size() + 1; // inputs + output
+    for (unsigned i = 0; i < numOperands; ++i)
+      indexingMaps.push_back(
+          AffineMap::getMultiDimIdentityMap(rank, ctx));
+
+    // All parallel iterators for element-wise ops.
+    SmallVector<utils::IteratorType> iteratorTypes(
+        rank, utils::IteratorType::parallel);
+
+    auto generic = rewriter.create<linalg::GenericOp>(
+        op.getLoc(),
+        /*resultTypes=*/resultType,
+        /*inputs=*/op.getInputs(),
+        /*outputs=*/ValueRange{op.getOutput()},
+        /*indexingMaps=*/indexingMaps,
+        /*iteratorTypes=*/iteratorTypes,
+        /*doc=*/"",
+        /*libraryCall=*/"",
+        [&](OpBuilder &bodyBuilder, Location loc, ValueRange blockArgs) {
+          // Map blockArgs to pure_fn parameters and clone the body.
+          IRMapping mapper;
+          for (unsigned i = 0; i < blockArgs.size() - 1; ++i)
+            mapper.map(fn.getArgument(i), blockArgs[i]);
+          for (auto &bodyOp : fn.getBody().front().without_terminator())
+            bodyBuilder.clone(bodyOp, mapper);
+          auto retOp = cast<func::ReturnOp>(
+              fn.getBody().front().getTerminator());
+          Value mappedRet = mapper.lookupOrDefault(retOp.getOperand(0));
+          bodyBuilder.create<linalg::YieldOp>(loc, mappedRet);
+        });
+
+    // Preserve skeleton.preference as a discardable attribute.
+    if (auto pref = op.getPreferenceAttr())
+      generic->setDiscardableAttr("skeleton.preference", pref);
+
+    rewriter.replaceOp(op, generic->getResults());
     return success();
   }
 };
 
-struct ConvertVectorAdd : public OpRewritePattern<VectorAddOp> {
+//===----------------------------------------------------------------------===//
+// ConvertReduceOp (pure_fn, no region) → linalg.reduce
+//===----------------------------------------------------------------------===//
+
+struct ConvertReduceOp : public OpRewritePattern<ReduceOp> {
+  using OpRewritePattern<ReduceOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ReduceOp op,
+                                PatternRewriter &rewriter) const override {
+    if (!op.getPureFnAttr() || !op.getBody().empty())
+      return failure();
+
+    auto module = op->getParentOfType<ModuleOp>();
+    if (!module)
+      return failure();
+
+    auto fn = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
+        op, op.getPureFnAttr());
+    if (!fn)
+      return failure();
+
+    auto inputType = cast<RankedTensorType>(op.getInput().getType());
+
+    // Build a linalg.reduce with the pure_fn body cloned into its combiner
+    // region.
+    auto reduce = rewriter.create<linalg::ReduceOp>(
+        op.getLoc(),
+        /*inputs=*/ValueRange{op.getInput()},
+        /*inits=*/ValueRange{op.getOutput()},
+        /*dimensions=*/rewriter.getDenseI64ArrayAttr(
+            llvm::to_vector(llvm::seq<int64_t>(0, inputType.getRank()))),
+        [&](OpBuilder &bodyBuilder, Location loc, ValueRange blockArgs) {
+          // blockArgs: [accumulator, element]
+          IRMapping mapper;
+          mapper.map(fn.getArgument(0), blockArgs[0]);
+          mapper.map(fn.getArgument(1), blockArgs[1]);
+          for (auto &bodyOp : fn.getBody().front().without_terminator())
+            bodyBuilder.clone(bodyOp, mapper);
+          auto retOp = cast<func::ReturnOp>(
+              fn.getBody().front().getTerminator());
+          Value mappedRet = mapper.lookupOrDefault(retOp.getOperand(0));
+          bodyBuilder.create<linalg::YieldOp>(loc, mappedRet);
+        });
+
+    // Preserve skeleton.preference.
+    if (auto pref = op.getPreferenceAttr())
+      reduce->setDiscardableAttr("skeleton.preference", pref);
+
+    rewriter.replaceOp(op, reduce->getResults());
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// ConvertVectorAddOp → linalg.add
+//===----------------------------------------------------------------------===//
+
+struct ConvertVectorAddOp : public OpRewritePattern<VectorAddOp> {
   using OpRewritePattern<VectorAddOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(VectorAddOp op,
@@ -50,14 +165,17 @@ struct ConvertVectorAdd : public OpRewritePattern<VectorAddOp> {
         op.getLoc(), op.getResult().getType(),
         ValueRange{op.getLhs(), op.getRhs()}, op.getOutput());
 
-    // Preserve the preference attribute as a discardable attribute
     if (auto pref = op.getPreferenceAttr())
-      addOp->setAttr("skeleton.preference", pref);
+      addOp->setDiscardableAttr("skeleton.preference", pref);
 
     rewriter.replaceOp(op, addOp->getResults());
     return success();
   }
 };
+
+//===----------------------------------------------------------------------===//
+// Pass
+//===----------------------------------------------------------------------===//
 
 class SkeletonToLinalgPass
     : public impl::SkeletonToLinalgBase<SkeletonToLinalgPass> {
@@ -66,10 +184,10 @@ public:
 
   void runOnOperation() override {
     RewritePatternSet patterns(&getContext());
-    patterns.add<ConvertCustomMatmul, ConvertVectorAdd>(&getContext());
+    patterns.add<ConvertMapOp, ConvertReduceOp, ConvertVectorAddOp>(
+        &getContext());
 
-    if (failed(applyPatternsGreedily(getOperation(),
-                                     std::move(patterns))))
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
       signalPassFailure();
   }
 };

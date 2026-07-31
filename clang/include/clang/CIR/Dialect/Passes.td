@@ -272,4 +272,38 @@ def CIRLoopToSkeleton : Pass<"cir-loop-to-skeleton"> {
   ];
 }
 
+def CIRCallToSkeleton : Pass<"cir-call-to-skeleton", "mlir::ModuleOp"> {
+  let summary = "Convert calls to skeleton helper functions into Skeleton dialect ops";
+  let description = [{
+    Full manual path: Recognizes `cir.call` operations whose callee is a
+    skeleton helper function declaration (marked with the `skeleton.op`
+    attribute) and replaces the call with the corresponding Skeleton dialect
+    structured operation (e.g., `skeleton.map`, `skeleton.reduce`).
+
+    The pass:
+    1. Collects functions annotated with `skeleton.pure` (pure functions).
+    2. Collects external function declarations annotated with `skeleton.op`
+       (skeleton helper functions from headers).
+    3. For calls to skeleton helper functions inside annotated functions:
+       - Extracts the pure_fn reference from the first call argument.
+       - Rewrites the enclosing cir.func to a func.func with memref parameters.
+       - Generates the corresponding skeleton.map or skeleton.reduce op.
+
+    Semi-automatic path (TODO): annotated for-loops with inline computation
+    will be handled in the future, auto-extracting pure functions from loop
+    bodies.
+
+    Lambda support (TODO): captureless lambdas will be recognized as pure_fn
+    references.
+  }];
+  let constructor = "mlir::createCIRCallToSkeletonPass()";
+  let dependentDialects = [
+    "cir::CIRDialect",
+    "mlir::skeleton::SkeletonDialect",
+    "mlir::func::FuncDialect",
+    "mlir::memref::MemRefDialect",
+    "mlir::bufferization::BufferizationDialect"
+  ];
+}
+
 #endif // CLANG_CIR_DIALECT_PASSES_TD
