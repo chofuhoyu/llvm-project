@@ -11,7 +11,7 @@
       "displayName": "Debug Build",
       "description": "Debug build with assertions enabled",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/../build-debug",
+      "binaryDir": "${sourceDir}/../build",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "LLVM_ENABLE_ASSERTIONS": "ON",
@@ -22,16 +22,6 @@
         "LLVM_USE_LINKER": "lld",
         "CLANG_ENABLE_CIR": "ON",
         "MLIR_ENABLE_EXECUTION_ENGINE": "ON"
-      }
-    },
-    {
-      "name": "reldeb",
-      "displayName": "RelWithDebInfo Build",
-      "description": "Release build with debug info, inherits all debug preset settings",
-      "inherits": "debug",
-      "binaryDir": "${sourceDir}/../build-reldeb",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
       }
     }
   ]
