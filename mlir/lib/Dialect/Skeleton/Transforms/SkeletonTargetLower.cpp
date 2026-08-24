@@ -121,6 +121,10 @@ struct SkeletonTargetLowerPass
         builder.setInsertionPoint(entry.call);
 
         if (entry.hostMemrefType.getNumDynamicDims() > 0) {
+          // TODO: Skipping the bridge leaves the host memref as the GPU
+          // call operand, so the kernel reads/writes host memory. Fail the
+          // pass (or implement dynamic-shape bridging) instead of silently
+          // degrading.
           entry.call.emitWarning(
               "skipping GPU memory bridging for dynamically-shaped memref "
               "operand; static shapes required for GPU lowering");
@@ -128,6 +132,11 @@ struct SkeletonTargetLowerPass
         }
 
         // Sync alloc: no async, no token.
+        // TODO: The device memref type is rebuilt from shape + element
+        // type only, dropping the host layout (offset/strides) and any
+        // explicit address space; the cast back to hostMemrefType below
+        // papers over the difference. Derive the alloc type from
+        // hostMemrefType instead.
         auto allocType =
             MemRefType::get(entry.hostMemrefType.getShape(),
                             entry.hostMemrefType.getElementType());
@@ -196,6 +205,11 @@ struct SkeletonTargetLowerPass
                                  gpuMemref);
         }
 
+        // TODO: Single-output assumption: only the last copied-back host
+        // memref replaces call.getResult(0) (hard-coded index 0), and the
+        // read-only check above treats every memref.get_global as
+        // immutable. Calls with several writable memrefs, multiple
+        // results, or written globals silently lose the other copy-backs.
         // Replace call result (device memref, now dealloc'd) with the
         // host memref that received the copy-back.
         if (outputHostMemref) {

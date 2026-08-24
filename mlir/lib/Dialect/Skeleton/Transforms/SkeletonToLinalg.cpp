@@ -76,6 +76,10 @@ struct ConvertMapOp : public OpRewritePattern<MapOp> {
         /*doc=*/"",
         /*libraryCall=*/"",
         [&](OpBuilder &bodyBuilder, Location loc, ValueRange blockArgs) {
+          // TODO: This assumes the pure_fn body is a single straight-line
+          // block: only the entry block is cloned (control flow silently
+          // dropped) and the terminator is hard-cast to func::ReturnOp.
+          // Reject multi-block pure_fn bodies or inline them properly.
           // Map blockArgs to pure_fn parameters and clone the body.
           IRMapping mapper;
           for (unsigned i = 0; i < blockArgs.size() - 1; ++i)
@@ -129,6 +133,8 @@ struct ConvertReduceOp : public OpRewritePattern<ReduceOp> {
         /*dimensions=*/
         llvm::to_vector(llvm::seq<int64_t>(0, inputType.getRank())),
         [&](OpBuilder &bodyBuilder, Location loc, ValueRange blockArgs) {
+          // TODO: Same single-block straight-line assumption as ConvertMapOp:
+          // only the entry block is cloned and the terminator hard-cast.
           // blockArgs: [accumulator, element]
           IRMapping mapper;
           mapper.map(fn.getArgument(0), blockArgs[0]);

@@ -75,6 +75,10 @@ struct MergeMapAddToVectorAdd : public OpRewritePattern<MapOp> {
     if (op.getInputs().size() != 2)
       return failure();
 
+    // TODO: vector_add is 1D-only (see VectorAddOp::verify), but this merge
+    // does not check the operand rank or element type — a 2D+ tensor
+    // map{pure_fn=@add} merges into a vector_add that fails verification.
+    // Check rank (and element type) before merging.
     auto module = op->getParentOfType<ModuleOp>();
     if (!module)
       return failure();

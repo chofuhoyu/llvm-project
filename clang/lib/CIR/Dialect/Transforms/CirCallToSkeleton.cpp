@@ -91,6 +91,10 @@ static FlatSymbolRefAttr extractPureFnRef(cir::CallOp callOp, unsigned argIdx,
 }
 
 /// Extract preference string from a cir.func's annotations attribute.
+/// TODO: This positional parsing (annotations[0] → args[0]) is fragile, and
+/// any miss silently falls back to "CPU"; an unrecognized value is passed
+/// through unchecked and only rejected later by the PreferenceAttr
+/// verifier. Look up the annotation by kind and validate the value here.
 static std::string extractPreference(cir::FuncOp func) {
   auto annotations = func->getAttrOfType<ArrayAttr>("annotations");
   if (annotations && !annotations.empty()) {
@@ -199,6 +203,11 @@ static LogicalResult lowerMapCall(SkeletonCallInfo &info,
   // We need to find the memref block args that correspond to the original
   // cir.ptr params. In the rewritten function, all cir.ptr<T> params become
   // memref<?xT>. We walk all memref block args and assign them positionally.
+  // TODO: This positional matching assumes the rewritten function's memref
+  // params appear in the same order as the skeleton call's data operands,
+  // and that the function has no other pointer params — an extra or
+  // reordered param silently binds the wrong operand. Recover the
+  // correspondence from the original call's argument values instead.
   SmallVector<Value> memrefArgs;
   for (unsigned i = 0; i < newFunc.getNumArguments(); ++i) {
     if (isa<MemRefType>(newFunc.getArgument(i).getType()))
@@ -241,6 +250,7 @@ static LogicalResult lowerReduceCall(SkeletonCallInfo &info,
   auto loc = info.callOp.getLoc();
   auto *ctx = builder.getContext();
 
+  // TODO: Same positional memref-arg matching assumption as lowerMapCall.
   SmallVector<Value> memrefArgs;
   for (unsigned i = 0; i < newFunc.getNumArguments(); ++i) {
     if (isa<MemRefType>(newFunc.getArgument(i).getType()))
