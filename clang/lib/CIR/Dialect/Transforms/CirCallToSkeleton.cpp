@@ -109,6 +109,7 @@ static std::string extractPreference(cir::FuncOp func) {
 }
 
 /// Map a CIR scalar type to standard MLIR type.
+/// TODO: Replace this with a more robust type converter.
 static Type cirTypeToStdType(Type cirTy, MLIRContext *ctx) {
   if (cirTy.isInteger(32))
     return IntegerType::get(ctx, 32);
