@@ -7,11 +7,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"
-#include "mlir/Dialect/Skeleton/IR/SkeletonOps.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonAttrs.h"
+#include "mlir/Dialect/Skeleton/IR/SkeletonOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
-#include "mlir/IR/OpImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;

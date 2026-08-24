@@ -13,11 +13,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Skeleton/IR/SkeletonOps.h"
-#include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"
-#include "mlir/Dialect/Skeleton/IR/SkeletonAttrs.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"
+#include "mlir/Dialect/Skeleton/IR/SkeletonOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"

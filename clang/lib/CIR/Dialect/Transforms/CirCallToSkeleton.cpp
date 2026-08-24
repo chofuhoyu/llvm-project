@@ -15,7 +15,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PassDetail.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -25,8 +24,6 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/SymbolTable.h"
 #include "clang/CIR/Dialect/IR/CIRAttrs.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "clang/CIR/Dialect/IR/CIRTypes.h"
@@ -142,16 +139,16 @@ static Value createToTensor(OpBuilder &builder, Location loc, Value memref) {
   auto memrefType = cast<MemRefType>(memref.getType());
   auto tensorType = RankedTensorType::get(memrefType.getShape(),
                                           memrefType.getElementType());
-  return builder.create<bufferization::ToTensorOp>(loc, tensorType, memref,
-                                                    /*restrict=*/true,
-                                                    /*writable=*/true);
+  return bufferization::ToTensorOp::create(builder, loc, tensorType, memref,
+                                           /*restrict=*/true,
+                                           /*writable=*/true);
 }
 
 /// Create bufferization.materialize_in_destination.
 static void createMaterializeInDest(OpBuilder &builder, Location loc,
                                      Value tensor, Value memref) {
-  builder.create<bufferization::MaterializeInDestinationOp>(
-      loc, tensor, memref);
+  bufferization::MaterializeInDestinationOp::create(builder, loc, tensor,
+                                                    memref);
 }
 
 /// Rewrite a cir.func to a func.func with memref parameters.
@@ -165,7 +162,7 @@ static void createMaterializeInDest(OpBuilder &builder, Location loc,
 static func::FuncOp rewriteToStandardFunc(cir::FuncOp cirFunc,
                                            OpBuilder &rewriter) {
   auto loc = cirFunc.getLoc();
-  auto ctx = rewriter.getContext();
+  auto *ctx = rewriter.getContext();
 
   SmallVector<Type> newInputTypes;
   for (unsigned i = 0; i < cirFunc.getNumArguments(); ++i) {
@@ -181,8 +178,8 @@ static func::FuncOp rewriteToStandardFunc(cir::FuncOp cirFunc,
 
   auto funcType = FunctionType::get(ctx, newInputTypes, {});
 
-  auto newFunc = rewriter.create<func::FuncOp>(loc, cirFunc.getSymName(),
-                                                funcType);
+  auto newFunc =
+      func::FuncOp::create(rewriter, loc, cirFunc.getSymName(), funcType);
   newFunc.setSymVisibility(cirFunc.getSymVisibility());
 
   auto *entryBlock = newFunc.addEntryBlock();
@@ -196,7 +193,7 @@ static LogicalResult lowerMapCall(SkeletonCallInfo &info,
                                    func::FuncOp newFunc,
                                    OpBuilder &builder) {
   auto loc = info.callOp.getLoc();
-  auto ctx = builder.getContext();
+  auto *ctx = builder.getContext();
 
   // Map call args to new function's memref block arguments.
   // We need to find the memref block args that correspond to the original
@@ -229,9 +226,9 @@ static LogicalResult lowerMapCall(SkeletonCallInfo &info,
   auto prefAttr = skeleton::PreferenceAttr::get(
       ctx, StringAttr::get(ctx, info.preference));
 
-  auto mapOp = builder.create<skeleton::MapOp>(
-      loc, outputTensor.getType(), inputTensors, outputTensor, pureFnAttr,
-      prefAttr);
+  auto mapOp =
+      skeleton::MapOp::create(builder, loc, outputTensor.getType(),
+                              inputTensors, outputTensor, pureFnAttr, prefAttr);
 
   createMaterializeInDest(builder, loc, mapOp.getResult(), outputMemref);
   return success();
@@ -242,7 +239,7 @@ static LogicalResult lowerReduceCall(SkeletonCallInfo &info,
                                       func::FuncOp newFunc,
                                       OpBuilder &builder) {
   auto loc = info.callOp.getLoc();
-  auto ctx = builder.getContext();
+  auto *ctx = builder.getContext();
 
   SmallVector<Value> memrefArgs;
   for (unsigned i = 0; i < newFunc.getNumArguments(); ++i) {
@@ -265,9 +262,9 @@ static LogicalResult lowerReduceCall(SkeletonCallInfo &info,
   auto prefAttr = skeleton::PreferenceAttr::get(
       ctx, StringAttr::get(ctx, info.preference));
 
-  auto reduceOp = builder.create<skeleton::ReduceOp>(
-      loc, outputTensor.getType(), inputTensor, outputTensor, pureFnAttr,
-      prefAttr);
+  auto reduceOp = skeleton::ReduceOp::create(
+      builder, loc, outputTensor.getType(), inputTensor, outputTensor,
+      pureFnAttr, prefAttr);
 
   createMaterializeInDest(builder, loc, reduceOp.getResult(), outputMemref);
   return success();
@@ -350,7 +347,7 @@ public:
             << info.opType << "'";
 
       if (succeeded(result))
-        builder.create<func::ReturnOp>(newFunc.getLoc());
+        func::ReturnOp::create(builder, newFunc.getLoc());
     }
 
     // Erase original cir.func ops (now replaced by func.func ops).

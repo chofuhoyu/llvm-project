@@ -6,19 +6,17 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Skeleton/IR/SkeletonOps.h"
-#include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"
-#include "mlir/Dialect/Skeleton/IR/SkeletonAttrs.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"
+#include "mlir/Dialect/Skeleton/IR/SkeletonOps.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;
 
@@ -55,7 +53,7 @@ struct ConvertMapOp : public OpRewritePattern<MapOp> {
     // Compute indexing maps and iterator types from the output tensor.
     auto resultType = cast<RankedTensorType>(op.getResult().getType());
     unsigned rank = resultType.getRank();
-    auto ctx = rewriter.getContext();
+    auto *ctx = rewriter.getContext();
 
     // Identity map for each operand.
     SmallVector<AffineMap> indexingMaps;
@@ -68,9 +66,9 @@ struct ConvertMapOp : public OpRewritePattern<MapOp> {
     SmallVector<utils::IteratorType> iteratorTypes(
         rank, utils::IteratorType::parallel);
 
-    auto generic = rewriter.create<linalg::GenericOp>(
-        op.getLoc(),
-        /*resultTypes=*/resultType,
+    auto generic = linalg::GenericOp::create(
+        rewriter, op.getLoc(),
+        /*resultTensorTypes=*/resultType,
         /*inputs=*/op.getInputs(),
         /*outputs=*/ValueRange{op.getOutput()},
         /*indexingMaps=*/indexingMaps,
@@ -87,7 +85,7 @@ struct ConvertMapOp : public OpRewritePattern<MapOp> {
           auto retOp = cast<func::ReturnOp>(
               fn.getBody().front().getTerminator());
           Value mappedRet = mapper.lookupOrDefault(retOp.getOperand(0));
-          bodyBuilder.create<linalg::YieldOp>(loc, mappedRet);
+          linalg::YieldOp::create(bodyBuilder, loc, mappedRet);
         });
 
     // Preserve skeleton.preference as a discardable attribute.
@@ -124,12 +122,12 @@ struct ConvertReduceOp : public OpRewritePattern<ReduceOp> {
 
     // Build a linalg.reduce with the pure_fn body cloned into its combiner
     // region.
-    auto reduce = rewriter.create<linalg::ReduceOp>(
-        op.getLoc(),
+    auto reduce = linalg::ReduceOp::create(
+        rewriter, op.getLoc(),
         /*inputs=*/ValueRange{op.getInput()},
         /*inits=*/ValueRange{op.getOutput()},
-        /*dimensions=*/rewriter.getDenseI64ArrayAttr(
-            llvm::to_vector(llvm::seq<int64_t>(0, inputType.getRank()))),
+        /*dimensions=*/
+        llvm::to_vector(llvm::seq<int64_t>(0, inputType.getRank())),
         [&](OpBuilder &bodyBuilder, Location loc, ValueRange blockArgs) {
           // blockArgs: [accumulator, element]
           IRMapping mapper;
@@ -140,7 +138,7 @@ struct ConvertReduceOp : public OpRewritePattern<ReduceOp> {
           auto retOp = cast<func::ReturnOp>(
               fn.getBody().front().getTerminator());
           Value mappedRet = mapper.lookupOrDefault(retOp.getOperand(0));
-          bodyBuilder.create<linalg::YieldOp>(loc, mappedRet);
+          linalg::YieldOp::create(bodyBuilder, loc, mappedRet);
         });
 
     // Preserve skeleton.preference.
@@ -161,8 +159,8 @@ struct ConvertVectorAddOp : public OpRewritePattern<VectorAddOp> {
 
   LogicalResult matchAndRewrite(VectorAddOp op,
                                 PatternRewriter &rewriter) const override {
-    auto addOp = rewriter.create<linalg::AddOp>(
-        op.getLoc(), op.getResult().getType(),
+    auto addOp = linalg::AddOp::create(
+        rewriter, op.getLoc(), op.getResult().getType(),
         ValueRange{op.getLhs(), op.getRhs()}, op.getOutput());
 
     if (auto pref = op.getPreferenceAttr())
