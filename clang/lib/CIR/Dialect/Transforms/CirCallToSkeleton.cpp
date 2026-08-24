@@ -156,6 +156,12 @@ static void createMaterializeInDest(OpBuilder &builder, Location loc,
 
 /// Rewrite a cir.func to a func.func with memref parameters.
 /// Returns the new func.func.
+///
+/// TODO: This signature reconstruction is ad-hoc and lossy: every pointer
+/// param becomes a memref<?xT> (shape dropped), non-pointer params collapse
+/// to index, and the original body is discarded — multiple skeleton calls or
+/// non-skeleton code are silently dropped. Derive the signature from the
+/// pure_fn signature / a proper TypeConverter instead.
 static func::FuncOp rewriteToStandardFunc(cir::FuncOp cirFunc,
                                            OpBuilder &rewriter) {
   auto loc = cirFunc.getLoc();
