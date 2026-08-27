@@ -8,10 +8,31 @@ func.func @missing_both(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<?xf32>)
   %A_t = bufferization.to_tensor %A : memref<?xf32> to tensor<?xf32>
   %B_t = bufferization.to_tensor %B : memref<?xf32> to tensor<?xf32>
   %C_t = bufferization.to_tensor %C : memref<?xf32> to tensor<?xf32>
-  // expected-error@+1 {{requires at least one of 'pure_fn' or a body region}}
+  // expected-error@+1 {{requires exactly one of 'pure_fn' or a body region}}
   %r = skeleton.map
     ins(%A_t, %B_t : tensor<?xf32>, tensor<?xf32>)
     outs(%C_t : tensor<?xf32>) -> tensor<?xf32>
+  return
+}
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// MapOp: both pure_fn and body → error
+//===----------------------------------------------------------------------===//
+
+func.func @map_hybrid(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<?xf32>) {
+  %A_t = bufferization.to_tensor %A : memref<?xf32> to tensor<?xf32>
+  %B_t = bufferization.to_tensor %B : memref<?xf32> to tensor<?xf32>
+  %C_t = bufferization.to_tensor %C : memref<?xf32> to tensor<?xf32>
+  // expected-error@+1 {{requires exactly one of 'pure_fn' or a body region}}
+  %r = skeleton.map pure_fn = @my_add
+    ins(%A_t, %B_t : tensor<?xf32>, tensor<?xf32>)
+    outs(%C_t : tensor<?xf32>) {
+  ^bb0(%a: f32, %b: f32, %c: f32):
+    %s = arith.addf %a, %b : f32
+    skeleton.yield %s : f32
+  } -> tensor<?xf32>
   return
 }
 
@@ -102,10 +123,30 @@ func.func @output_result_mismatch(%A: memref<?xf32>, %B: memref<?xf32>, %C: memr
 func.func @reduce_missing_both(%input: memref<?xf32>, %init: memref<f32>) {
   %in_t = bufferization.to_tensor %input : memref<?xf32> to tensor<?xf32>
   %init_t = bufferization.to_tensor %init : memref<f32> to tensor<f32>
-  // expected-error@+1 {{requires at least one of 'pure_fn' or a body region}}
+  // expected-error@+1 {{requires exactly one of 'pure_fn' or a body region}}
   %r = skeleton.reduce
     ins(%in_t : tensor<?xf32>)
     outs(%init_t : tensor<f32>) -> tensor<f32>
+  return
+}
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// ReduceOp: both pure_fn and body → error
+//===----------------------------------------------------------------------===//
+
+func.func @reduce_hybrid(%input: memref<?xf32>, %init: memref<f32>) {
+  %in_t = bufferization.to_tensor %input : memref<?xf32> to tensor<?xf32>
+  %init_t = bufferization.to_tensor %init : memref<f32> to tensor<f32>
+  // expected-error@+1 {{requires exactly one of 'pure_fn' or a body region}}
+  %r = skeleton.reduce pure_fn = @my_sum
+    ins(%in_t : tensor<?xf32>)
+    outs(%init_t : tensor<f32>) {
+  ^bb0(%acc: f32, %elem: f32):
+    %s = arith.addf %acc, %elem : f32
+    skeleton.yield %s : f32
+  } -> tensor<f32>
   return
 }
 

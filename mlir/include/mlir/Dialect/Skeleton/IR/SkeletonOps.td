@@ -25,7 +25,7 @@ def Skeleton_MapOp : Op<Skeleton_Dialect, "map"> {
     tensors element-wise, or executes a nested skeleton computation graph
     provided in the optional `body` region.
 
-    At least one of `pure_fn` or `body` must be present.
+    Exactly one of `pure_fn` or `body` must be present.
 
     Example (leaf, pure_fn):
     ```mlir
@@ -83,7 +83,7 @@ def Skeleton_ReduceOp : Op<Skeleton_Dialect, "reduce"> {
     (referenced via `pure_fn` attribute), or executes a nested skeleton
     computation graph provided in the optional `body` region.
 
-    At least one of `pure_fn` or `body` must be present.
+    Exactly one of `pure_fn` or `body` must be present.
 
     The pure function must be a binary associative operation: `(T, T) -> T`.
 

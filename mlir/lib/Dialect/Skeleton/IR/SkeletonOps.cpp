@@ -79,9 +79,9 @@ LogicalResult MapOp::verify() {
   bool hasPureFn = getPureFnAttr() != nullptr;
   bool hasBody = !getBody().empty();
 
-  // At least one of pure_fn or body must be present.
-  if (!hasPureFn && !hasBody)
-    return emitOpError("requires at least one of 'pure_fn' or a body region");
+  // Exactly one of pure_fn or body must be present.
+  if (hasPureFn == hasBody)
+    return emitOpError("requires exactly one of 'pure_fn' or a body region");
 
   auto outputType = cast<RankedTensorType>(getOutput().getType());
   auto resultType = cast<RankedTensorType>(getResult().getType());
@@ -148,9 +148,9 @@ LogicalResult ReduceOp::verify() {
   bool hasPureFn = getPureFnAttr() != nullptr;
   bool hasBody = !getBody().empty();
 
-  // At least one of pure_fn or body must be present.
-  if (!hasPureFn && !hasBody)
-    return emitOpError("requires at least one of 'pure_fn' or a body region");
+  // Exactly one of pure_fn or body must be present.
+  if (hasPureFn == hasBody)
+    return emitOpError("requires exactly one of 'pure_fn' or a body region");
 
   auto inputType = cast<RankedTensorType>(getInput().getType());
   auto outputType = cast<RankedTensorType>(getOutput().getType());
