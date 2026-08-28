@@ -12,9 +12,7 @@
 include "SkeletonDialect.td"
 include "mlir/IR/AttrTypeBase.td"
 
-//===----------------------------------------------------------------------===//
 // Skeleton Preference Attribute
-//===----------------------------------------------------------------------===//
 
 def Skeleton_PreferenceAttr : AttrDef<Skeleton_Dialect, "Preference"> {
   let summary = "A preference attribute indicating target execution preference";

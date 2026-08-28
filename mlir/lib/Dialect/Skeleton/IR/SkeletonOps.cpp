@@ -18,9 +18,7 @@ using namespace mlir::skeleton;
 #define GET_OP_CLASSES
 #include "mlir/Dialect/Skeleton/IR/SkeletonOps.cpp.inc"
 
-//===----------------------------------------------------------------------===//
 // Common pure_fn verification helper
-//===----------------------------------------------------------------------===//
 
 /// Verify that a FlatSymbolRefAttr refers to a func.func with a signature
 /// compatible with the given expected parameter types and result type.
@@ -71,9 +69,7 @@ static LogicalResult verifyPureFnSignature(Operation *op,
   return success();
 }
 
-//===----------------------------------------------------------------------===//
 // MapOp
-//===----------------------------------------------------------------------===//
 
 LogicalResult MapOp::verify() {
   bool hasPureFn = getPureFnAttr() != nullptr;
@@ -140,9 +136,7 @@ LogicalResult MapOp::verify() {
   return success();
 }
 
-//===----------------------------------------------------------------------===//
 // ReduceOp
-//===----------------------------------------------------------------------===//
 
 LogicalResult ReduceOp::verify() {
   bool hasPureFn = getPureFnAttr() != nullptr;
@@ -207,9 +201,7 @@ LogicalResult ReduceOp::verify() {
   return success();
 }
 
-//===----------------------------------------------------------------------===//
 // VectorAddOp
-//===----------------------------------------------------------------------===//
 
 LogicalResult VectorAddOp::verify() {
   auto lhsType = cast<RankedTensorType>(getLhs().getType());

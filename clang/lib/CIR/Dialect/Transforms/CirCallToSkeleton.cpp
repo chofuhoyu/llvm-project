@@ -13,7 +13,6 @@
 // Semi-automatic path (TODO): annotated for-loops with inline computation.
 // Lambda support (TODO): captureless lambdas as pure_fn references.
 //
-//===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -39,9 +38,7 @@ namespace mlir {
 
 namespace {
 
-//===----------------------------------------------------------------------===//
 // Metadata collection (Phase 1: gather info from original CIR IR)
-//===----------------------------------------------------------------------===//
 
 /// Collect function names marked with skeleton.pure.
 static DenseSet<StringRef> collectPureFunctions(ModuleOp module) {
@@ -134,9 +131,7 @@ struct SkeletonCallInfo {
   unsigned numDataOps; // total data operands (inputs + output)
 };
 
-//===----------------------------------------------------------------------===//
 // Phase 2: Rewrite cir.func → func.func and create skeleton ops
-//===----------------------------------------------------------------------===//
 
 /// Create bufferization.to_tensor from a memref.
 static Value createToTensor(OpBuilder &builder, Location loc, Value memref) {
@@ -280,9 +275,7 @@ static LogicalResult lowerReduceCall(SkeletonCallInfo &info,
   return success();
 }
 
-//===----------------------------------------------------------------------===//
 // Pass
-//===----------------------------------------------------------------------===//
 
 class CIRCallToSkeletonPass
     : public impl::CIRCallToSkeletonBase<CIRCallToSkeletonPass> {

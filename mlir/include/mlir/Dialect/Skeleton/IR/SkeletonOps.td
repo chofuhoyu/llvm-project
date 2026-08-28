@@ -14,9 +14,7 @@ include "SkeletonAttrs.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/OpBase.td"
 
-//===----------------------------------------------------------------------===//
 // Skeleton MapOp
-//===----------------------------------------------------------------------===//
 
 def Skeleton_MapOp : Op<Skeleton_Dialect, "map"> {
   let summary = "A skeleton map operation applying a pure function element-wise";
@@ -72,9 +70,7 @@ def Skeleton_MapOp : Op<Skeleton_Dialect, "map"> {
   let hasVerifier = 1;
 }
 
-//===----------------------------------------------------------------------===//
 // Skeleton ReduceOp
-//===----------------------------------------------------------------------===//
 
 def Skeleton_ReduceOp : Op<Skeleton_Dialect, "reduce"> {
   let summary = "A skeleton reduce operation applying a pure function as reduction";
@@ -119,9 +115,7 @@ def Skeleton_ReduceOp : Op<Skeleton_Dialect, "reduce"> {
   let hasVerifier = 1;
 }
 
-//===----------------------------------------------------------------------===//
 // Skeleton YieldOp
-//===----------------------------------------------------------------------===//
 
 def Skeleton_YieldOp : Op<Skeleton_Dialect, "yield", [
   Terminator, HasParent<"MapOp, ReduceOp">
@@ -137,9 +131,7 @@ def Skeleton_YieldOp : Op<Skeleton_Dialect, "yield", [
   let assemblyFormat = "$value attr-dict `:` type($value)";
 }
 
-//===----------------------------------------------------------------------===//
 // Skeleton VectorAddOp (named op, product of pattern merge)
-//===----------------------------------------------------------------------===//
 
 def Skeleton_VectorAddOp : Op<Skeleton_Dialect, "vector_add"> {
   let summary = "A named skeleton vector addition operation";

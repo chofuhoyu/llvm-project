@@ -16,9 +16,7 @@
 using namespace mlir;
 using namespace mlir::skeleton;
 
-//===----------------------------------------------------------------------===//
 // PreferenceAttr
-//===----------------------------------------------------------------------===//
 
 LogicalResult
 PreferenceAttr::verify(function_ref<InFlightDiagnostic()> emitError,
@@ -36,9 +34,7 @@ PreferenceAttr::verify(function_ref<InFlightDiagnostic()> emitError,
 // Include the dialect declarations.
 #include "mlir/Dialect/Skeleton/IR/SkeletonOpsDialect.cpp.inc"
 
-//===----------------------------------------------------------------------===//
 // SkeletonDialect
-//===----------------------------------------------------------------------===//
 
 void SkeletonDialect::initialize() {
   registerAttributes();

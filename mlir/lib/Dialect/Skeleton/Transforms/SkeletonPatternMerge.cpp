@@ -11,7 +11,6 @@
 //   skeleton.map {pure_fn = @my_add}  →  skeleton.vector_add
 //   where @my_add body is a single arith.addf.
 //
-//===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"

@@ -16,7 +16,6 @@
 // GPU ops are chained via async tokens to satisfy lowering pattern
 // requirements (isAsyncWithOneDependency).
 //
-//===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"

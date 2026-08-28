@@ -1,8 +1,6 @@
 // RUN: mlir-opt %s -skeleton-pattern-merge -split-input-file -verify-diagnostics | FileCheck %s
 
-//===----------------------------------------------------------------------===//
 // Test: skeleton.map {pure_fn = @add_fn} → skeleton.vector_add
-//===----------------------------------------------------------------------===//
 
 func.func @add_fn(%a: f32, %b: f32) -> f32 {
   %r = arith.addf %a, %b : f32
@@ -22,9 +20,7 @@ func.func @test_merge_add(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: ten
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // Test: skeleton.map with mul function is NOT merged (no named op for mul yet)
-//===----------------------------------------------------------------------===//
 
 func.func @mul_fn(%a: f32, %b: f32) -> f32 {
   %r = arith.mulf %a, %b : f32
@@ -44,9 +40,7 @@ func.func @test_no_merge_mul(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: 
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // Test: skeleton.map with preference preserved after merge
-//===----------------------------------------------------------------------===//
 
 func.func @add_fn(%a: f32, %b: f32) -> f32 {
   %r = arith.addf %a, %b : f32

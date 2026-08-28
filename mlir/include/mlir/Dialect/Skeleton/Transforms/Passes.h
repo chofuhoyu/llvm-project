@@ -23,9 +23,7 @@ std::unique_ptr<Pass> createSkeletonTargetLowerPass();
 std::unique_ptr<Pass> createSkeletonFinalizeMemRefToGpuPass();
 std::unique_ptr<Pass> createSkeletonPatternMergePass();
 
-//===----------------------------------------------------------------------===//
 // Registration
-//===----------------------------------------------------------------------===//
 
 #define GEN_PASS_REGISTRATION
 #include "mlir/Dialect/Skeleton/Transforms/Passes.h.inc"

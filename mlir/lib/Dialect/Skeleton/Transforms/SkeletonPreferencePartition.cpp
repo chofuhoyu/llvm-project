@@ -10,7 +10,6 @@
 // ops, replacing each with a func.call.  Supports any linalg::LinalgOp
 // (matmul, add, generic, reduce, etc.).
 //
-//===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"

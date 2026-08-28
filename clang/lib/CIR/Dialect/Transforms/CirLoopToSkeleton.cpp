@@ -22,7 +22,6 @@
 //  - Auto-extract inline computation from loop body into a pure func.func
 //  - Support lambda syntax for inline pure functions
 //
-//===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"

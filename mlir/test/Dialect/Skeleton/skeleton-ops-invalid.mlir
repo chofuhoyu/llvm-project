@@ -1,8 +1,6 @@
 // RUN: mlir-opt %s -split-input-file -verify-diagnostics
 
-//===----------------------------------------------------------------------===//
 // MapOp: neither pure_fn nor body → error
-//===----------------------------------------------------------------------===//
 
 func.func @missing_both(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<?xf32>) {
   %A_t = bufferization.to_tensor %A : memref<?xf32> to tensor<?xf32>
@@ -17,9 +15,7 @@ func.func @missing_both(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<?xf32>)
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // MapOp: both pure_fn and body → error
-//===----------------------------------------------------------------------===//
 
 func.func @map_hybrid(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<?xf32>) {
   %A_t = bufferization.to_tensor %A : memref<?xf32> to tensor<?xf32>
@@ -38,9 +34,7 @@ func.func @map_hybrid(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<?xf32>) {
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // MapOp: pure_fn not found in symbol table
-//===----------------------------------------------------------------------===//
 
 func.func @pure_fn_not_found(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<?xf32>) {
   %A_t = bufferization.to_tensor %A : memref<?xf32> to tensor<?xf32>
@@ -55,9 +49,7 @@ func.func @pure_fn_not_found(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<?x
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // MapOp: pure_fn signature mismatch (wrong number of params)
-//===----------------------------------------------------------------------===//
 
 func.func @bad_sig(%a: f32, %b: f32, %c: f32) -> f32 {
   %r = arith.addf %a, %b : f32
@@ -77,9 +69,7 @@ func.func @pure_fn_bad_param_count(%A: memref<?xf32>, %B: memref<?xf32>, %C: mem
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // MapOp: pure_fn result type mismatch
-//===----------------------------------------------------------------------===//
 
 func.func @bad_ret(%a: f32, %b: f32) -> i32 {
   %r = arith.constant 0 : i32
@@ -99,9 +89,7 @@ func.func @pure_fn_bad_ret(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<?xf3
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // MapOp: output type != result type
-//===----------------------------------------------------------------------===//
 
 func.func @output_result_mismatch(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<8xf32>) {
   %A_t = bufferization.to_tensor %A : memref<?xf32> to tensor<?xf32>
@@ -116,9 +104,7 @@ func.func @output_result_mismatch(%A: memref<?xf32>, %B: memref<?xf32>, %C: memr
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // ReduceOp: neither pure_fn nor body → error
-//===----------------------------------------------------------------------===//
 
 func.func @reduce_missing_both(%input: memref<?xf32>, %init: memref<f32>) {
   %in_t = bufferization.to_tensor %input : memref<?xf32> to tensor<?xf32>
@@ -132,9 +118,7 @@ func.func @reduce_missing_both(%input: memref<?xf32>, %init: memref<f32>) {
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // ReduceOp: both pure_fn and body → error
-//===----------------------------------------------------------------------===//
 
 func.func @reduce_hybrid(%input: memref<?xf32>, %init: memref<f32>) {
   %in_t = bufferization.to_tensor %input : memref<?xf32> to tensor<?xf32>
@@ -152,9 +136,7 @@ func.func @reduce_hybrid(%input: memref<?xf32>, %init: memref<f32>) {
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // ReduceOp: output not scalar → error
-//===----------------------------------------------------------------------===//
 
 func.func @reduce_non_scalar_output(%input: memref<?xf32>, %init: memref<?xf32>) {
   %in_t = bufferization.to_tensor %input : memref<?xf32> to tensor<?xf32>
@@ -168,9 +150,7 @@ func.func @reduce_non_scalar_output(%input: memref<?xf32>, %init: memref<?xf32>)
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // ReduceOp: output element type mismatch
-//===----------------------------------------------------------------------===//
 
 func.func @reduce_elem_type_mismatch(%input: memref<?xf32>, %init: memref<i32>) {
   %in_t = bufferization.to_tensor %input : memref<?xf32> to tensor<?xf32>
@@ -184,9 +164,7 @@ func.func @reduce_elem_type_mismatch(%input: memref<?xf32>, %init: memref<i32>) 
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // VectorAddOp: rank not 1 → error
-//===----------------------------------------------------------------------===//
 
 func.func @vecadd_bad_rank(%A: memref<8x8xf32>, %B: memref<8x8xf32>, %C: memref<8x8xf32>) {
   %A_t = bufferization.to_tensor %A : memref<8x8xf32> to tensor<8x8xf32>
@@ -201,9 +179,7 @@ func.func @vecadd_bad_rank(%A: memref<8x8xf32>, %B: memref<8x8xf32>, %C: memref<
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // YieldOp: not inside MapOp or ReduceOp → error at parse time (via HasParent)
-//===----------------------------------------------------------------------===//
 
 func.func @yield_outside_skeleton(%val: f32) {
   // expected-error@+1 {{expects parent op to be one of 'skeleton.map, skeleton.reduce'}}

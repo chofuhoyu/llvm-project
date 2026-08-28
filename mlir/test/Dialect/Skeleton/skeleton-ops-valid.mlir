@@ -1,8 +1,6 @@
 // RUN: mlir-opt %s -split-input-file -verify-diagnostics | FileCheck %s
 
-//===----------------------------------------------------------------------===//
 // MapOp — leaf mode (pure_fn only, no body)
-//===----------------------------------------------------------------------===//
 
 func.func @my_add(%a: f32, %b: f32) -> f32 {
   %r = arith.addf %a, %b : f32
@@ -20,9 +18,7 @@ func.func @map_leaf(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8x
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // MapOp — with preference attribute
-//===----------------------------------------------------------------------===//
 
 func.func @my_add(%a: f32, %b: f32) -> f32 {
   %r = arith.addf %a, %b : f32
@@ -40,9 +36,7 @@ func.func @map_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tens
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // ReduceOp — leaf mode
-//===----------------------------------------------------------------------===//
 
 func.func @my_sum(%a: f32, %b: f32) -> f32 {
   %r = arith.addf %a, %b : f32
@@ -60,9 +54,7 @@ func.func @reduce_leaf(%arg0: tensor<8xf32>, %arg1: tensor<f32>) -> tensor<f32> 
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // ReduceOp — with preference
-//===----------------------------------------------------------------------===//
 
 func.func @my_sum(%a: f32, %b: f32) -> f32 {
   %r = arith.addf %a, %b : f32
@@ -80,9 +72,7 @@ func.func @reduce_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<f32>) -> tensor<
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // MapOp — nested with region body
-//===----------------------------------------------------------------------===//
 
 func.func @map_nested_reduce(%arg0: tensor<?x?xf32>, %arg1: tensor<?xf32>) -> tensor<?xf32> {
   // CHECK-LABEL: func @map_nested_reduce
@@ -102,9 +92,7 @@ func.func @map_nested_reduce(%arg0: tensor<?x?xf32>, %arg1: tensor<?xf32>) -> te
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // VectorAddOp — dynamic shape
-//===----------------------------------------------------------------------===//
 
 func.func @vector_add_op(%arg0: tensor<?xf32>, %arg1: tensor<?xf32>, %arg2: tensor<?xf32>) -> tensor<?xf32> {
   // CHECK-LABEL: func @vector_add_op
@@ -117,9 +105,7 @@ func.func @vector_add_op(%arg0: tensor<?xf32>, %arg1: tensor<?xf32>, %arg2: tens
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // VectorAddOp — static shapes
-//===----------------------------------------------------------------------===//
 
 func.func @vector_add_static(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8xf32>) -> tensor<8xf32> {
   // CHECK-LABEL: func @vector_add_static

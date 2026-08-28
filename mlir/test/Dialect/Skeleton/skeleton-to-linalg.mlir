@@ -1,8 +1,6 @@
 // RUN: mlir-opt %s -skeleton-to-linalg -split-input-file -verify-diagnostics | FileCheck %s
 
-//===----------------------------------------------------------------------===//
 // Test: skeleton.map (pure_fn, no body) → linalg.generic
-//===----------------------------------------------------------------------===//
 
 func.func @my_add(%a: f32, %b: f32) -> f32 {
   %r = arith.addf %a, %b : f32
@@ -24,9 +22,7 @@ func.func @test_map_leaf(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tens
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // Test: skeleton.map with preference preserved on linalg.generic
-//===----------------------------------------------------------------------===//
 
 func.func @my_add(%a: f32, %b: f32) -> f32 {
   %r = arith.addf %a, %b : f32
@@ -47,9 +43,7 @@ func.func @test_map_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2:
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // Test: skeleton.reduce (pure_fn, no body) → linalg.reduce
-//===----------------------------------------------------------------------===//
 
 func.func @my_sum(%a: f32, %b: f32) -> f32 {
   %r = arith.addf %a, %b : f32
@@ -71,9 +65,7 @@ func.func @test_reduce_leaf(%arg0: tensor<8xf32>, %arg1: tensor<f32>) -> tensor<
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // Test: skeleton.reduce with preference preserved
-//===----------------------------------------------------------------------===//
 
 func.func @my_sum(%a: f32, %b: f32) -> f32 {
   %r = arith.addf %a, %b : f32
@@ -94,9 +86,7 @@ func.func @test_reduce_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<f32>) -> te
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // Test: skeleton.vector_add → linalg.add
-//===----------------------------------------------------------------------===//
 
 func.func @test_vector_add(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8xf32>) -> tensor<8xf32> {
   %0 = skeleton.vector_add
@@ -113,9 +103,7 @@ func.func @test_vector_add(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: te
 
 // -----
 
-//===----------------------------------------------------------------------===//
 // Test: skeleton.vector_add with preference → linalg.add with attr
-//===----------------------------------------------------------------------===//
 
 func.func @test_vector_add_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8xf32>) -> tensor<8xf32> {
   %0 = skeleton.vector_add preference = #skeleton.preference<"GPU">

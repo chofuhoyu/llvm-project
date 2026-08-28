@@ -28,9 +28,7 @@ namespace skeleton {
 
 namespace {
 
-//===----------------------------------------------------------------------===//
 // ConvertMapOp (pure_fn, no region) → linalg.generic
-//===----------------------------------------------------------------------===//
 
 struct ConvertMapOp : public OpRewritePattern<MapOp> {
   using OpRewritePattern<MapOp>::OpRewritePattern;
@@ -101,9 +99,7 @@ struct ConvertMapOp : public OpRewritePattern<MapOp> {
   }
 };
 
-//===----------------------------------------------------------------------===//
 // ConvertReduceOp (pure_fn, no region) → linalg.reduce
-//===----------------------------------------------------------------------===//
 
 struct ConvertReduceOp : public OpRewritePattern<ReduceOp> {
   using OpRewritePattern<ReduceOp>::OpRewritePattern;
@@ -156,9 +152,7 @@ struct ConvertReduceOp : public OpRewritePattern<ReduceOp> {
   }
 };
 
-//===----------------------------------------------------------------------===//
 // ConvertVectorAddOp → linalg.add
-//===----------------------------------------------------------------------===//
 
 struct ConvertVectorAddOp : public OpRewritePattern<VectorAddOp> {
   using OpRewritePattern<VectorAddOp>::OpRewritePattern;
@@ -177,9 +171,7 @@ struct ConvertVectorAddOp : public OpRewritePattern<VectorAddOp> {
   }
 };
 
-//===----------------------------------------------------------------------===//
 // Pass
-//===----------------------------------------------------------------------===//
 
 class SkeletonToLinalgPass
     : public impl::SkeletonToLinalgBase<SkeletonToLinalgPass> {
