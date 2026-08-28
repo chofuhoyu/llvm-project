@@ -48,14 +48,14 @@ struct ConvertMapOp : public OpRewritePattern<MapOp> {
     if (!fn)
       return failure();
 
-    // Compute indexing maps and iterator types from the output tensor.
+    // Compute indexing maps and iterator types from the result tensor.
     auto resultType = cast<RankedTensorType>(op.getResult().getType());
     unsigned rank = resultType.getRank();
     auto *ctx = rewriter.getContext();
 
     // Identity map for each operand.
     SmallVector<AffineMap> indexingMaps;
-    unsigned numOperands = op.getInputs().size() + 1; // inputs + output
+    unsigned numOperands = op.getInputs().size() + 1; // inputs + init
     for (unsigned i = 0; i < numOperands; ++i)
       indexingMaps.push_back(
           AffineMap::getMultiDimIdentityMap(rank, ctx));
@@ -68,7 +68,7 @@ struct ConvertMapOp : public OpRewritePattern<MapOp> {
         rewriter, op.getLoc(),
         /*resultTensorTypes=*/resultType,
         /*inputs=*/op.getInputs(),
-        /*outputs=*/ValueRange{op.getOutput()},
+        /*outputs=*/ValueRange{op.getInit()},
         /*indexingMaps=*/indexingMaps,
         /*iteratorTypes=*/iteratorTypes,
         /*doc=*/"",
@@ -125,7 +125,7 @@ struct ConvertReduceOp : public OpRewritePattern<ReduceOp> {
     auto reduce = linalg::ReduceOp::create(
         rewriter, op.getLoc(),
         /*inputs=*/ValueRange{op.getInput()},
-        /*inits=*/ValueRange{op.getOutput()},
+        /*inits=*/ValueRange{op.getInit()},
         /*dimensions=*/
         llvm::to_vector(llvm::seq<int64_t>(0, inputType.getRank())),
         [&](OpBuilder &bodyBuilder, Location loc, ValueRange blockArgs) {
@@ -161,7 +161,7 @@ struct ConvertVectorAddOp : public OpRewritePattern<VectorAddOp> {
                                 PatternRewriter &rewriter) const override {
     auto addOp = linalg::AddOp::create(
         rewriter, op.getLoc(), op.getResult().getType(),
-        ValueRange{op.getLhs(), op.getRhs()}, op.getOutput());
+        ValueRange{op.getLhs(), op.getRhs()}, op.getInit());
 
     if (auto pref = op.getPreferenceAttr())
       addOp->setDiscardableAttr("skeleton.preference", pref);

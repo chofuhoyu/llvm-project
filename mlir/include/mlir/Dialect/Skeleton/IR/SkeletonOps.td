@@ -36,7 +36,7 @@ def Skeleton_MapOp : Op<Skeleton_Dialect, "map"> {
     ```mlir
     %r = skeleton.map {preference = #skeleton.preference<"GPU">}
       ins(%matrix : tensor<?x?xf32>)
-      outs(%output : tensor<?xf32>) {
+      outs(%init : tensor<?xf32>) {
     ^bb0(%row: tensor<?xf32>, %init: tensor<f32>):
       %sub = skeleton.reduce {pure_fn = @my_sum}
         ins(%row : tensor<?xf32>)
@@ -48,7 +48,7 @@ def Skeleton_MapOp : Op<Skeleton_Dialect, "map"> {
 
   let arguments = (ins
     Variadic<AnyRankedTensor>:$inputs,
-    AnyRankedTensor:$output,
+    AnyRankedTensor:$init,
     OptionalAttr<FlatSymbolRefAttr>:$pure_fn,
     OptionalAttr<Skeleton_PreferenceAttr>:$preference
   );
@@ -61,7 +61,7 @@ def Skeleton_MapOp : Op<Skeleton_Dialect, "map"> {
     (`preference` `=` $preference^)?
     (`pure_fn` `=` $pure_fn^)?
     `ins` `(` $inputs `:` type($inputs) `)`
-    `outs` `(` $output `:` type($output) `)`
+    `outs` `(` $init `:` type($init) `)`
     ($body^)?
     `->` type($result)
     attr-dict
@@ -93,7 +93,7 @@ def Skeleton_ReduceOp : Op<Skeleton_Dialect, "reduce"> {
 
   let arguments = (ins
     AnyRankedTensor:$input,
-    AnyRankedTensor:$output,
+    AnyRankedTensor:$init,
     OptionalAttr<FlatSymbolRefAttr>:$pure_fn,
     OptionalAttr<Skeleton_PreferenceAttr>:$preference
   );
@@ -106,7 +106,7 @@ def Skeleton_ReduceOp : Op<Skeleton_Dialect, "reduce"> {
     (`preference` `=` $preference^)?
     (`pure_fn` `=` $pure_fn^)?
     `ins` `(` $input `:` type($input) `)`
-    `outs` `(` $output `:` type($output) `)`
+    `outs` `(` $init `:` type($init) `)`
     ($body^)?
     `->` type($result)
     attr-dict
@@ -154,7 +154,7 @@ def Skeleton_VectorAddOp : Op<Skeleton_Dialect, "vector_add"> {
   let arguments = (ins
     AnyRankedTensor:$lhs,
     AnyRankedTensor:$rhs,
-    AnyRankedTensor:$output,
+    AnyRankedTensor:$init,
     OptionalAttr<Skeleton_PreferenceAttr>:$preference
   );
 
@@ -163,7 +163,7 @@ def Skeleton_VectorAddOp : Op<Skeleton_Dialect, "vector_add"> {
   let assemblyFormat = [{
     (`preference` `=` $preference^)?
     `ins` `(` $lhs `,` $rhs `:` type($lhs) `,` type($rhs) `)`
-    `outs` `(` $output `:` type($output) `)`
+    `outs` `(` $init `:` type($init) `)`
     `->` type($result)
     attr-dict
   }];

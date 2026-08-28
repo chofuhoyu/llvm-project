@@ -89,13 +89,13 @@ func.func @pure_fn_bad_ret(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<?xf3
 
 // -----
 
-// MapOp: output type != result type
+// MapOp: init type != result type
 
-func.func @output_result_mismatch(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<8xf32>) {
+func.func @init_result_mismatch(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<8xf32>) {
   %A_t = bufferization.to_tensor %A : memref<?xf32> to tensor<?xf32>
   %B_t = bufferization.to_tensor %B : memref<?xf32> to tensor<?xf32>
   %C_t = bufferization.to_tensor %C : memref<8xf32> to tensor<8xf32>
-  // expected-error@+1 {{output type must match result type}}
+  // expected-error@+1 {{init type must match result type}}
   %r = skeleton.map pure_fn = @my_add
     ins(%A_t, %B_t : tensor<?xf32>, tensor<?xf32>)
     outs(%C_t : tensor<8xf32>) -> tensor<?xf32>
@@ -136,12 +136,12 @@ func.func @reduce_hybrid(%input: memref<?xf32>, %init: memref<f32>) {
 
 // -----
 
-// ReduceOp: output not scalar → error
+// ReduceOp: init not scalar → error
 
-func.func @reduce_non_scalar_output(%input: memref<?xf32>, %init: memref<?xf32>) {
+func.func @reduce_non_scalar_init(%input: memref<?xf32>, %init: memref<?xf32>) {
   %in_t = bufferization.to_tensor %input : memref<?xf32> to tensor<?xf32>
   %init_t = bufferization.to_tensor %init : memref<?xf32> to tensor<?xf32>
-  // expected-error@+1 {{reduce output must be a scalar tensor (rank 0)}}
+  // expected-error@+1 {{reduce init must be a scalar tensor (rank 0)}}
   %r = skeleton.reduce pure_fn = @my_sum
     ins(%in_t : tensor<?xf32>)
     outs(%init_t : tensor<?xf32>) -> tensor<?xf32>
@@ -150,12 +150,12 @@ func.func @reduce_non_scalar_output(%input: memref<?xf32>, %init: memref<?xf32>)
 
 // -----
 
-// ReduceOp: output element type mismatch
+// ReduceOp: init element type mismatch
 
 func.func @reduce_elem_type_mismatch(%input: memref<?xf32>, %init: memref<i32>) {
   %in_t = bufferization.to_tensor %input : memref<?xf32> to tensor<?xf32>
   %init_t = bufferization.to_tensor %init : memref<i32> to tensor<i32>
-  // expected-error@+1 {{reduce output element type must match input element type}}
+  // expected-error@+1 {{reduce init element type must match input element type}}
   %r = skeleton.reduce pure_fn = @my_sum
     ins(%in_t : tensor<?xf32>)
     outs(%init_t : tensor<i32>) -> tensor<i32>

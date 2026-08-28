@@ -94,7 +94,7 @@ struct MergeMapAddToVectorAdd : public OpRewritePattern<MapOp> {
     // Create skeleton.vector_add.
     auto vectorAdd = VectorAddOp::create(
         rewriter, op.getLoc(), op.getResult().getType(),
-        op.getInputs()[0], op.getInputs()[1], op.getOutput(),
+        op.getInputs()[0], op.getInputs()[1], op.getInit(),
         op.getPreferenceAttr());
 
     rewriter.replaceOp(op, vectorAdd.getResult());

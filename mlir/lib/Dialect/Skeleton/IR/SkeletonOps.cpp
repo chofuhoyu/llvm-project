@@ -79,14 +79,14 @@ LogicalResult MapOp::verify() {
   if (hasPureFn == hasBody)
     return emitOpError("requires exactly one of 'pure_fn' or a body region");
 
-  auto outputType = cast<RankedTensorType>(getOutput().getType());
+  auto initType = cast<RankedTensorType>(getInit().getType());
   auto resultType = cast<RankedTensorType>(getResult().getType());
 
-  // Output and result must have the same shape.
-  if (outputType != resultType)
-    return emitOpError("output type must match result type");
+  // Init and result must have the same shape.
+  if (initType != resultType)
+    return emitOpError("init type must match result type");
 
-  auto outputEltType = outputType.getElementType();
+  auto initEltType = initType.getElementType();
 
   // Verify pure_fn signature if present.
   if (hasPureFn) {
@@ -97,7 +97,7 @@ LogicalResult MapOp::verify() {
       expectedParamTypes.push_back(inputTensorType.getElementType());
     }
     if (failed(verifyPureFnSignature(getOperation(), getPureFnAttr(),
-                                     expectedParamTypes, outputEltType)))
+                                     expectedParamTypes, initEltType)))
       return failure();
   }
 
@@ -110,13 +110,13 @@ LogicalResult MapOp::verify() {
     Block &entry = body.front();
     unsigned numInputs = getInputs().size();
 
-    // Block arguments: one per input element type + one for output element
+    // Block arguments: one per input element type + one for init element
     // type.
     unsigned expectedBlockArgs = numInputs + 1;
     if (entry.getNumArguments() != expectedBlockArgs)
       return emitOpError("body block expects ")
              << expectedBlockArgs << " arguments ("
-             << numInputs << " input element types + 1 output element type) "
+             << numInputs << " input element types + 1 init element type) "
              << "but has " << entry.getNumArguments();
 
     // Check block arg types match input element types.
@@ -127,9 +127,9 @@ LogicalResult MapOp::verify() {
         return emitOpError("body block argument ")
                << i << " type mismatch";
     }
-    // Check last block arg matches output element type.
-    if (entry.getArgument(numInputs).getType() != outputEltType)
-      return emitOpError("body block output initializer argument type "
+    // Check last block arg matches init element type.
+    if (entry.getArgument(numInputs).getType() != initEltType)
+      return emitOpError("body block init argument type "
                          "mismatch");
   }
 
@@ -147,24 +147,24 @@ LogicalResult ReduceOp::verify() {
     return emitOpError("requires exactly one of 'pure_fn' or a body region");
 
   auto inputType = cast<RankedTensorType>(getInput().getType());
-  auto outputType = cast<RankedTensorType>(getOutput().getType());
+  auto initType = cast<RankedTensorType>(getInit().getType());
   auto resultType = cast<RankedTensorType>(getResult().getType());
 
-  // Output and result must match.
-  if (outputType != resultType)
-    return emitOpError("output type must match result type");
+  // Init and result must match.
+  if (initType != resultType)
+    return emitOpError("init type must match result type");
 
   auto eltType = inputType.getElementType();
 
-  // Input must be at least 1D. Output must be 0D (scalar tensor) or same
+  // Input must be at least 1D. Init must be 0D (scalar tensor) or same
   // element type with reduced rank.
-  if (outputType.getRank() != 0)
-    return emitOpError("reduce output must be a scalar tensor (rank 0), got "
+  if (initType.getRank() != 0)
+    return emitOpError("reduce init must be a scalar tensor (rank 0), got "
                        "rank ")
-           << outputType.getRank();
+           << initType.getRank();
 
-  if (outputType.getElementType() != eltType)
-    return emitOpError("reduce output element type must match input element "
+  if (initType.getElementType() != eltType)
+    return emitOpError("reduce init element type must match input element "
                        "type");
 
   // Verify pure_fn signature if present.
@@ -206,23 +206,23 @@ LogicalResult ReduceOp::verify() {
 LogicalResult VectorAddOp::verify() {
   auto lhsType = cast<RankedTensorType>(getLhs().getType());
   auto rhsType = cast<RankedTensorType>(getRhs().getType());
-  auto outputType = cast<RankedTensorType>(getOutput().getType());
+  auto initType = cast<RankedTensorType>(getInit().getType());
   auto resultType = cast<RankedTensorType>(getResult().getType());
 
   unsigned lhsRank = lhsType.getRank();
   unsigned rhsRank = rhsType.getRank();
-  unsigned outputRank = outputType.getRank();
+  unsigned initRank = initType.getRank();
   unsigned resultRank = resultType.getRank();
 
-  if (lhsRank != 1 || rhsRank != 1 || outputRank != 1 || resultRank != 1)
+  if (lhsRank != 1 || rhsRank != 1 || initRank != 1 || resultRank != 1)
     return emitOpError("expects all operands to be 1D tensors (vectors)");
 
-  if (outputType != resultType)
-    return emitOpError("expects output type to match result type");
+  if (initType != resultType)
+    return emitOpError("expects init type to match result type");
 
   auto lhsEltType = lhsType.getElementType();
   if (rhsType.getElementType() != lhsEltType ||
-      outputType.getElementType() != lhsEltType ||
+      initType.getElementType() != lhsEltType ||
       resultType.getElementType() != lhsEltType)
     return emitOpError("expects all operands and result to have the same "
                        "element type");
@@ -232,9 +232,9 @@ LogicalResult VectorAddOp::verify() {
     if (lhsType.getDimSize(0) != rhsType.getDimSize(0))
       return emitOpError("vector length mismatch between lhs and rhs");
 
-  if (!lhsType.isDynamicDim(0) && !outputType.isDynamicDim(0))
-    if (lhsType.getDimSize(0) != outputType.getDimSize(0))
-      return emitOpError("vector length mismatch between lhs and output");
+  if (!lhsType.isDynamicDim(0) && !initType.isDynamicDim(0))
+    if (lhsType.getDimSize(0) != initType.getDimSize(0))
+      return emitOpError("vector length mismatch between lhs and init");
 
   return success();
 }
