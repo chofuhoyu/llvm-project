@@ -186,3 +186,79 @@ func.func @yield_outside_skeleton(%val: f32) {
   skeleton.yield %val : f32
   return
 }
+
+// -----
+
+// MapOp: input rank differs from init/result rank
+
+func.func @my_add(%a: f32, %b: f32) -> f32 {
+  %r = arith.addf %a, %b : f32
+  return %r : f32
+}
+
+func.func @map_rank_mismatch(%A: memref<2x3xf32>, %B: memref<2x3xf32>, %C: memref<2xf32>) {
+  %A_t = bufferization.to_tensor %A : memref<2x3xf32> to tensor<2x3xf32>
+  %B_t = bufferization.to_tensor %B : memref<2x3xf32> to tensor<2x3xf32>
+  %C_t = bufferization.to_tensor %C : memref<2xf32> to tensor<2xf32>
+  // expected-error@+1 {{input 0 has rank 2 but init/result has rank 1}}
+  %r = skeleton.map pure_fn = @my_add
+    ins(%A_t, %B_t : tensor<2x3xf32>, tensor<2x3xf32>)
+    outs(%C_t : tensor<2xf32>) -> tensor<2xf32>
+  return
+}
+
+// -----
+
+// MapOp: static input dimension disagrees with init/result
+
+func.func @my_add(%a: f32, %b: f32) -> f32 {
+  %r = arith.addf %a, %b : f32
+  return %r : f32
+}
+
+func.func @map_shape_mismatch(%A: memref<8xf32>, %B: memref<8xf32>, %C: memref<16xf32>) {
+  %A_t = bufferization.to_tensor %A : memref<8xf32> to tensor<8xf32>
+  %B_t = bufferization.to_tensor %B : memref<8xf32> to tensor<8xf32>
+  %C_t = bufferization.to_tensor %C : memref<16xf32> to tensor<16xf32>
+  // expected-error@+1 {{input 0 dimension 0 has static size 8 but init/result has static size 16}}
+  %r = skeleton.map pure_fn = @my_add
+    ins(%A_t, %B_t : tensor<8xf32>, tensor<8xf32>)
+    outs(%C_t : tensor<16xf32>) -> tensor<16xf32>
+  return
+}
+
+// -----
+
+// ReduceOp: rank-0 input → error
+
+func.func @my_sum(%a: f32, %b: f32) -> f32 {
+  %r = arith.addf %a, %b : f32
+  return %r : f32
+}
+
+func.func @reduce_rank0_input(%input: memref<f32>, %init: memref<f32>) {
+  %in_t = bufferization.to_tensor %input : memref<f32> to tensor<f32>
+  %init_t = bufferization.to_tensor %init : memref<f32> to tensor<f32>
+  // expected-error@+1 {{reduce input must be at least 1D, got rank 0}}
+  %r = skeleton.reduce pure_fn = @my_sum
+    ins(%in_t : tensor<f32>)
+    outs(%init_t : tensor<f32>) -> tensor<f32>
+  return
+}
+
+// -----
+
+// PreferenceAttr: invalid value → error at parse time
+
+func.func @my_add(%a: f32, %b: f32) -> f32 {
+  %r = arith.addf %a, %b : f32
+  return %r : f32
+}
+
+func.func @pref_invalid(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8xf32>) -> tensor<8xf32> {
+  // expected-error@+1 {{expected 'CPU' or 'GPU' for preference attribute, got 'TPU'}}
+  %r = skeleton.map preference = #skeleton.preference<"TPU"> pure_fn = @my_add
+    ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>)
+    outs(%arg2 : tensor<8xf32>) -> tensor<8xf32>
+  return %r : tensor<8xf32>
+}

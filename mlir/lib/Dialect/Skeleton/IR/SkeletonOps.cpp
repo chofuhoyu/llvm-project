@@ -88,6 +88,30 @@ LogicalResult MapOp::verify() {
 
   auto initEltType = initType.getElementType();
 
+  // Every input must have the same rank as init/result: this op is
+  // element-wise, so inputs map element-for-element onto the output. A rank
+  // mismatch would silently misalign ConvertMapOp's indexing maps, which are
+  // built from the result rank.
+  unsigned resultRank = resultType.getRank();
+  for (unsigned i = 0, e = getInputs().size(); i < e; ++i) {
+    auto inputType = cast<RankedTensorType>(getInputs()[i].getType());
+    if (inputType.getRank() != resultRank)
+      return emitOpError("input ")
+             << i << " has rank " << inputType.getRank()
+             << " but init/result has rank " << resultRank;
+
+    // Static dimensions must agree where both are known.
+    for (unsigned d = 0; d < resultRank; ++d) {
+      int64_t inSize = inputType.getDimSize(d);
+      int64_t resSize = resultType.getDimSize(d);
+      if (!ShapedType::isDynamic(inSize) &&
+          !ShapedType::isDynamic(resSize) && inSize != resSize)
+        return emitOpError("input ")
+               << i << " dimension " << d << " has static size " << inSize
+               << " but init/result has static size " << resSize;
+    }
+  }
+
   // Verify pure_fn signature if present.
   if (hasPureFn) {
     // Collect expected parameter types from input tensor element types.
@@ -149,6 +173,13 @@ LogicalResult ReduceOp::verify() {
   auto inputType = cast<RankedTensorType>(getInput().getType());
   auto initType = cast<RankedTensorType>(getInit().getType());
   auto resultType = cast<RankedTensorType>(getResult().getType());
+
+  // Input must be at least 1D. A rank-0 input would pass validation but
+  // ConvertReduceOp would then build a linalg.reduce with an empty
+  // dimensions list.
+  if (inputType.getRank() < 1)
+    return emitOpError("reduce input must be at least 1D, got rank ")
+           << inputType.getRank();
 
   // Init and result must match.
   if (initType != resultType)

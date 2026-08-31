@@ -72,19 +72,19 @@ func.func @reduce_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<f32>) -> tensor<
 
 // -----
 
-// MapOp — nested with region body
+// MapOp — with region body
 
-func.func @map_nested_reduce(%arg0: tensor<?x?xf32>, %arg1: tensor<?xf32>) -> tensor<?xf32> {
-  // CHECK-LABEL: func @map_nested_reduce
+func.func @map_with_body(%arg0: tensor<?xf32>, %arg1: tensor<?xf32>) -> tensor<?xf32> {
+  // CHECK-LABEL: func @map_with_body
   // CHECK: skeleton.map preference = <"GPU">
   // CHECK: ^bb0(%{{.*}}: f32, %{{.*}}: f32):
   // CHECK:   arith.addf
   // CHECK:   skeleton.yield
   %r = skeleton.map preference = #skeleton.preference<"GPU">
-    ins(%arg0 : tensor<?x?xf32>)
+    ins(%arg0 : tensor<?xf32>)
     outs(%arg1 : tensor<?xf32>) {
-  ^bb0(%row: f32, %init: f32):
-    %sum = arith.addf %row, %init : f32
+  ^bb0(%elem: f32, %init: f32):
+    %sum = arith.addf %elem, %init : f32
     skeleton.yield %sum : f32
   } -> tensor<?xf32>
   return %r : tensor<?xf32>
