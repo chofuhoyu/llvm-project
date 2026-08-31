@@ -9,7 +9,7 @@ func.func @missing_both(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<?xf32>)
   // expected-error@+1 {{requires exactly one of 'pure_fn' or a body region}}
   %r = skeleton.map
     ins(%A_t, %B_t : tensor<?xf32>, tensor<?xf32>)
-    outs(%C_t : tensor<?xf32>) -> tensor<?xf32>
+    outs(%C_t : tensor<?xf32>)
   return
 }
 
@@ -28,7 +28,7 @@ func.func @map_hybrid(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<?xf32>) {
   ^bb0(%a: f32, %b: f32, %c: f32):
     %s = arith.addf %a, %b : f32
     skeleton.yield %s : f32
-  } -> tensor<?xf32>
+  }
   return
 }
 
@@ -43,7 +43,7 @@ func.func @pure_fn_not_found(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<?x
   // expected-error@+1 {{pure_fn @nonexistent not found in symbol table}}
   %r = skeleton.map pure_fn = @nonexistent
     ins(%A_t, %B_t : tensor<?xf32>, tensor<?xf32>)
-    outs(%C_t : tensor<?xf32>) -> tensor<?xf32>
+    outs(%C_t : tensor<?xf32>)
   return
 }
 
@@ -63,7 +63,7 @@ func.func @pure_fn_bad_param_count(%A: memref<?xf32>, %B: memref<?xf32>, %C: mem
   // expected-error@+1 {{expects 3 parameters but skeleton op provides 2 inputs}}
   %r = skeleton.map pure_fn = @bad_sig
     ins(%A_t, %B_t : tensor<?xf32>, tensor<?xf32>)
-    outs(%C_t : tensor<?xf32>) -> tensor<?xf32>
+    outs(%C_t : tensor<?xf32>)
   return
 }
 
@@ -83,22 +83,7 @@ func.func @pure_fn_bad_ret(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<?xf3
   // expected-error@+1 {{pure_fn result type mismatch}}
   %r = skeleton.map pure_fn = @bad_ret
     ins(%A_t, %B_t : tensor<?xf32>, tensor<?xf32>)
-    outs(%C_t : tensor<?xf32>) -> tensor<?xf32>
-  return
-}
-
-// -----
-
-// MapOp: init type != result type
-
-func.func @init_result_mismatch(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<8xf32>) {
-  %A_t = bufferization.to_tensor %A : memref<?xf32> to tensor<?xf32>
-  %B_t = bufferization.to_tensor %B : memref<?xf32> to tensor<?xf32>
-  %C_t = bufferization.to_tensor %C : memref<8xf32> to tensor<8xf32>
-  // expected-error@+1 {{init type must match result type}}
-  %r = skeleton.map pure_fn = @my_add
-    ins(%A_t, %B_t : tensor<?xf32>, tensor<?xf32>)
-    outs(%C_t : tensor<8xf32>) -> tensor<?xf32>
+    outs(%C_t : tensor<?xf32>)
   return
 }
 
@@ -112,7 +97,7 @@ func.func @reduce_missing_both(%input: memref<?xf32>, %init: memref<f32>) {
   // expected-error@+1 {{requires exactly one of 'pure_fn' or a body region}}
   %r = skeleton.reduce
     ins(%in_t : tensor<?xf32>)
-    outs(%init_t : tensor<f32>) -> tensor<f32>
+    outs(%init_t : tensor<f32>)
   return
 }
 
@@ -130,7 +115,7 @@ func.func @reduce_hybrid(%input: memref<?xf32>, %init: memref<f32>) {
   ^bb0(%acc: f32, %elem: f32):
     %s = arith.addf %acc, %elem : f32
     skeleton.yield %s : f32
-  } -> tensor<f32>
+  }
   return
 }
 
@@ -144,7 +129,7 @@ func.func @reduce_non_scalar_init(%input: memref<?xf32>, %init: memref<?xf32>) {
   // expected-error@+1 {{reduce init must be a scalar tensor (rank 0)}}
   %r = skeleton.reduce pure_fn = @my_sum
     ins(%in_t : tensor<?xf32>)
-    outs(%init_t : tensor<?xf32>) -> tensor<?xf32>
+    outs(%init_t : tensor<?xf32>)
   return
 }
 
@@ -158,7 +143,7 @@ func.func @reduce_elem_type_mismatch(%input: memref<?xf32>, %init: memref<i32>) 
   // expected-error@+1 {{reduce init element type must match input element type}}
   %r = skeleton.reduce pure_fn = @my_sum
     ins(%in_t : tensor<?xf32>)
-    outs(%init_t : tensor<i32>) -> tensor<i32>
+    outs(%init_t : tensor<i32>)
   return
 }
 
@@ -173,7 +158,7 @@ func.func @vecadd_bad_rank(%A: memref<8x8xf32>, %B: memref<8x8xf32>, %C: memref<
   // expected-error@+1 {{expects all operands to be 1D tensors}}
   %r = skeleton.vector_add
     ins(%A_t, %B_t : tensor<8x8xf32>, tensor<8x8xf32>)
-    outs(%C_t : tensor<8x8xf32>) -> tensor<8x8xf32>
+    outs(%C_t : tensor<8x8xf32>)
   return
 }
 
@@ -203,7 +188,7 @@ func.func @map_rank_mismatch(%A: memref<2x3xf32>, %B: memref<2x3xf32>, %C: memre
   // expected-error@+1 {{input 0 has rank 2 but init/result has rank 1}}
   %r = skeleton.map pure_fn = @my_add
     ins(%A_t, %B_t : tensor<2x3xf32>, tensor<2x3xf32>)
-    outs(%C_t : tensor<2xf32>) -> tensor<2xf32>
+    outs(%C_t : tensor<2xf32>)
   return
 }
 
@@ -223,7 +208,7 @@ func.func @map_shape_mismatch(%A: memref<8xf32>, %B: memref<8xf32>, %C: memref<1
   // expected-error@+1 {{input 0 dimension 0 has static size 8 but init/result has static size 16}}
   %r = skeleton.map pure_fn = @my_add
     ins(%A_t, %B_t : tensor<8xf32>, tensor<8xf32>)
-    outs(%C_t : tensor<16xf32>) -> tensor<16xf32>
+    outs(%C_t : tensor<16xf32>)
   return
 }
 
@@ -242,7 +227,7 @@ func.func @reduce_rank0_input(%input: memref<f32>, %init: memref<f32>) {
   // expected-error@+1 {{reduce input must be at least 1D, got rank 0}}
   %r = skeleton.reduce pure_fn = @my_sum
     ins(%in_t : tensor<f32>)
-    outs(%init_t : tensor<f32>) -> tensor<f32>
+    outs(%init_t : tensor<f32>)
   return
 }
 
@@ -259,6 +244,6 @@ func.func @pref_invalid(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tenso
   // expected-error@+1 {{expected 'CPU' or 'GPU' for preference attribute, got 'TPU'}}
   %r = skeleton.map preference = #skeleton.preference<"TPU"> pure_fn = @my_add
     ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>)
-    outs(%arg2 : tensor<8xf32>) -> tensor<8xf32>
+    outs(%arg2 : tensor<8xf32>)
   return %r : tensor<8xf32>
 }

@@ -10,7 +10,7 @@ func.func @my_add(%a: f32, %b: f32) -> f32 {
 func.func @test_map_leaf(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8xf32>) -> tensor<8xf32> {
   %0 = skeleton.map pure_fn = @my_add
     ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>)
-    outs(%arg2 : tensor<8xf32>) -> tensor<8xf32>
+    outs(%arg2 : tensor<8xf32>)
   return %0 : tensor<8xf32>
 }
 
@@ -32,7 +32,7 @@ func.func @my_add(%a: f32, %b: f32) -> f32 {
 func.func @test_map_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8xf32>) -> tensor<8xf32> {
   %0 = skeleton.map preference = #skeleton.preference<"GPU"> pure_fn = @my_add
     ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>)
-    outs(%arg2 : tensor<8xf32>) -> tensor<8xf32>
+    outs(%arg2 : tensor<8xf32>)
   return %0 : tensor<8xf32>
 }
 
@@ -53,7 +53,7 @@ func.func @my_sum(%a: f32, %b: f32) -> f32 {
 func.func @test_reduce_leaf(%arg0: tensor<8xf32>, %arg1: tensor<f32>) -> tensor<f32> {
   %0 = skeleton.reduce pure_fn = @my_sum
     ins(%arg0 : tensor<8xf32>)
-    outs(%arg1 : tensor<f32>) -> tensor<f32>
+    outs(%arg1 : tensor<f32>)
   return %0 : tensor<f32>
 }
 
@@ -75,7 +75,7 @@ func.func @my_sum(%a: f32, %b: f32) -> f32 {
 func.func @test_reduce_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<f32>) -> tensor<f32> {
   %0 = skeleton.reduce preference = #skeleton.preference<"CPU"> pure_fn = @my_sum
     ins(%arg0 : tensor<8xf32>)
-    outs(%arg1 : tensor<f32>) -> tensor<f32>
+    outs(%arg1 : tensor<f32>)
   return %0 : tensor<f32>
 }
 
@@ -91,7 +91,7 @@ func.func @test_reduce_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<f32>) -> te
 func.func @test_vector_add(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8xf32>) -> tensor<8xf32> {
   %0 = skeleton.vector_add
     ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>)
-    outs(%arg2 : tensor<8xf32>) -> tensor<8xf32>
+    outs(%arg2 : tensor<8xf32>)
   return %0 : tensor<8xf32>
 }
 
@@ -108,7 +108,7 @@ func.func @test_vector_add(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: te
 func.func @test_vector_add_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8xf32>) -> tensor<8xf32> {
   %0 = skeleton.vector_add preference = #skeleton.preference<"GPU">
     ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>)
-    outs(%arg2 : tensor<8xf32>) -> tensor<8xf32>
+    outs(%arg2 : tensor<8xf32>)
   return %0 : tensor<8xf32>
 }
 

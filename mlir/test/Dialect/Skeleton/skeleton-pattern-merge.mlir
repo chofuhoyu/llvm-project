@@ -10,7 +10,7 @@ func.func @add_fn(%a: f32, %b: f32) -> f32 {
 func.func @test_merge_add(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8xf32>) -> tensor<8xf32> {
   %r = skeleton.map pure_fn = @add_fn
     ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>)
-    outs(%arg2 : tensor<8xf32>) -> tensor<8xf32>
+    outs(%arg2 : tensor<8xf32>)
   return %r : tensor<8xf32>
 }
 
@@ -30,7 +30,7 @@ func.func @mul_fn(%a: f32, %b: f32) -> f32 {
 func.func @test_no_merge_mul(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8xf32>) -> tensor<8xf32> {
   %r = skeleton.map pure_fn = @mul_fn
     ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>)
-    outs(%arg2 : tensor<8xf32>) -> tensor<8xf32>
+    outs(%arg2 : tensor<8xf32>)
   return %r : tensor<8xf32>
 }
 
@@ -50,7 +50,7 @@ func.func @add_fn(%a: f32, %b: f32) -> f32 {
 func.func @test_merge_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8xf32>) -> tensor<8xf32> {
   %r = skeleton.map preference = #skeleton.preference<"GPU"> pure_fn = @add_fn
     ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>)
-    outs(%arg2 : tensor<8xf32>) -> tensor<8xf32>
+    outs(%arg2 : tensor<8xf32>)
   return %r : tensor<8xf32>
 }
 

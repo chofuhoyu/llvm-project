@@ -269,3 +269,294 @@ LogicalResult VectorAddOp::verify() {
 
   return success();
 }
+
+// Custom assembly: the result type is derived from `init` (destination-passing,
+// like linalg.map), so the printed form omits `-> type($result)` and parse
+// fills the result type from the `outs` operand.
+
+ParseResult MapOp::parse(OpAsmParser &parser, OperationState &result) {
+  PreferenceAttr preferenceAttr;
+  FlatSymbolRefAttr pureFnAttr;
+  SmallVector<OpAsmParser::UnresolvedOperand, 4> inputsOperands;
+  SMLoc inputsOperandsLoc;
+  SmallVector<Type, 1> inputsTypes;
+  OpAsmParser::UnresolvedOperand initRawOperand{};
+  ArrayRef<OpAsmParser::UnresolvedOperand> initOperands(&initRawOperand, 1);
+  SMLoc initOperandsLoc;
+  Type initRawType{};
+  ArrayRef<Type> initTypes(&initRawType, 1);
+  std::unique_ptr<Region> bodyRegion = std::make_unique<Region>();
+
+  if (succeeded(parser.parseOptionalKeyword("preference"))) {
+    if (parser.parseEqual() ||
+        parser.parseCustomAttributeWithFallback(preferenceAttr, Type{}))
+      return failure();
+    if (preferenceAttr)
+      result.getOrAddProperties<MapOp::Properties>().preference = preferenceAttr;
+  }
+  if (succeeded(parser.parseOptionalKeyword("pure_fn"))) {
+    if (parser.parseEqual() ||
+        parser.parseCustomAttributeWithFallback(
+            pureFnAttr, parser.getBuilder().getType<NoneType>()))
+      return failure();
+    if (pureFnAttr)
+      result.getOrAddProperties<MapOp::Properties>().pure_fn = pureFnAttr;
+  }
+  if (parser.parseKeyword("ins") || parser.parseLParen())
+    return failure();
+  inputsOperandsLoc = parser.getCurrentLocation();
+  if (parser.parseOperandList(inputsOperands) || parser.parseColon() ||
+      parser.parseTypeList(inputsTypes) || parser.parseRParen())
+    return failure();
+  if (parser.parseKeyword("outs") || parser.parseLParen())
+    return failure();
+  initOperandsLoc = parser.getCurrentLocation();
+  if (parser.parseOperand(initRawOperand) || parser.parseColon())
+    return failure();
+  {
+    RankedTensorType type;
+    if (parser.parseCustomTypeWithFallback(type))
+      return failure();
+    initRawType = type;
+  }
+  if (parser.parseRParen())
+    return failure();
+  {
+    auto parseResult = parser.parseOptionalRegion(*bodyRegion);
+    if (parseResult.has_value() && failed(*parseResult))
+      return failure();
+  }
+  {
+    auto loc = parser.getCurrentLocation();
+    if (parser.parseOptionalAttrDict(result.attributes))
+      return failure();
+    if (failed(verifyInherentAttrs(result.name, result.attributes, [&]() {
+          return parser.emitError(loc)
+                 << "'" << result.name.getStringRef() << "' op ";
+        })))
+      return failure();
+  }
+  result.addRegion(std::move(bodyRegion));
+  // Result type is the init type (destination-passing).
+  result.addTypes(initRawType);
+  if (parser.resolveOperands(inputsOperands, inputsTypes, inputsOperandsLoc,
+                             result.operands) ||
+      parser.resolveOperands(initOperands, initTypes, initOperandsLoc,
+                             result.operands))
+    return failure();
+  return success();
+}
+
+void MapOp::print(OpAsmPrinter &p) {
+  if (getPreferenceAttr()) {
+    p << " preference = ";
+    p.printStrippedAttrOrType(getPreferenceAttr());
+  }
+  if (getPureFnAttr()) {
+    p << " pure_fn = ";
+    p.printAttributeWithoutType(getPureFnAttr());
+  }
+  p << " ins(" << getInputs() << " : " << getInputs().getTypes() << ")";
+  p << " outs(" << getInit() << " : " << getInit().getType() << ")";
+  if (!getBody().empty()) {
+    p << ' ';
+    p.printRegion(getBody());
+  }
+  p.printOptionalAttrDict((*this)->getAttrs(), {"preference", "pure_fn"});
+}
+
+ParseResult ReduceOp::parse(OpAsmParser &parser, OperationState &result) {
+  PreferenceAttr preferenceAttr;
+  FlatSymbolRefAttr pureFnAttr;
+  OpAsmParser::UnresolvedOperand inputRawOperand{};
+  ArrayRef<OpAsmParser::UnresolvedOperand> inputOperands(&inputRawOperand, 1);
+  SMLoc inputOperandsLoc;
+  Type inputRawType{};
+  ArrayRef<Type> inputTypes(&inputRawType, 1);
+  OpAsmParser::UnresolvedOperand initRawOperand{};
+  ArrayRef<OpAsmParser::UnresolvedOperand> initOperands(&initRawOperand, 1);
+  SMLoc initOperandsLoc;
+  Type initRawType{};
+  ArrayRef<Type> initTypes(&initRawType, 1);
+  std::unique_ptr<Region> bodyRegion = std::make_unique<Region>();
+
+  if (succeeded(parser.parseOptionalKeyword("preference"))) {
+    if (parser.parseEqual() ||
+        parser.parseCustomAttributeWithFallback(preferenceAttr, Type{}))
+      return failure();
+    if (preferenceAttr)
+      result.getOrAddProperties<ReduceOp::Properties>().preference = preferenceAttr;
+  }
+  if (succeeded(parser.parseOptionalKeyword("pure_fn"))) {
+    if (parser.parseEqual() ||
+        parser.parseCustomAttributeWithFallback(
+            pureFnAttr, parser.getBuilder().getType<NoneType>()))
+      return failure();
+    if (pureFnAttr)
+      result.getOrAddProperties<ReduceOp::Properties>().pure_fn = pureFnAttr;
+  }
+  if (parser.parseKeyword("ins") || parser.parseLParen())
+    return failure();
+  inputOperandsLoc = parser.getCurrentLocation();
+  if (parser.parseOperand(inputRawOperand) || parser.parseColon())
+    return failure();
+  {
+    RankedTensorType type;
+    if (parser.parseCustomTypeWithFallback(type))
+      return failure();
+    inputRawType = type;
+  }
+  if (parser.parseRParen())
+    return failure();
+  if (parser.parseKeyword("outs") || parser.parseLParen())
+    return failure();
+  initOperandsLoc = parser.getCurrentLocation();
+  if (parser.parseOperand(initRawOperand) || parser.parseColon())
+    return failure();
+  {
+    RankedTensorType type;
+    if (parser.parseCustomTypeWithFallback(type))
+      return failure();
+    initRawType = type;
+  }
+  if (parser.parseRParen())
+    return failure();
+  {
+    auto parseResult = parser.parseOptionalRegion(*bodyRegion);
+    if (parseResult.has_value() && failed(*parseResult))
+      return failure();
+  }
+  {
+    auto loc = parser.getCurrentLocation();
+    if (parser.parseOptionalAttrDict(result.attributes))
+      return failure();
+    if (failed(verifyInherentAttrs(result.name, result.attributes, [&]() {
+          return parser.emitError(loc)
+                 << "'" << result.name.getStringRef() << "' op ";
+        })))
+      return failure();
+  }
+  result.addRegion(std::move(bodyRegion));
+  // Result type is the init type (destination-passing).
+  result.addTypes(initRawType);
+  if (parser.resolveOperands(inputOperands, inputTypes, inputOperandsLoc,
+                             result.operands) ||
+      parser.resolveOperands(initOperands, initTypes, initOperandsLoc,
+                             result.operands))
+    return failure();
+  return success();
+}
+
+void ReduceOp::print(OpAsmPrinter &p) {
+  if (getPreferenceAttr()) {
+    p << " preference = ";
+    p.printStrippedAttrOrType(getPreferenceAttr());
+  }
+  if (getPureFnAttr()) {
+    p << " pure_fn = ";
+    p.printAttributeWithoutType(getPureFnAttr());
+  }
+  p << " ins(" << getInput() << " : " << getInput().getType() << ")";
+  p << " outs(" << getInit() << " : " << getInit().getType() << ")";
+  if (!getBody().empty()) {
+    p << ' ';
+    p.printRegion(getBody());
+  }
+  p.printOptionalAttrDict((*this)->getAttrs(), {"preference", "pure_fn"});
+}
+
+ParseResult VectorAddOp::parse(OpAsmParser &parser, OperationState &result) {
+  PreferenceAttr preferenceAttr;
+  OpAsmParser::UnresolvedOperand lhsRawOperand{};
+  ArrayRef<OpAsmParser::UnresolvedOperand> lhsOperands(&lhsRawOperand, 1);
+  SMLoc lhsOperandsLoc;
+  OpAsmParser::UnresolvedOperand rhsRawOperand{};
+  ArrayRef<OpAsmParser::UnresolvedOperand> rhsOperands(&rhsRawOperand, 1);
+  SMLoc rhsOperandsLoc;
+  Type lhsRawType{};
+  ArrayRef<Type> lhsTypes(&lhsRawType, 1);
+  Type rhsRawType{};
+  ArrayRef<Type> rhsTypes(&rhsRawType, 1);
+  OpAsmParser::UnresolvedOperand initRawOperand{};
+  ArrayRef<OpAsmParser::UnresolvedOperand> initOperands(&initRawOperand, 1);
+  SMLoc initOperandsLoc;
+  Type initRawType{};
+  ArrayRef<Type> initTypes(&initRawType, 1);
+
+  if (succeeded(parser.parseOptionalKeyword("preference"))) {
+    if (parser.parseEqual() ||
+        parser.parseCustomAttributeWithFallback(preferenceAttr, Type{}))
+      return failure();
+    if (preferenceAttr)
+      result.getOrAddProperties<VectorAddOp::Properties>().preference =
+          preferenceAttr;
+  }
+  if (parser.parseKeyword("ins") || parser.parseLParen())
+    return failure();
+  lhsOperandsLoc = parser.getCurrentLocation();
+  if (parser.parseOperand(lhsRawOperand) || parser.parseComma())
+    return failure();
+  rhsOperandsLoc = parser.getCurrentLocation();
+  if (parser.parseOperand(rhsRawOperand) || parser.parseColon())
+    return failure();
+  {
+    RankedTensorType type;
+    if (parser.parseCustomTypeWithFallback(type))
+      return failure();
+    lhsRawType = type;
+  }
+  if (parser.parseComma())
+    return failure();
+  {
+    RankedTensorType type;
+    if (parser.parseCustomTypeWithFallback(type))
+      return failure();
+    rhsRawType = type;
+  }
+  if (parser.parseRParen())
+    return failure();
+  if (parser.parseKeyword("outs") || parser.parseLParen())
+    return failure();
+  initOperandsLoc = parser.getCurrentLocation();
+  if (parser.parseOperand(initRawOperand) || parser.parseColon())
+    return failure();
+  {
+    RankedTensorType type;
+    if (parser.parseCustomTypeWithFallback(type))
+      return failure();
+    initRawType = type;
+  }
+  if (parser.parseRParen())
+    return failure();
+  {
+    auto loc = parser.getCurrentLocation();
+    if (parser.parseOptionalAttrDict(result.attributes))
+      return failure();
+    if (failed(verifyInherentAttrs(result.name, result.attributes, [&]() {
+          return parser.emitError(loc)
+                 << "'" << result.name.getStringRef() << "' op ";
+        })))
+      return failure();
+  }
+  // Result type is the init type (destination-passing).
+  result.addTypes(initRawType);
+  if (parser.resolveOperands(lhsOperands, lhsTypes, lhsOperandsLoc,
+                             result.operands) ||
+      parser.resolveOperands(rhsOperands, rhsTypes, rhsOperandsLoc,
+                             result.operands) ||
+      parser.resolveOperands(initOperands, initTypes, initOperandsLoc,
+                             result.operands))
+    return failure();
+  return success();
+}
+
+void VectorAddOp::print(OpAsmPrinter &p) {
+  if (getPreferenceAttr()) {
+    p << " preference = ";
+    p.printStrippedAttrOrType(getPreferenceAttr());
+  }
+  p << " ins(" << getLhs() << ", " << getRhs() << " : " << getLhs().getType()
+    << ", " << getRhs().getType() << ")";
+  p << " outs(" << getInit() << " : " << getInit().getType() << ")";
+  p.printOptionalAttrDict((*this)->getAttrs(), {"preference"});
+}

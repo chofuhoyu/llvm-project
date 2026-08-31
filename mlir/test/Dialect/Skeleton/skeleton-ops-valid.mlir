@@ -12,7 +12,7 @@ func.func @map_leaf(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8x
   // CHECK: skeleton.map pure_fn = @my_add
   %r = skeleton.map pure_fn = @my_add
     ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>)
-    outs(%arg2 : tensor<8xf32>) -> tensor<8xf32>
+    outs(%arg2 : tensor<8xf32>)
   return %r : tensor<8xf32>
 }
 
@@ -30,7 +30,7 @@ func.func @map_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tens
   // CHECK: skeleton.map preference = <"CPU"> pure_fn = @my_add
   %r = skeleton.map preference = #skeleton.preference<"CPU"> pure_fn = @my_add
     ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>)
-    outs(%arg2 : tensor<8xf32>) -> tensor<8xf32>
+    outs(%arg2 : tensor<8xf32>)
   return %r : tensor<8xf32>
 }
 
@@ -48,7 +48,7 @@ func.func @reduce_leaf(%arg0: tensor<8xf32>, %arg1: tensor<f32>) -> tensor<f32> 
   // CHECK: skeleton.reduce pure_fn = @my_sum
   %r = skeleton.reduce pure_fn = @my_sum
     ins(%arg0 : tensor<8xf32>)
-    outs(%arg1 : tensor<f32>) -> tensor<f32>
+    outs(%arg1 : tensor<f32>)
   return %r : tensor<f32>
 }
 
@@ -66,7 +66,7 @@ func.func @reduce_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<f32>) -> tensor<
   // CHECK: skeleton.reduce preference = <"GPU"> pure_fn = @my_sum
   %r = skeleton.reduce preference = #skeleton.preference<"GPU"> pure_fn = @my_sum
     ins(%arg0 : tensor<8xf32>)
-    outs(%arg1 : tensor<f32>) -> tensor<f32>
+    outs(%arg1 : tensor<f32>)
   return %r : tensor<f32>
 }
 
@@ -86,7 +86,7 @@ func.func @map_with_body(%arg0: tensor<?xf32>, %arg1: tensor<?xf32>) -> tensor<?
   ^bb0(%elem: f32, %init: f32):
     %sum = arith.addf %elem, %init : f32
     skeleton.yield %sum : f32
-  } -> tensor<?xf32>
+  }
   return %r : tensor<?xf32>
 }
 
@@ -99,7 +99,7 @@ func.func @vector_add_op(%arg0: tensor<?xf32>, %arg1: tensor<?xf32>, %arg2: tens
   // CHECK: skeleton.vector_add preference = <"CPU">
   %r = skeleton.vector_add preference = #skeleton.preference<"CPU">
     ins(%arg0, %arg1 : tensor<?xf32>, tensor<?xf32>)
-    outs(%arg2 : tensor<?xf32>) -> tensor<?xf32>
+    outs(%arg2 : tensor<?xf32>)
   return %r : tensor<?xf32>
 }
 
@@ -112,6 +112,6 @@ func.func @vector_add_static(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: 
   // CHECK: skeleton.vector_add
   %r = skeleton.vector_add
     ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>)
-    outs(%arg2 : tensor<8xf32>) -> tensor<8xf32>
+    outs(%arg2 : tensor<8xf32>)
   return %r : tensor<8xf32>
 }

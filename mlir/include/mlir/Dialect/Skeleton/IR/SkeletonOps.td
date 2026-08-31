@@ -57,15 +57,19 @@ def Skeleton_MapOp : Op<Skeleton_Dialect, "map"> {
 
   let regions = (region AnyRegion:$body);
 
-  let assemblyFormat = [{
-    (`preference` `=` $preference^)?
-    (`pure_fn` `=` $pure_fn^)?
-    `ins` `(` $inputs `:` type($inputs) `)`
-    `outs` `(` $init `:` type($init) `)`
-    ($body^)?
-    `->` type($result)
-    attr-dict
-  }];
+  // Result type is derived from `init` (destination-passing, like linalg.map):
+  // the assembly omits `-> type($result)` and parse fills it from outs.
+  let hasCustomAssemblyFormat = 1;
+
+  // Derive the result type from `init` so C++ builders don't repeat it.
+  let builders = [
+    OpBuilder<(ins "ValueRange":$inputs, "Value":$init,
+                   "FlatSymbolRefAttr":$pureFn,
+                   "PreferenceAttr":$preference), [{
+      build($_builder, $_state, init.getType(), inputs, init, pureFn,
+            preference);
+    }]>
+  ];
 
   let hasVerifier = 1;
 }
@@ -102,15 +106,18 @@ def Skeleton_ReduceOp : Op<Skeleton_Dialect, "reduce"> {
 
   let regions = (region AnyRegion:$body);
 
-  let assemblyFormat = [{
-    (`preference` `=` $preference^)?
-    (`pure_fn` `=` $pure_fn^)?
-    `ins` `(` $input `:` type($input) `)`
-    `outs` `(` $init `:` type($init) `)`
-    ($body^)?
-    `->` type($result)
-    attr-dict
-  }];
+  // Result type is derived from `init` (destination-passing, like linalg.map).
+  let hasCustomAssemblyFormat = 1;
+
+  // Derive the result type from `init` so C++ builders don't repeat it.
+  let builders = [
+    OpBuilder<(ins "Value":$input, "Value":$init,
+                   "FlatSymbolRefAttr":$pureFn,
+                   "PreferenceAttr":$preference), [{
+      build($_builder, $_state, init.getType(), input, init, pureFn,
+            preference);
+    }]>
+  ];
 
   let hasVerifier = 1;
 }
@@ -160,13 +167,16 @@ def Skeleton_VectorAddOp : Op<Skeleton_Dialect, "vector_add"> {
 
   let results = (outs AnyRankedTensor:$result);
 
-  let assemblyFormat = [{
-    (`preference` `=` $preference^)?
-    `ins` `(` $lhs `,` $rhs `:` type($lhs) `,` type($rhs) `)`
-    `outs` `(` $init `:` type($init) `)`
-    `->` type($result)
-    attr-dict
-  }];
+  // Result type is derived from `init` (destination-passing, like linalg.map).
+  let hasCustomAssemblyFormat = 1;
+
+  // Derive the result type from `init` so C++ builders don't repeat it.
+  let builders = [
+    OpBuilder<(ins "Value":$lhs, "Value":$rhs, "Value":$init,
+                   "PreferenceAttr":$preference), [{
+      build($_builder, $_state, init.getType(), lhs, rhs, init, preference);
+    }]>
+  ];
 
   let hasVerifier = 1;
 }

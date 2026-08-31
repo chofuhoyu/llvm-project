@@ -91,9 +91,10 @@ struct MergeMapAddToVectorAdd : public OpRewritePattern<MapOp> {
     if (!isAddFn(fn))
       return failure();
 
-    // Create skeleton.vector_add.
+    // Create skeleton.vector_add. The result type is derived from init
+    // (destination-passing), so it's not repeated here.
     auto vectorAdd = VectorAddOp::create(
-        rewriter, op.getLoc(), op.getResult().getType(),
+        rewriter, op.getLoc(),
         op.getInputs()[0], op.getInputs()[1], op.getInit(),
         op.getPreferenceAttr());
 

@@ -32,7 +32,7 @@ func.func @main() {
 
   %result = skeleton.map preference = #skeleton.preference<"CPU"> pure_fn = @my_add
     ins(%A, %B : tensor<4xf32>, tensor<4xf32>)
-    outs(%C : tensor<4xf32>) -> tensor<4xf32>
+    outs(%C : tensor<4xf32>)
 
   %unranked = tensor.cast %result : tensor<4xf32> to tensor<*xf32>
   call @printMemrefF32(%unranked) : (tensor<*xf32>) -> ()
