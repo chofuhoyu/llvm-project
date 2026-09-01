@@ -48,6 +48,16 @@ struct ConvertMapOp : public OpRewritePattern<MapOp> {
     if (!fn)
       return failure();
 
+    // linalg regions must be a single straight-line block: reject pure_fn
+    // bodies we cannot represent.
+    if (fn.isDeclaration())
+      return op.emitOpError("pure_fn '")
+             << fn.getName() << "' must be defined to lower to linalg";
+    if (!fn.getBody().hasOneBlock())
+      return op.emitOpError("pure_fn '")
+             << fn.getName()
+             << "' must have a single-block body to lower to linalg";
+
     // Compute indexing maps and iterator types from the result tensor.
     auto resultType = cast<RankedTensorType>(op.getResult().getType());
     unsigned rank = resultType.getRank();
@@ -74,11 +84,8 @@ struct ConvertMapOp : public OpRewritePattern<MapOp> {
         /*doc=*/"",
         /*libraryCall=*/"",
         [&](OpBuilder &bodyBuilder, Location loc, ValueRange blockArgs) {
-          // TODO: This assumes the pure_fn body is a single straight-line
-          // block: only the entry block is cloned (control flow silently
-          // dropped) and the terminator is hard-cast to func::ReturnOp.
-          // Reject multi-block pure_fn bodies or inline them properly.
-          // Map blockArgs to pure_fn parameters and clone the body.
+          // The pure_fn body is single-block (checked above). Map blockArgs
+          // to pure_fn parameters and clone the body.
           IRMapping mapper;
           for (unsigned i = 0; i < blockArgs.size() - 1; ++i)
             mapper.map(fn.getArgument(i), blockArgs[i]);
@@ -118,6 +125,16 @@ struct ConvertReduceOp : public OpRewritePattern<ReduceOp> {
     if (!fn)
       return failure();
 
+    // linalg regions must be a single straight-line block: reject pure_fn
+    // bodies we cannot represent.
+    if (fn.isDeclaration())
+      return op.emitOpError("pure_fn '")
+             << fn.getName() << "' must be defined to lower to linalg";
+    if (!fn.getBody().hasOneBlock())
+      return op.emitOpError("pure_fn '")
+             << fn.getName()
+             << "' must have a single-block body to lower to linalg";
+
     auto inputType = cast<RankedTensorType>(op.getInput().getType());
 
     // Build a linalg.reduce with the pure_fn body cloned into its combiner
@@ -129,8 +146,7 @@ struct ConvertReduceOp : public OpRewritePattern<ReduceOp> {
         /*dimensions=*/
         llvm::to_vector(llvm::seq<int64_t>(0, inputType.getRank())),
         [&](OpBuilder &bodyBuilder, Location loc, ValueRange blockArgs) {
-          // TODO: Same single-block straight-line assumption as ConvertMapOp:
-          // only the entry block is cloned and the terminator hard-cast.
+          // The pure_fn body is single-block (checked above).
           // blockArgs: [accumulator, element]
           IRMapping mapper;
           mapper.map(fn.getArgument(0), blockArgs[0]);
