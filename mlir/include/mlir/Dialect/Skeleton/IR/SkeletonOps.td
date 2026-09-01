@@ -146,7 +146,7 @@ def Skeleton_YieldOp : Op<Skeleton_Dialect, "yield", [
 
 // Skeleton VectorAddOp (named op, product of pattern merge)
 
-def Skeleton_VectorAddOp : Op<Skeleton_Dialect, "vector_add"> {
+def Skeleton_VectorAddOp : Op<Skeleton_Dialect, "vector.add"> {
   let summary = "A named skeleton vector addition operation";
   let description = [{
     Represents an element-wise vector addition (C[i] = A[i] + B[i]).
@@ -161,7 +161,7 @@ def Skeleton_VectorAddOp : Op<Skeleton_Dialect, "vector_add"> {
 
     Example:
     ```mlir
-    %0 = skeleton.vector_add preference = #skeleton.preference<"CPU">
+    %0 = skeleton.vector.add preference = #skeleton.preference<"CPU">
       ins(%lhs, %rhs : tensor<?xf32>, tensor<?xf32>)
       outs(%out : tensor<?xf32>)
     ```

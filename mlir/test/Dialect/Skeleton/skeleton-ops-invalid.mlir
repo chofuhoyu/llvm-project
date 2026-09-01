@@ -156,7 +156,7 @@ func.func @vecadd_bad_rank(%A: memref<8x8xf32>, %B: memref<8x8xf32>, %C: memref<
   %B_t = bufferization.to_tensor %B : memref<8x8xf32> to tensor<8x8xf32>
   %C_t = bufferization.to_tensor %C : memref<8x8xf32> to tensor<8x8xf32>
   // expected-error@+1 {{expects all operands to be 1D tensors}}
-  %r = skeleton.vector_add
+  %r = skeleton.vector.add
     ins(%A_t, %B_t : tensor<8x8xf32>, tensor<8x8xf32>)
     outs(%C_t : tensor<8x8xf32>)
   return

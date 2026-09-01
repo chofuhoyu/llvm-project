@@ -86,10 +86,10 @@ func.func @test_reduce_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<f32>) -> te
 
 // -----
 
-// Test: skeleton.vector_add → linalg.add
+// Test: skeleton.vector.add → linalg.add
 
 func.func @test_vector_add(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8xf32>) -> tensor<8xf32> {
-  %0 = skeleton.vector_add
+  %0 = skeleton.vector.add
     ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>)
     outs(%arg2 : tensor<8xf32>)
   return %0 : tensor<8xf32>
@@ -99,14 +99,14 @@ func.func @test_vector_add(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: te
 // CHECK: linalg.add
 // CHECK-SAME: ins({{.*}} : tensor<8xf32>, tensor<8xf32>)
 // CHECK-SAME: outs({{.*}} : tensor<8xf32>)
-// CHECK-NOT: skeleton.vector_add
+// CHECK-NOT: skeleton.vector.add
 
 // -----
 
-// Test: skeleton.vector_add with preference → linalg.add with attr
+// Test: skeleton.vector.add with preference → linalg.add with attr
 
 func.func @test_vector_add_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8xf32>) -> tensor<8xf32> {
-  %0 = skeleton.vector_add preference = #skeleton.preference<"GPU">
+  %0 = skeleton.vector.add preference = #skeleton.preference<"GPU">
     ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>)
     outs(%arg2 : tensor<8xf32>)
   return %0 : tensor<8xf32>
@@ -115,16 +115,16 @@ func.func @test_vector_add_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>,
 // CHECK-LABEL: func @test_vector_add_with_pref
 // CHECK: linalg.add
 // CHECK-SAME: skeleton.preference = #skeleton.preference<"GPU">
-// CHECK-NOT: skeleton.vector_add
+// CHECK-NOT: skeleton.vector.add
 
 // -----
 
-// Test: skeleton.vector_add with integer element type → linalg.add.
-// vector_add is type-polymorphic, and linalg.add accepts the same element
+// Test: skeleton.vector.add with integer element type → linalg.add.
+// vector.add is type-polymorphic, and linalg.add accepts the same element
 // types (T1).
 
 func.func @test_vector_add_i32(%arg0: tensor<8xi32>, %arg1: tensor<8xi32>, %arg2: tensor<8xi32>) -> tensor<8xi32> {
-  %0 = skeleton.vector_add
+  %0 = skeleton.vector.add
     ins(%arg0, %arg1 : tensor<8xi32>, tensor<8xi32>)
     outs(%arg2 : tensor<8xi32>)
   return %0 : tensor<8xi32>
@@ -134,4 +134,4 @@ func.func @test_vector_add_i32(%arg0: tensor<8xi32>, %arg1: tensor<8xi32>, %arg2
 // CHECK: linalg.add
 // CHECK-SAME: ins({{.*}} : tensor<8xi32>, tensor<8xi32>)
 // CHECK-SAME: outs({{.*}} : tensor<8xi32>)
-// CHECK-NOT: skeleton.vector_add
+// CHECK-NOT: skeleton.vector.add

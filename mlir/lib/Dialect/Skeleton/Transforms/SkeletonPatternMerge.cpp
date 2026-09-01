@@ -8,7 +8,7 @@
 //
 // Merges skeleton.map + pure_fn patterns into named skeleton ops.
 // For example:
-//   skeleton.map {pure_fn = @my_add}  →  skeleton.vector_add
+//   skeleton.map {pure_fn = @my_add}  →  skeleton.vector.add
 //   where @my_add computes a+b (arith.addf or arith.addi on its two arguments,
 //   either order) and returns the result.
 //
@@ -36,7 +36,7 @@ namespace {
 /// Check if a func.func body computes `a + b` and returns it.
 ///
 /// Accepts both `arith.addf` (floating point) and `arith.addi` (integer):
-/// vector_add is type-polymorphic, mirroring `linalg.add`, so the element type
+/// vector.add is type-polymorphic, mirroring `linalg.add`, so the element type
 /// comes from the map operands.
 ///
 /// Uses root-op matching on the returned value: the returned value must be the
@@ -71,7 +71,7 @@ static bool isAddOp(func::FuncOp fn) {
          (addOp->getOperand(0) == arg1 && addOp->getOperand(1) == arg0);
 }
 
-/// Convert skeleton.map {pure_fn = @add_like_fn} → skeleton.vector_add.
+/// Convert skeleton.map {pure_fn = @add_like_fn} → skeleton.vector.add.
 struct MergeMapAddToVectorAdd : public OpRewritePattern<MapOp> {
   using OpRewritePattern<MapOp>::OpRewritePattern;
 
@@ -83,9 +83,9 @@ struct MergeMapAddToVectorAdd : public OpRewritePattern<MapOp> {
     if (op.getInputs().size() != 2)
       return failure();
 
-    // vector_add is 1D-only and requires a uniform element type (see
+    // vector.add is 1D-only and requires a uniform element type (see
     // VectorAddOp::verify). Check before merging: without this, a 2D+
-    // map{pure_fn=@add} would be rewritten into a vector_add that fails
+    // map{pure_fn=@add} would be rewritten into a vector.add that fails
     // verification. (Element-type uniformity is already implied by MapOp::verify
     // via the pure_fn signature check, but we keep it explicit here so this
     // rewrite never emits IR the verifier rejects.)
@@ -113,7 +113,7 @@ struct MergeMapAddToVectorAdd : public OpRewritePattern<MapOp> {
     if (!isAddOp(fn))
       return failure();
 
-    // Create skeleton.vector_add. The result type is derived from init
+    // Create skeleton.vector.add. The result type is derived from init
     // (destination-passing), so it's not repeated here.
     auto vectorAdd = VectorAddOp::create(
         rewriter, op.getLoc(),

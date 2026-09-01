@@ -259,7 +259,7 @@ def CIRLoopToSkeleton : Pass<"cir-loop-to-skeleton"> {
     The first string argument (if present) becomes the skeleton preference.
 
     Currently supports:
-    - `annotate("skeleton_vector_add", "CPU|GPU")` → `skeleton.vector_add`
+    - `annotate("skeleton_vector_add", "CPU|GPU")` → `skeleton.vector.add`
 
     Future enhancements will recognize additional annotation names and
     produce type-specific operations.

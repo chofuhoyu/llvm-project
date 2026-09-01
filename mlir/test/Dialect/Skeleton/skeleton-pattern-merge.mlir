@@ -1,6 +1,6 @@
 // RUN: mlir-opt %s -skeleton-pattern-merge -split-input-file -verify-diagnostics | FileCheck %s
 
-// Test: skeleton.map {pure_fn = @add_fn} → skeleton.vector_add
+// Test: skeleton.map {pure_fn = @add_fn} → skeleton.vector.add
 
 func.func @add_fn(%a: f32, %b: f32) -> f32 {
   %r = arith.addf %a, %b : f32
@@ -15,7 +15,7 @@ func.func @test_merge_add(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: ten
 }
 
 // CHECK-LABEL: func @test_merge_add
-// CHECK: skeleton.vector_add
+// CHECK: skeleton.vector.add
 // CHECK-NOT: skeleton.map
 
 // -----
@@ -36,7 +36,7 @@ func.func @test_no_merge_mul(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: 
 
 // CHECK-LABEL: func @test_no_merge_mul
 // CHECK: skeleton.map
-// CHECK-NOT: skeleton.vector_add
+// CHECK-NOT: skeleton.vector.add
 
 // -----
 
@@ -55,12 +55,12 @@ func.func @test_merge_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg
 }
 
 // CHECK-LABEL: func @test_merge_with_pref
-// CHECK: skeleton.vector_add preference = <"GPU">
+// CHECK: skeleton.vector.add preference = <"GPU">
 // CHECK-NOT: skeleton.map
 
 // -----
 
-// Test: 2D map{pure_fn=@add} does NOT merge — vector_add is 1D-only.
+// Test: 2D map{pure_fn=@add} does NOT merge — vector.add is 1D-only.
 
 func.func @add_fn(%a: f32, %b: f32) -> f32 {
   %r = arith.addf %a, %b : f32
@@ -76,7 +76,7 @@ func.func @test_no_merge_2d(%arg0: tensor<2x4xf32>, %arg1: tensor<2x4xf32>, %arg
 
 // CHECK-LABEL: func @test_no_merge_2d
 // CHECK: skeleton.map
-// CHECK-NOT: skeleton.vector_add
+// CHECK-NOT: skeleton.vector.add
 
 // -----
 
@@ -95,7 +95,7 @@ func.func @test_merge_swapped(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2:
 }
 
 // CHECK-LABEL: func @test_merge_swapped
-// CHECK: skeleton.vector_add
+// CHECK: skeleton.vector.add
 // CHECK-NOT: skeleton.map
 
 // -----
@@ -116,12 +116,12 @@ func.func @test_merge_extra(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: t
 }
 
 // CHECK-LABEL: func @test_merge_extra
-// CHECK: skeleton.vector_add
+// CHECK: skeleton.vector.add
 // CHECK-NOT: skeleton.map
 
 // -----
 
-// Test: f64 addf merges (vector_add accepts any float element type).
+// Test: f64 addf merges (vector.add accepts any float element type).
 
 func.func @add_f64(%a: f64, %b: f64) -> f64 {
   %r = arith.addf %a, %b : f64
@@ -136,12 +136,12 @@ func.func @test_merge_f64(%arg0: tensor<8xf64>, %arg1: tensor<8xf64>, %arg2: ten
 }
 
 // CHECK-LABEL: func @test_merge_f64
-// CHECK: skeleton.vector_add
+// CHECK: skeleton.vector.add
 // CHECK-NOT: skeleton.map
 
 // -----
 
-// Test: integer add (arith.addi) merges — vector_add is type-polymorphic,
+// Test: integer add (arith.addi) merges — vector.add is type-polymorphic,
 // mirroring linalg.add.
 
 func.func @add_int(%a: i32, %b: i32) -> i32 {
@@ -157,7 +157,7 @@ func.func @test_merge_addi(%arg0: tensor<8xi32>, %arg1: tensor<8xi32>, %arg2: te
 }
 
 // CHECK-LABEL: func @test_merge_addi
-// CHECK: skeleton.vector_add
+// CHECK: skeleton.vector.add
 // CHECK-NOT: skeleton.map
 
 // -----
@@ -187,4 +187,4 @@ func.func @test_no_merge_if(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: t
 
 // CHECK-LABEL: func @test_no_merge_if
 // CHECK: skeleton.map
-// CHECK-NOT: skeleton.vector_add
+// CHECK-NOT: skeleton.vector.add

@@ -110,8 +110,8 @@ func.func @map_with_body(%arg0: tensor<?xf32>, %arg1: tensor<?xf32>) -> tensor<?
 
 func.func @vector_add_op(%arg0: tensor<?xf32>, %arg1: tensor<?xf32>, %arg2: tensor<?xf32>) -> tensor<?xf32> {
   // CHECK-LABEL: func @vector_add_op
-  // CHECK: skeleton.vector_add preference = <"CPU">
-  %r = skeleton.vector_add preference = #skeleton.preference<"CPU">
+  // CHECK: skeleton.vector.add preference = <"CPU">
+  %r = skeleton.vector.add preference = #skeleton.preference<"CPU">
     ins(%arg0, %arg1 : tensor<?xf32>, tensor<?xf32>)
     outs(%arg2 : tensor<?xf32>)
   return %r : tensor<?xf32>
@@ -123,8 +123,8 @@ func.func @vector_add_op(%arg0: tensor<?xf32>, %arg1: tensor<?xf32>, %arg2: tens
 
 func.func @vector_add_static(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8xf32>) -> tensor<8xf32> {
   // CHECK-LABEL: func @vector_add_static
-  // CHECK: skeleton.vector_add
-  %r = skeleton.vector_add
+  // CHECK: skeleton.vector.add
+  %r = skeleton.vector.add
     ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>)
     outs(%arg2 : tensor<8xf32>)
   return %r : tensor<8xf32>
