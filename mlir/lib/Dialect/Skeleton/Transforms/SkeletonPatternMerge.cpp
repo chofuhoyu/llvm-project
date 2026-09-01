@@ -9,13 +9,15 @@
 // Merges skeleton.map + pure_fn patterns into named skeleton ops.
 // For example:
 //   skeleton.map {pure_fn = @my_add}  →  skeleton.vector_add
-//   where @my_add body is a single arith.addf.
+//   where @my_add computes a+b (arith.addf on its two arguments, either order)
+//   and returns the result.
 //
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
@@ -31,35 +33,36 @@ namespace skeleton {
 
 namespace {
 
-/// Check if a func.func body consists of a single arith.addf on the arguments
-/// and returns the result.
+/// Check if a func.func body computes `a + b` (floating-point) and returns it.
+///
+/// Uses root-op matching instead of an exact body shape: the returned value
+/// must be the direct result of an `arith.addf` whose two operands are exactly
+/// the function's two arguments, in either order (addf is commutative). Extra
+/// unrelated instructions in the body are tolerated — they are still inlined
+/// by skeleton-to-linalg, so merging remains semantically sound.
+///
+/// A single-block body is required: multi-block bodies are silently truncated
+/// by the inlining in SkeletonToLinalg (see TODO-3), so merging them here
+/// would silently change semantics.
 static bool isAddFn(func::FuncOp fn) {
   if (!fn || fn.getBody().getBlocks().size() != 1)
     return false;
   auto &block = fn.getBody().front();
-  // Expect: %r = arith.addf %a, %b : f32
-  //         return %r : f32
-  // That's 2 ops: addf + return.
-  if (std::distance(block.begin(), block.end()) != 2)
+  if (block.getNumArguments() != 2)
     return false;
 
-  auto addf = dyn_cast<arith::AddFOp>(&block.front());
-  if (!addf)
-    return false;
-
-  // Check that the addf uses the block arguments.
-  if (addf.getLhs() != fn.getArgument(0) ||
-      addf.getRhs() != fn.getArgument(1))
-    return false;
-
-  // Check the return uses the addf result.
+  // The returned value must be the result of an arith.addf.
   auto ret = dyn_cast<func::ReturnOp>(block.getTerminator());
   if (!ret || ret.getOperands().size() != 1)
     return false;
-  if (ret.getOperand(0) != addf.getResult())
+  auto addf = ret.getOperand(0).getDefiningOp<arith::AddFOp>();
+  if (!addf)
     return false;
 
-  return true;
+  // The addf must add exactly the two function arguments, in either order.
+  Value arg0 = fn.getArgument(0), arg1 = fn.getArgument(1);
+  return (addf.getLhs() == arg0 && addf.getRhs() == arg1) ||
+         (addf.getLhs() == arg1 && addf.getRhs() == arg0);
 }
 
 /// Convert skeleton.map {pure_fn = @add_like_fn} → skeleton.vector_add.
@@ -74,10 +77,23 @@ struct MergeMapAddToVectorAdd : public OpRewritePattern<MapOp> {
     if (op.getInputs().size() != 2)
       return failure();
 
-    // TODO: vector_add is 1D-only (see VectorAddOp::verify), but this merge
-    // does not check the operand rank or element type — a 2D+ tensor
-    // map{pure_fn=@add} merges into a vector_add that fails verification.
-    // Check rank (and element type) before merging.
+    // vector_add is 1D-only and requires a uniform element type (see
+    // VectorAddOp::verify). Check before merging: without this, a 2D+
+    // map{pure_fn=@add} would be rewritten into a vector_add that fails
+    // verification. (Element-type uniformity is already implied by MapOp::verify
+    // via the pure_fn signature check, but we keep it explicit here so this
+    // rewrite never emits IR the verifier rejects.)
+    auto lhsType = dyn_cast<RankedTensorType>(op.getInputs()[0].getType());
+    auto rhsType = dyn_cast<RankedTensorType>(op.getInputs()[1].getType());
+    auto initType = dyn_cast<RankedTensorType>(op.getInit().getType());
+    if (!lhsType || !rhsType || !initType || lhsType.getRank() != 1 ||
+        rhsType.getRank() != 1 || initType.getRank() != 1)
+      return failure();
+    auto eltType = lhsType.getElementType();
+    if (rhsType.getElementType() != eltType ||
+        initType.getElementType() != eltType)
+      return failure();
+
     auto module = op->getParentOfType<ModuleOp>();
     if (!module)
       return failure();
