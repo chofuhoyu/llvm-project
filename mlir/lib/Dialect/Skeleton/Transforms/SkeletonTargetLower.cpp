@@ -51,7 +51,7 @@ struct SkeletonTargetLowerPass
     // Collect target functions before modifying IR.
     SmallVector<func::FuncOp> targets;
     module.walk([&](func::FuncOp func) {
-      if (func->getAttrOfType<StringAttr>("skeleton.target"))
+      if (func->getAttrOfType<TargetAttr>("skeleton.target"))
         targets.push_back(func);
     });
 
@@ -62,7 +62,7 @@ struct SkeletonTargetLowerPass
     // copies of the strings, avoiding dangling StringRefs after IR mutations).
     llvm::StringSet<> gpuTargetNames;
     for (func::FuncOp func : targets) {
-      if (auto attr = func->getAttrOfType<StringAttr>("skeleton.target")) {
+      if (auto attr = func->getAttrOfType<TargetAttr>("skeleton.target")) {
         if (attr.getValue() == "GPU")
           gpuTargetNames.insert(func.getSymName().str());
       }
@@ -223,7 +223,7 @@ struct SkeletonTargetLowerPass
 
     // Step 2: lower linalg per function, choosing loops or parallel loops.
     for (func::FuncOp func : targets) {
-      auto targetAttr = func->getAttrOfType<StringAttr>("skeleton.target");
+      auto targetAttr = func->getAttrOfType<TargetAttr>("skeleton.target");
       StringRef target = targetAttr.getValue();
 
       OpPassManager pm("func.func", OpPassManager::Nesting::Explicit);
@@ -241,6 +241,13 @@ struct SkeletonTargetLowerPass
       if (failed(runPipeline(pm, func)))
         return signalPassFailure();
     }
+
+    // The skeleton.target attribute has served its purpose once lowering is
+    // done. Remove it so it does not leak into downstream passes (e.g.
+    // mlir-runner in integration tests) that do not load the skeleton
+    // dialect and would fail to parse the typed #skeleton.target<...>.
+    for (func::FuncOp func : targets)
+      func->removeAttr("skeleton.target");
   }
 };
 

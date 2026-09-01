@@ -26,4 +26,19 @@ def Skeleton_PreferenceAttr : AttrDef<Skeleton_Dialect, "Preference"> {
   let genVerifyDecl = 1;
 }
 
+// Skeleton Target Attribute
+
+def Skeleton_TargetAttr : AttrDef<Skeleton_Dialect, "Target"> {
+  let summary = "A target attribute marking the dispatch target of an outlined function";
+  let description = [{
+    This attribute is attached to outlined func.func ops by the
+    skeleton-preference-partition pass to record the dispatch target
+    ("CPU" or "GPU") chosen for that function.
+  }];
+  let mnemonic = "target";
+  let parameters = (ins "StringAttr":$value);
+  let assemblyFormat = "`<` $value `>`";
+  let genVerifyDecl = 1;
+}
+
 #endif // SKELETON_ATTRS

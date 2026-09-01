@@ -27,6 +27,17 @@ PreferenceAttr::verify(function_ref<InFlightDiagnostic()> emitError,
   return success();
 }
 
+// TargetAttr
+
+LogicalResult
+TargetAttr::verify(function_ref<InFlightDiagnostic()> emitError,
+                   StringAttr value) {
+  if (value != "CPU" && value != "GPU")
+    return emitError() << "expected 'CPU' or 'GPU' for target attribute, got '"
+                       << value.getValue() << "'";
+  return success();
+}
+
 // Include the full attribute definitions (storage class + implementations)
 #define GET_ATTRDEF_CLASSES
 #include "mlir/Dialect/Skeleton/IR/SkeletonAttrs.cpp.inc"

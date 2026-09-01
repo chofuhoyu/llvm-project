@@ -118,7 +118,8 @@ struct SkeletonPreferencePartitionPass
       auto outlinedFunc = func::FuncOp::create(loc, name, funcType);
       outlinedFunc.setPrivate();
       outlinedFunc->setAttr("skeleton.target",
-                            StringAttr::get(ctx, entry.preference));
+                            TargetAttr::get(ctx,
+                                            StringAttr::get(ctx, entry.preference)));
 
       Block *entryBlock = outlinedFunc.addEntryBlock();
       builder.setInsertionPointToStart(entryBlock);
