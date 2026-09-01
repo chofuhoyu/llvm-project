@@ -9,8 +9,8 @@
 // Merges skeleton.map + pure_fn patterns into named skeleton ops.
 // For example:
 //   skeleton.map {pure_fn = @my_add}  →  skeleton.vector_add
-//   where @my_add computes a+b (arith.addf on its two arguments, either order)
-//   and returns the result.
+//   where @my_add computes a+b (arith.addf or arith.addi on its two arguments,
+//   either order) and returns the result.
 //
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -33,36 +33,42 @@ namespace skeleton {
 
 namespace {
 
-/// Check if a func.func body computes `a + b` (floating-point) and returns it.
+/// Check if a func.func body computes `a + b` and returns it.
 ///
-/// Uses root-op matching instead of an exact body shape: the returned value
-/// must be the direct result of an `arith.addf` whose two operands are exactly
-/// the function's two arguments, in either order (addf is commutative). Extra
-/// unrelated instructions in the body are tolerated — they are still inlined
-/// by skeleton-to-linalg, so merging remains semantically sound.
+/// Accepts both `arith.addf` (floating point) and `arith.addi` (integer):
+/// vector_add is type-polymorphic, mirroring `linalg.add`, so the element type
+/// comes from the map operands.
+///
+/// Uses root-op matching on the returned value: the returned value must be the
+/// direct result of an `arith.addf`/`arith.addi` whose two operands are
+/// exactly the function's two arguments, in either order (addition is
+/// commutative). Extra unrelated instructions in the body are tolerated — they
+/// are still inlined by skeleton-to-linalg, so merging remains semantically
+/// sound.
 ///
 /// A single-block body is required: multi-block bodies are silently truncated
-/// by the inlining in SkeletonToLinalg (see TODO-3), so merging them here
+/// by the inlining in SkeletonToLinalg (see TODO-5), so merging them here
 /// would silently change semantics.
-static bool isAddFn(func::FuncOp fn) {
+static bool isAddOp(func::FuncOp fn) {
   if (!fn || fn.getBody().getBlocks().size() != 1)
     return false;
   auto &block = fn.getBody().front();
   if (block.getNumArguments() != 2)
     return false;
 
-  // The returned value must be the result of an arith.addf.
+  // The returned value must be the result of an integer or floating-point
+  // addition.
   auto ret = dyn_cast<func::ReturnOp>(block.getTerminator());
   if (!ret || ret.getOperands().size() != 1)
     return false;
-  auto addf = ret.getOperand(0).getDefiningOp<arith::AddFOp>();
-  if (!addf)
+  auto *addOp = ret.getOperand(0).getDefiningOp();
+  if (!isa<arith::AddFOp, arith::AddIOp>(addOp))
     return false;
 
-  // The addf must add exactly the two function arguments, in either order.
+  // The add must add exactly the two function arguments, in either order.
   Value arg0 = fn.getArgument(0), arg1 = fn.getArgument(1);
-  return (addf.getLhs() == arg0 && addf.getRhs() == arg1) ||
-         (addf.getLhs() == arg1 && addf.getRhs() == arg0);
+  return (addOp->getOperand(0) == arg0 && addOp->getOperand(1) == arg1) ||
+         (addOp->getOperand(0) == arg1 && addOp->getOperand(1) == arg0);
 }
 
 /// Convert skeleton.map {pure_fn = @add_like_fn} → skeleton.vector_add.
@@ -103,8 +109,8 @@ struct MergeMapAddToVectorAdd : public OpRewritePattern<MapOp> {
     if (!fn)
       return failure();
 
-    // Check if the pure function is just a simple addf.
-    if (!isAddFn(fn))
+    // Check if the pure function is just a simple add.
+    if (!isAddOp(fn))
       return failure();
 
     // Create skeleton.vector_add. The result type is derived from init

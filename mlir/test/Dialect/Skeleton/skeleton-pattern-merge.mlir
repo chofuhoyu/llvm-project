@@ -141,23 +141,24 @@ func.func @test_merge_f64(%arg0: tensor<8xf64>, %arg1: tensor<8xf64>, %arg2: ten
 
 // -----
 
-// Test: integer add does NOT merge — no vector_addi named op yet.
+// Test: integer add (arith.addi) merges — vector_add is type-polymorphic,
+// mirroring linalg.add.
 
 func.func @add_int(%a: i32, %b: i32) -> i32 {
   %r = arith.addi %a, %b : i32
   return %r : i32
 }
 
-func.func @test_no_merge_addi(%arg0: tensor<8xi32>, %arg1: tensor<8xi32>, %arg2: tensor<8xi32>) -> tensor<8xi32> {
+func.func @test_merge_addi(%arg0: tensor<8xi32>, %arg1: tensor<8xi32>, %arg2: tensor<8xi32>) -> tensor<8xi32> {
   %r = skeleton.map pure_fn = @add_int
     ins(%arg0, %arg1 : tensor<8xi32>, tensor<8xi32>)
     outs(%arg2 : tensor<8xi32>)
   return %r : tensor<8xi32>
 }
 
-// CHECK-LABEL: func @test_no_merge_addi
-// CHECK: skeleton.map
-// CHECK-NOT: skeleton.vector_add
+// CHECK-LABEL: func @test_merge_addi
+// CHECK: skeleton.vector_add
+// CHECK-NOT: skeleton.map
 
 // -----
 

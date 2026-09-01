@@ -116,3 +116,22 @@ func.func @test_vector_add_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>,
 // CHECK: linalg.add
 // CHECK-SAME: skeleton.preference = #skeleton.preference<"GPU">
 // CHECK-NOT: skeleton.vector_add
+
+// -----
+
+// Test: skeleton.vector_add with integer element type → linalg.add.
+// vector_add is type-polymorphic, and linalg.add accepts the same element
+// types (T1).
+
+func.func @test_vector_add_i32(%arg0: tensor<8xi32>, %arg1: tensor<8xi32>, %arg2: tensor<8xi32>) -> tensor<8xi32> {
+  %0 = skeleton.vector_add
+    ins(%arg0, %arg1 : tensor<8xi32>, tensor<8xi32>)
+    outs(%arg2 : tensor<8xi32>)
+  return %0 : tensor<8xi32>
+}
+
+// CHECK-LABEL: func @test_vector_add_i32
+// CHECK: linalg.add
+// CHECK-SAME: ins({{.*}} : tensor<8xi32>, tensor<8xi32>)
+// CHECK-SAME: outs({{.*}} : tensor<8xi32>)
+// CHECK-NOT: skeleton.vector_add
