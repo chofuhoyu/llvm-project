@@ -25,24 +25,27 @@ def Skeleton_MapOp : Op<Skeleton_Dialect, "map"> {
 
     Exactly one of `pure_fn` or `body` must be present.
 
+    The result type is derived from the `outs` operand (destination-passing,
+    like linalg.map), so the assembly omits `-> type($result)`.
+
     Example (leaf, pure_fn):
     ```mlir
-    %r = skeleton.map {preference = #skeleton.preference<"CPU">, pure_fn = @my_add}
+    %r = skeleton.map preference = #skeleton.preference<"CPU"> pure_fn = @my_add
       ins(%A, %B : tensor<?xf32>, tensor<?xf32>)
-      outs(%C : tensor<?xf32>) -> tensor<?xf32>
+      outs(%C : tensor<?xf32>)
     ```
 
-    Example (nested, region body):
+    Example (region body): the body block arguments are one per input element
+    type plus one for the init element type, written linalg-style outside the
+    region:
     ```mlir
-    %r = skeleton.map {preference = #skeleton.preference<"GPU">}
-      ins(%matrix : tensor<?x?xf32>)
-      outs(%init : tensor<?xf32>) {
-    ^bb0(%row: tensor<?xf32>, %init: tensor<f32>):
-      %sub = skeleton.reduce {pure_fn = @my_sum}
-        ins(%row : tensor<?xf32>)
-        outs(%init : tensor<f32>) -> tensor<f32>
-      skeleton.yield %sub : tensor<f32>
-    } -> tensor<?xf32>
+    %r = skeleton.map
+      ins(%A : tensor<?xf32>)
+      outs(%B : tensor<?xf32>)
+      (%elem: f32, %init: f32) {
+      %x = arith.mulf %elem, %elem : f32
+      skeleton.yield %x : f32
+      }
     ```
   }];
 
@@ -87,11 +90,14 @@ def Skeleton_ReduceOp : Op<Skeleton_Dialect, "reduce"> {
 
     The pure function must be a binary associative operation: `(T, T) -> T`.
 
+    The result type is derived from the `outs` operand (destination-passing,
+    like linalg.map), so the assembly omits `-> type($result)`.
+
     Example:
     ```mlir
-    %r = skeleton.reduce {preference = #skeleton.preference<"CPU">, pure_fn = @my_add}
+    %r = skeleton.reduce preference = #skeleton.preference<"CPU"> pure_fn = @my_add
       ins(%input : tensor<?xf32>)
-      outs(%init : tensor<f32>) -> tensor<f32>
+      outs(%init : tensor<f32>)
     ```
   }];
 
@@ -150,11 +156,14 @@ def Skeleton_VectorAddOp : Op<Skeleton_Dialect, "vector_add"> {
 
     This operation is lowered to linalg.add by the skeleton-to-linalg pass.
 
+    The result type is derived from the `outs` operand (destination-passing,
+    like linalg.map), so the assembly omits `-> type($result)`.
+
     Example:
-    ```
+    ```mlir
     %0 = skeleton.vector_add preference = #skeleton.preference<"CPU">
       ins(%lhs, %rhs : tensor<?xf32>, tensor<?xf32>)
-      outs(%out : tensor<?xf32>) -> tensor<?xf32>
+      outs(%out : tensor<?xf32>)
     ```
   }];
 

@@ -16,6 +16,20 @@ func.func @map_leaf(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8x
   return %r : tensor<8xf32>
 }
 
+// MapOp — leaf mode with a discardable attr in the attr-dict (no body).
+// Regression test: with the linalg-style `(...)` body, a bare `{...}` after
+// outs(...) must parse as an attr-dict, not as a region.
+
+func.func @map_leaf_with_attr(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<8xf32>) -> tensor<8xf32> {
+  // CHECK-LABEL: func @map_leaf_with_attr
+  // CHECK: skeleton.map pure_fn = @my_add
+  // CHECK: skeleton.target = "GPU"
+  %r = skeleton.map pure_fn = @my_add
+    ins(%arg0, %arg1 : tensor<8xf32>, tensor<8xf32>)
+    outs(%arg2 : tensor<8xf32>) {skeleton.target = "GPU"}
+  return %r : tensor<8xf32>
+}
+
 // -----
 
 // MapOp — with preference attribute
@@ -77,16 +91,16 @@ func.func @reduce_with_pref(%arg0: tensor<8xf32>, %arg1: tensor<f32>) -> tensor<
 func.func @map_with_body(%arg0: tensor<?xf32>, %arg1: tensor<?xf32>) -> tensor<?xf32> {
   // CHECK-LABEL: func @map_with_body
   // CHECK: skeleton.map preference = <"GPU">
-  // CHECK: ^bb0(%{{.*}}: f32, %{{.*}}: f32):
+  // CHECK: (%{{.*}}: f32, %{{.*}}: f32) {
   // CHECK:   arith.addf
   // CHECK:   skeleton.yield
   %r = skeleton.map preference = #skeleton.preference<"GPU">
     ins(%arg0 : tensor<?xf32>)
-    outs(%arg1 : tensor<?xf32>) {
-  ^bb0(%elem: f32, %init: f32):
+    outs(%arg1 : tensor<?xf32>)
+    (%elem: f32, %init: f32) {
     %sum = arith.addf %elem, %init : f32
     skeleton.yield %sum : f32
-  }
+    }
   return %r : tensor<?xf32>
 }
 

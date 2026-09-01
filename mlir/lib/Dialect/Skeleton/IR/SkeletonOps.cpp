@@ -321,9 +321,14 @@ ParseResult MapOp::parse(OpAsmParser &parser, OperationState &result) {
   }
   if (parser.parseRParen())
     return failure();
-  {
-    auto parseResult = parser.parseOptionalRegion(*bodyRegion);
-    if (parseResult.has_value() && failed(*parseResult))
+  // Optional body: linalg-style `(args...) { ... }` parameter list outside the
+  // region, so a bare `{...}` at this position is an attr-dict, not a region.
+  if (succeeded(parser.parseOptionalLParen())) {
+    SmallVector<OpAsmParser::Argument> regionArgs;
+    if (parser.parseArgumentList(regionArgs, OpAsmParser::Delimiter::None,
+                                 /*allowType=*/true,
+                                 /*allowAttrs=*/false) ||
+        parser.parseRParen() || parser.parseRegion(*bodyRegion, regionArgs))
       return failure();
   }
   {
@@ -359,8 +364,14 @@ void MapOp::print(OpAsmPrinter &p) {
   p << " ins(" << getInputs() << " : " << getInputs().getTypes() << ")";
   p << " outs(" << getInit() << " : " << getInit().getType() << ")";
   if (!getBody().empty()) {
-    p << ' ';
-    p.printRegion(getBody());
+    p.increaseIndent();
+    p.printNewline();
+    p << "(";
+    llvm::interleaveComma(getBody().front().getArguments(), p,
+                          [&](auto arg) { p.printRegionArgument(arg); });
+    p << ") ";
+    p.printRegion(getBody(), /*printEntryBlockArgs=*/false);
+    p.decreaseIndent();
   }
   p.printOptionalAttrDict((*this)->getAttrs(), {"preference", "pure_fn"});
 }
@@ -421,9 +432,14 @@ ParseResult ReduceOp::parse(OpAsmParser &parser, OperationState &result) {
   }
   if (parser.parseRParen())
     return failure();
-  {
-    auto parseResult = parser.parseOptionalRegion(*bodyRegion);
-    if (parseResult.has_value() && failed(*parseResult))
+  // Optional body: linalg-style `(args...) { ... }` parameter list outside the
+  // region, so a bare `{...}` at this position is an attr-dict, not a region.
+  if (succeeded(parser.parseOptionalLParen())) {
+    SmallVector<OpAsmParser::Argument> regionArgs;
+    if (parser.parseArgumentList(regionArgs, OpAsmParser::Delimiter::None,
+                                 /*allowType=*/true,
+                                 /*allowAttrs=*/false) ||
+        parser.parseRParen() || parser.parseRegion(*bodyRegion, regionArgs))
       return failure();
   }
   {
@@ -459,8 +475,14 @@ void ReduceOp::print(OpAsmPrinter &p) {
   p << " ins(" << getInput() << " : " << getInput().getType() << ")";
   p << " outs(" << getInit() << " : " << getInit().getType() << ")";
   if (!getBody().empty()) {
-    p << ' ';
-    p.printRegion(getBody());
+    p.increaseIndent();
+    p.printNewline();
+    p << "(";
+    llvm::interleaveComma(getBody().front().getArguments(), p,
+                          [&](auto arg) { p.printRegionArgument(arg); });
+    p << ") ";
+    p.printRegion(getBody(), /*printEntryBlockArgs=*/false);
+    p.decreaseIndent();
   }
   p.printOptionalAttrDict((*this)->getAttrs(), {"preference", "pure_fn"});
 }

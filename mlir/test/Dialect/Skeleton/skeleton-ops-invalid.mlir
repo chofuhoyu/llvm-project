@@ -24,11 +24,11 @@ func.func @map_hybrid(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<?xf32>) {
   // expected-error@+1 {{requires exactly one of 'pure_fn' or a body region}}
   %r = skeleton.map pure_fn = @my_add
     ins(%A_t, %B_t : tensor<?xf32>, tensor<?xf32>)
-    outs(%C_t : tensor<?xf32>) {
-  ^bb0(%a: f32, %b: f32, %c: f32):
+    outs(%C_t : tensor<?xf32>)
+    (%a: f32, %b: f32, %c: f32) {
     %s = arith.addf %a, %b : f32
     skeleton.yield %s : f32
-  }
+    }
   return
 }
 
@@ -111,11 +111,11 @@ func.func @reduce_hybrid(%input: memref<?xf32>, %init: memref<f32>) {
   // expected-error@+1 {{requires exactly one of 'pure_fn' or a body region}}
   %r = skeleton.reduce pure_fn = @my_sum
     ins(%in_t : tensor<?xf32>)
-    outs(%init_t : tensor<f32>) {
-  ^bb0(%acc: f32, %elem: f32):
+    outs(%init_t : tensor<f32>)
+    (%acc: f32, %elem: f32) {
     %s = arith.addf %acc, %elem : f32
     skeleton.yield %s : f32
-  }
+    }
   return
 }
 
