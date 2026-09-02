@@ -70,10 +70,15 @@ struct SkeletonTargetLowerPass
 
     // Step 1: bufferize tensor ops. This pass is module-scoped and
     // requires function-boundaries mode to update function signatures.
+    // Function boundaries use identity layout maps so that host memrefs are
+    // statically contiguous; the GPU bridge below relies on that (gpu.memcpy
+    // is a raw byte copy of contiguous memory).
     {
       OpPassManager pm("builtin.module", OpPassManager::Nesting::Explicit);
       bufferization::OneShotBufferizePassOptions bufOpts;
       bufOpts.bufferizeFunctionBoundaries = true;
+      bufOpts.functionBoundaryTypeConversion =
+          bufferization::LayoutMapOption::IdentityLayoutMap;
       pm.addPass(bufferization::createOneShotBufferizePass(bufOpts));
       if (failed(runPipeline(pm, module)))
         return signalPassFailure();
@@ -130,15 +135,24 @@ struct SkeletonTargetLowerPass
           return;
         }
 
+        if (!entry.hostMemrefType.getLayout().isIdentity()) {
+          // gpu.memcpy is a raw byte copy and only correct for contiguous
+          // (identity-layout) buffers. A non-contiguous host buffer (e.g. a
+          // hand-written strided memref) would be misaligned on the device;
+          // fail explicitly instead of producing wrong results.
+          entry.call.emitError(
+              "cannot bridge non-contiguous memref operand to GPU "
+              "(identity layout required for GPU lowering)");
+          signalPassFailure();
+          return;
+        }
+
         // Sync alloc: no async, no token.
-        // TODO: The device memref type is rebuilt from shape + element
-        // type only, dropping the host layout (offset/strides) and any
-        // explicit address space; the cast back to hostMemrefType below
-        // papers over the difference. Derive the alloc type from
-        // hostMemrefType instead.
-        auto allocType =
-            MemRefType::get(entry.hostMemrefType.getShape(),
-                            entry.hostMemrefType.getElementType());
+        // Device memory is allocated with the host memref type. Host memrefs
+        // are identity-layout and statically contiguous (bufferize config
+        // above, plus the identity check above), so the allocation type
+        // matches the host type; the cast below is a type-level no-op.
+        auto allocType = entry.hostMemrefType;
         auto allocOp = gpu::AllocOp::create(
             builder, entry.call.getLoc(), allocType,
             /*asyncToken=*/Type(), {},
