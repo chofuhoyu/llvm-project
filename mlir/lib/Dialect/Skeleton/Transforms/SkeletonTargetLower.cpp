@@ -120,14 +120,14 @@ struct SkeletonTargetLowerPass
         builder.setInsertionPoint(entry.call);
 
         if (entry.hostMemrefType.getNumDynamicDims() > 0) {
-          // TODO: Skipping the bridge leaves the host memref as the GPU
-          // call operand, so the kernel reads/writes host memory. Fail the
-          // pass (or implement dynamic-shape bridging) instead of silently
-          // degrading.
-          entry.call.emitWarning(
-              "skipping GPU memory bridging for dynamically-shaped memref "
-              "operand; static shapes required for GPU lowering");
-          continue;
+          // Dynamic shapes are not supported by GPU bridging: passing the
+          // host memref straight through would make the kernel read/write
+          // host memory. Fail explicitly instead of silently degrading.
+          entry.call.emitError(
+              "cannot bridge dynamically-shaped memref operand to GPU "
+              "(static shapes required for GPU lowering)");
+          signalPassFailure();
+          return;
         }
 
         // Sync alloc: no async, no token.
