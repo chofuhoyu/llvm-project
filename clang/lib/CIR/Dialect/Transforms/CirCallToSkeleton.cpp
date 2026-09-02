@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 //
 // Full manual path: Recognizes calls to skeleton helper functions (declared
-// with the "skeleton_op" annotation in headers) and replaces them with
+// with the "skeleton.op" annotation in headers) and replaces them with
 // Skeleton dialect structured computation operations.
 //
 // Semi-automatic path (TODO): annotated for-loops with inline computation.
@@ -40,25 +40,54 @@ namespace {
 
 // Metadata collection (Phase 1: gather info from original CIR IR)
 
-/// Collect function names marked with skeleton.pure.
+/// Find a cir.annotation with the given name on an operation's annotations
+/// attribute. Returns an empty attribute when not found.
+static cir::AnnotationAttr getAnnotationByName(Operation *op, StringRef name) {
+  auto annotations = op->getAttrOfType<ArrayAttr>("annotations");
+  if (!annotations)
+    return {};
+  for (Attribute attr : annotations) {
+    auto ann = dyn_cast<cir::AnnotationAttr>(attr);
+    if (ann && ann.getName().getValue() == name)
+      return ann;
+  }
+  return {};
+}
+
+/// Collect function names marked with the "skeleton.pure" annotation.
 static DenseSet<StringRef> collectPureFunctions(ModuleOp module) {
   DenseSet<StringRef> pureFns;
   module.walk([&](cir::FuncOp func) {
-    if (func->hasAttr("skeleton.pure"))
+    if (getAnnotationByName(func, "skeleton.pure"))
       pureFns.insert(func.getSymName());
   });
   return pureFns;
 }
 
-/// Collect skeleton op declarations: external functions with "skeleton.op"
-/// attribute. Returns map: function name → op type ("map", "reduce").
+/// Collect skeleton op declarations: external functions carrying the
+/// "skeleton.op" annotation. Returns map: function name → op type
+/// ("map", "reduce"), taken from the annotation's first argument.
 static DenseMap<StringRef, StringRef> collectSkeletonOpDecls(ModuleOp module) {
   DenseMap<StringRef, StringRef> opDecls;
   module.walk([&](cir::FuncOp func) {
     if (!func.isExternal())
       return;
-    if (auto opAttr = func->getAttrOfType<StringAttr>("skeleton.op"))
-      opDecls[func.getSymName()] = opAttr.getValue();
+    auto ann = getAnnotationByName(func, "skeleton.op");
+    if (!ann)
+      return;
+    StringRef opType;
+    if (auto args = ann.getArgs())
+      if (!args.empty())
+        if (auto arg = dyn_cast<StringAttr>(args[0]))
+          opType = arg.getValue();
+    // TODO: Validate opType against the set of supported operators ("map",
+    // "reduce") here. An unknown type currently flows all the way into the
+    // rewrite phase, where it leaves an empty func.func and only surfaces as
+    // the "unknown skeleton op type" warning at dispatch time. The supported
+    // set should live in one place shared with outputMemrefShape and the
+    // map/reduce dispatch below.
+    if (!opType.empty())
+      opDecls[func.getSymName()] = opType;
   });
   return opDecls;
 }
@@ -87,27 +116,22 @@ static FlatSymbolRefAttr extractPureFnRef(cir::CallOp callOp, unsigned argIdx,
   return {};
 }
 
-/// Extract preference string from a cir.func's annotations attribute.
-/// TODO: This positional parsing (annotations[0] → args[0]) is fragile, and
-/// any miss silently falls back to "CPU"; an unrecognized value is passed
-/// through unchecked and only rejected later by the PreferenceAttr
-/// verifier. Look up the annotation by kind and validate the value here.
+/// Extract the preference string from the "skeleton.region" annotation on a
+/// cir.func. Falls back to "CPU" when the annotation is absent.
 static std::string extractPreference(cir::FuncOp func) {
-  auto annotations = func->getAttrOfType<ArrayAttr>("annotations");
-  if (annotations && !annotations.empty()) {
-    if (auto ann = dyn_cast<cir::AnnotationAttr>(annotations[0])) {
-      if (auto args = ann.getArgs()) {
-        if (!args.empty())
-          if (auto pref = dyn_cast<StringAttr>(args[0]))
-            return pref.getValue().str();
-      }
-    }
-  }
+  if (auto ann = getAnnotationByName(func, "skeleton.region"))
+    if (auto args = ann.getArgs())
+      if (!args.empty())
+        if (auto pref = dyn_cast<StringAttr>(args[0]))
+          return pref.getValue().str();
   return "CPU";
 }
 
-/// Map a CIR scalar type to standard MLIR type.
-/// TODO: Replace this with a more robust type converter.
+/// Map a CIR scalar type to standard MLIR type. Returns a null type for
+/// unsupported CIR types so callers emit a diagnostic instead of silently
+/// lowering to the wrong type.
+/// TODO: Replace this with a more robust type converter covering all CIR
+/// scalar types.
 static Type cirTypeToStdType(Type cirTy, MLIRContext *ctx) {
   if (cirTy.isInteger(32))
     return IntegerType::get(ctx, 32);
@@ -116,7 +140,91 @@ static Type cirTypeToStdType(Type cirTy, MLIRContext *ctx) {
     return Float32Type::get(ctx);
   if (cirTy.isF64() || isa<cir::DoubleType>(cirTy))
     return Float64Type::get(ctx);
-  return Float32Type::get(ctx); // default
+  return Type();
+}
+
+// TODO: This drops the pure function's body and keeps only its signature.
+// That satisfies the skeleton op verifier (pure_fn must resolve to a func.func
+// symbol), but it stops the manual path at skeleton IR: SkeletonToLinalg needs
+// pure_fn to carry a real body, which it clones into the linalg region and
+// rejects with "pure_fn ... must be defined" when the function is only a
+// declaration. So a user's pure function (which does have a body in CIR)
+// cannot yet run through to linalg/execution via this path.
+//
+// Root cause: no CIR → standard-MLIR function lowering exists to reuse.
+// ClangIR keeps its own op set (cir.fadd, ...) and lowers straight to LLVM
+// (DirectToLLVM), so nothing upstream turns a CIR body into the arith body a
+// linalg region can accept. CirCallToSkeleton is the bridge between CIR and
+// the standard-MLIR world skeleton lives in, so the translation has to live
+// here (or in shared CIR tooling).
+//
+// Options when picked up:
+//   - Translate single-block, straight-line scalar pure_fn bodies from CIR to
+//     arith (constants, scalar arith, return) — the shape SkeletonToLinalg
+//     already requires.
+//   - Or recognize simple bodies (e.g. add) in CIR and emit named ops
+//     directly.
+//   - CirLoopToSkeleton needs the same CIR→func.func translation for the
+//     loop bodies it extracts; share the tooling between both paths.
+// Until then, pure functions that actually carry a body are rejected here
+// with an explicit diagnostic instead of being silently erased.
+
+/// Convert pure functions from cir.func to func.func declarations so that
+/// skeleton ops can reference them via pure_fn. Only declaration-only pure
+/// functions are supported; a pure function that carries a body is rejected,
+/// because translating its CIR body to a func.func body is not implemented
+/// yet (see the TODO above).
+static LogicalResult convertPureFunctionsToFunc(
+    ModuleOp module, const DenseSet<StringRef> &pureFns) {
+  SmallVector<cir::FuncOp> toConvert;
+  module.walk([&](cir::FuncOp func) {
+    if (!pureFns.contains(func.getSymName()))
+      return;
+    if (!func.isExternal()) {
+      func.emitError()
+          << "pure function '" << func.getSymName()
+          << "' has a body; translating its CIR body to func.func is not "
+             "implemented yet";
+      return;
+    }
+    toConvert.push_back(func);
+  });
+
+  auto *ctx = module.getContext();
+  for (cir::FuncOp cirFunc : toConvert) {
+    SmallVector<Type> inputs, results;
+    bool unsupported = false;
+    for (Type t : cirFunc.getArgumentTypes()) {
+      Type mapped = cirTypeToStdType(t, ctx);
+      if (!mapped) {
+        cirFunc.emitError() << "unsupported CIR type in pure function: " << t;
+        unsupported = true;
+        break;
+      }
+      inputs.push_back(mapped);
+    }
+    if (unsupported)
+      continue;
+    for (Type t : cirFunc.getResultTypes()) {
+      Type mapped = cirTypeToStdType(t, ctx);
+      if (!mapped) {
+        cirFunc.emitError() << "unsupported CIR type in pure function: " << t;
+        unsupported = true;
+        break;
+      }
+      results.push_back(mapped);
+    }
+    if (unsupported)
+      continue;
+
+    auto funcType = FunctionType::get(ctx, inputs, results);
+    OpBuilder builder(cirFunc);
+    auto newFunc = func::FuncOp::create(builder, cirFunc.getLoc(),
+                                        cirFunc.getSymName(), funcType);
+    newFunc.setSymVisibility(cirFunc.getSymVisibility());
+    cirFunc.erase();
+  }
+  return success();
 }
 
 /// A work item extracted from the original cir.func before rewriting.
@@ -146,32 +254,67 @@ static Value createToTensor(OpBuilder &builder, Location loc, Value memref) {
 /// Create bufferization.materialize_in_destination.
 static void createMaterializeInDest(OpBuilder &builder, Location loc,
                                      Value tensor, Value memref) {
-  bufferization::MaterializeInDestinationOp::create(builder, loc, tensor,
-                                                    memref);
+  bufferization::MaterializeInDestinationOp::create(
+      builder, loc, /*result=*/Type(), /*source=*/tensor, /*dest=*/memref,
+      /*restrict=*/false, /*writable=*/true);
+}
+
+/// The output memref shape for a skeleton op, determined by the op's
+/// semantics. map is element-wise, so its output matches the 1-D input shape;
+/// reduce collapses its input to a rank-0 scalar. Future operators add their
+/// own output-shape rule here.
+static SmallVector<int64_t> outputMemrefShape(StringRef opType) {
+  if (opType == "reduce")
+    return {};
+  return {ShapedType::kDynamic};
 }
 
 /// Rewrite a cir.func to a func.func with memref parameters.
 /// Returns the new func.func.
 ///
-/// TODO: This signature reconstruction is ad-hoc and lossy: every pointer
-/// param becomes a memref<?xT> (shape dropped), non-pointer params collapse
-/// to index, and the original body is discarded — multiple skeleton calls or
-/// non-skeleton code are silently dropped. Derive the signature from the
-/// pure_fn signature / a proper TypeConverter instead.
+/// Every pointer parameter becomes a memref whose element type is the
+/// pointer's pointee. Input pointers are 1-D with a dynamic extent (a bare C
+/// pointer does not carry its length); the output pointer (the last one) gets
+/// the op-specific shape from outputMemrefShape. Non-pointer parameters map to
+/// their scalar type via cirTypeToStdType, and the original body is discarded.
 static func::FuncOp rewriteToStandardFunc(cir::FuncOp cirFunc,
-                                           OpBuilder &rewriter) {
+                                           OpBuilder &rewriter,
+                                           StringRef opType) {
   auto loc = cirFunc.getLoc();
   auto *ctx = rewriter.getContext();
 
+  unsigned numPtrArgs = 0;
+  for (unsigned i = 0; i < cirFunc.getNumArguments(); ++i)
+    if (isa<cir::PointerType>(cirFunc.getArgument(i).getType()))
+      ++numPtrArgs;
+
   SmallVector<Type> newInputTypes;
+  unsigned ptrIdx = 0;
   for (unsigned i = 0; i < cirFunc.getNumArguments(); ++i) {
     Type argTy = cirFunc.getArgument(i).getType();
     if (auto ptrTy = dyn_cast<cir::PointerType>(argTy)) {
       auto eltTy = cirTypeToStdType(ptrTy.getPointee(), ctx);
-      newInputTypes.push_back(
-          MemRefType::get({ShapedType::kDynamic}, eltTy));
+      if (!eltTy) {
+        cirFunc.emitError() << "unsupported CIR type in skeleton function: "
+                            << ptrTy.getPointee();
+        return nullptr;
+      }
+      bool isOutput = (ptrIdx == numPtrArgs - 1);
+      ++ptrIdx;
+      if (isOutput)
+        newInputTypes.push_back(
+            MemRefType::get(outputMemrefShape(opType), eltTy));
+      else
+        newInputTypes.push_back(
+            MemRefType::get({ShapedType::kDynamic}, eltTy));
     } else {
-      newInputTypes.push_back(IndexType::get(ctx));
+      auto scalarTy = cirTypeToStdType(argTy, ctx);
+      if (!scalarTy) {
+        cirFunc.emitError() << "unsupported CIR type in skeleton function: "
+                            << argTy;
+        return nullptr;
+      }
+      newInputTypes.push_back(scalarTy);
     }
   }
 
@@ -330,6 +473,15 @@ public:
     if (worklist.empty())
       return;
 
+    // Convert pure functions from cir.func to func.func so that the skeleton
+    // ops created below can reference them via pure_fn. Fail when a pure
+    // function carries a body we cannot translate (see the TODO above);
+    // continuing would silently drop it.
+    if (failed(convertPureFunctionsToFunc(module, pureFns))) {
+      signalPassFailure();
+      return;
+    }
+
     // Phase 2: Rewrite functions and create skeleton ops.
     OpBuilder builder(&getContext());
     for (auto &info : worklist) {
@@ -337,7 +489,9 @@ public:
         continue;
 
       builder.setInsertionPoint(info.cirFunc);
-      auto newFunc = rewriteToStandardFunc(info.cirFunc, builder);
+      auto newFunc = rewriteToStandardFunc(info.cirFunc, builder, info.opType);
+      if (!newFunc)
+        continue;
       builder.setInsertionPointToStart(&newFunc.getBody().front());
 
       LogicalResult result = failure();
@@ -362,7 +516,7 @@ public:
     // Erase skeleton op declarations (external, no body).
     SmallVector<cir::FuncOp> toErase;
     module.walk([&](cir::FuncOp func) {
-      if (func.isExternal() && func->hasAttr("skeleton.op"))
+      if (func.isExternal() && getAnnotationByName(func, "skeleton.op"))
         toErase.push_back(func);
     });
     for (auto func : toErase)

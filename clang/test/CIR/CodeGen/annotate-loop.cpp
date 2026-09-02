@@ -6,12 +6,12 @@
 
 // Test: annotated for loop with args.
 void annotated_for(int N, float *A, float *B, float *C) {
-  __attribute__((annotate("skeleton_vector_add", "CPU")))
+  __attribute__((annotate("skeleton.vector.add", "CPU")))
   for (int i = 0; i < N; ++i)
     C[i] = A[i] + B[i];
 }
 
-// CHECK-DAG: [#cir.annotation<"skeleton_vector_add", ["CPU"]>]
+// CHECK-DAG: [#cir.annotation<"skeleton.vector.add", ["CPU"]>]
 
 // Test: annotated while loop.
 void annotated_while(int *x) {
