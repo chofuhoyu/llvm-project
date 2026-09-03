@@ -24,6 +24,7 @@ add_clang_library(MLIRCIRTransforms
   clangAST
   clangBasic
 
+  LLVMABI
   MLIRABI
   MLIRAnalysis
   MLIRBufferizationDialect
