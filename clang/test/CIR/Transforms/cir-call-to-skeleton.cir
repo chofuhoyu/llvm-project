@@ -2,48 +2,55 @@
 
 // The manual path: calls to skeleton helper functions are recognized through
 // the "skeleton.op" / "skeleton.pure" annotations on their declarations and
-// lowered to skeleton ops. This first step still uses destination-passing
-// (the last pointer argument is the output buffer); return-value style is a
-// follow-up.
+// lowered to skeleton ops. Return-value style (2026-09-02 decision): every
+// data operand of the helper call is an input; the output is a fresh
+// tensor.empty (the `outs`/destination) and the skeleton op result is
+// returned from the rewritten function.
 
-// Test 1: a map call (two inputs + one output buffer).
+// Test 1: a map call (two inputs); output returned as a new tensor.
 module {
   cir.func private @my_add(!cir.float, !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">]
-  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) [#cir.annotation<"skeleton.op", ["map"]>]
-  cir.func @compute(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>, %out: !cir.ptr<!cir.float>) [#cir.annotation<"skeleton.region", ["CPU"]>] {
+  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @compute(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.region", ["CPU"]>] {
     %fn = cir.get_global @my_add : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
-    cir.call @skeleton_map(%fn, %a, %b, %out) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> ()
-    cir.return
+    %ret = cir.call @skeleton_map(%fn, %a, %b) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
   }
 }
 
 // CHECK-LABEL: func.func private @my_add(f32, f32) -> f32
 // CHECK-LABEL: func.func @compute
-// CHECK-SAME: memref<?xf32>
+// CHECK-SAME: (%[[A:.*]]: memref<?xf32>, %[[B:.*]]: memref<?xf32>) -> tensor<?xf32>
 // CHECK: bufferization.to_tensor
+// CHECK: tensor.dim
+// CHECK: tensor.empty
 // CHECK: skeleton.map
 // CHECK-SAME: pure_fn = @my_add
-// CHECK: bufferization.materialize_in_destination
+// CHECK: return
+// CHECK-NOT: bufferization.materialize_in_destination
 
 // -----
 
-// Test 2: a reduce call (one input + one scalar output buffer).
+// Test 2: a reduce call (one input); output is a returned rank-0 tensor.
 module {
   cir.func private @my_sum(!cir.float, !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">]
-  cir.func private @skeleton_reduce(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) [#cir.annotation<"skeleton.op", ["reduce"]>]
-  cir.func @sum(%a: !cir.ptr<!cir.float>, %out: !cir.ptr<!cir.float>) {
+  cir.func private @skeleton_reduce(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>) -> !cir.float [#cir.annotation<"skeleton.op", ["reduce"]>]
+  cir.func @sum(%a: !cir.ptr<!cir.float>) -> !cir.float {
     %fn = cir.get_global @my_sum : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
-    cir.call @skeleton_reduce(%fn, %a, %out) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> ()
-    cir.return
+    %ret = cir.call @skeleton_reduce(%fn, %a) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>) -> !cir.float
+    cir.return %ret : !cir.float
   }
 }
 
 // CHECK-LABEL: func.func private @my_sum(f32, f32) -> f32
 // CHECK-LABEL: func.func @sum
-// CHECK-SAME: memref<f32>
+// CHECK-SAME: (%[[A:.*]]: memref<?xf32>) -> tensor<f32>
+// CHECK: bufferization.to_tensor
+// CHECK: tensor.empty
 // CHECK: skeleton.reduce
 // CHECK-SAME: pure_fn = @my_sum
-// CHECK: bufferization.materialize_in_destination
+// CHECK: return
+// CHECK-NOT: bufferization.materialize_in_destination
 
 // -----
 
@@ -57,10 +64,10 @@ module {
     %0 = cir.fadd %a, %b : !cir.float
     cir.return %0 : !cir.float
   }
-  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) [#cir.annotation<"skeleton.op", ["map"]>]
-  cir.func @compute(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>, %out: !cir.ptr<!cir.float>) {
+  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @compute(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> {
     %fn = cir.get_global @my_add : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
-    cir.call @skeleton_map(%fn, %a, %b, %out) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> ()
-    cir.return
+    %ret = cir.call @skeleton_map(%fn, %a, %b) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
   }
 }
