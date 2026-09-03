@@ -11,6 +11,7 @@
 
 #include "mlir/IR/Dialect.h"
 
+#include "mlir/Dialect/Skeleton/IR/SkeletonAttrs.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonOpsDialect.h.inc"
 
 #endif // MLIR_DIALECT_SKELETON_IR_SKELETONDIALECT_H

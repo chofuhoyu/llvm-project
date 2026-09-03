@@ -16,7 +16,7 @@ module {
       cir.yield
     } step {
       cir.yield
-    } [#cir.annotation<"skeleton_vector_add", ["GPU"]>]
+    } [#cir.annotation<"skeleton.vector.add", ["GPU"]>]
     cir.return
   }
 }
@@ -34,7 +34,7 @@ module {
       cir.yield
     } step {
       cir.yield
-    } [#cir.annotation<"skeleton_vector_add">]
+    } [#cir.annotation<"skeleton.vector.add">]
     cir.return
   }
 }

@@ -18,6 +18,6 @@ func.func @basic(%host : memref<2x2xf32>) {
 }
 
 // Dummy GPU target function to activate the pass.
-func.func @GPU_target() attributes {skeleton.target = "GPU"} {
+func.func @GPU_target() attributes {skeleton.target = #skeleton.target<"GPU">} {
   return
 }

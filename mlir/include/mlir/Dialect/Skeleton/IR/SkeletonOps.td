@@ -14,9 +14,7 @@ include "SkeletonAttrs.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/OpBase.td"
 
-//===----------------------------------------------------------------------===//
 // Skeleton MapOp
-//===----------------------------------------------------------------------===//
 
 def Skeleton_MapOp : Op<Skeleton_Dialect, "map"> {
   let summary = "A skeleton map operation applying a pure function element-wise";
@@ -25,32 +23,35 @@ def Skeleton_MapOp : Op<Skeleton_Dialect, "map"> {
     tensors element-wise, or executes a nested skeleton computation graph
     provided in the optional `body` region.
 
-    At least one of `pure_fn` or `body` must be present.
+    Exactly one of `pure_fn` or `body` must be present.
+
+    The result type is derived from the `outs` operand (destination-passing,
+    like linalg.map), so the assembly omits `-> type($result)`.
 
     Example (leaf, pure_fn):
     ```mlir
-    %r = skeleton.map {preference = #skeleton.preference<"CPU">, pure_fn = @my_add}
+    %r = skeleton.map preference = #skeleton.preference<"CPU"> pure_fn = @my_add
       ins(%A, %B : tensor<?xf32>, tensor<?xf32>)
-      outs(%C : tensor<?xf32>) -> tensor<?xf32>
+      outs(%C : tensor<?xf32>)
     ```
 
-    Example (nested, region body):
+    Example (region body): the body block arguments are one per input element
+    type plus one for the init element type, written linalg-style outside the
+    region:
     ```mlir
-    %r = skeleton.map {preference = #skeleton.preference<"GPU">}
-      ins(%matrix : tensor<?x?xf32>)
-      outs(%output : tensor<?xf32>) {
-    ^bb0(%row: tensor<?xf32>, %init: tensor<f32>):
-      %sub = skeleton.reduce {pure_fn = @my_sum}
-        ins(%row : tensor<?xf32>)
-        outs(%init : tensor<f32>) -> tensor<f32>
-      skeleton.yield %sub : tensor<f32>
-    } -> tensor<?xf32>
+    %r = skeleton.map
+      ins(%A : tensor<?xf32>)
+      outs(%B : tensor<?xf32>)
+      (%elem: f32, %init: f32) {
+      %x = arith.mulf %elem, %elem : f32
+      skeleton.yield %x : f32
+      }
     ```
   }];
 
   let arguments = (ins
     Variadic<AnyRankedTensor>:$inputs,
-    AnyRankedTensor:$output,
+    AnyRankedTensor:$init,
     OptionalAttr<FlatSymbolRefAttr>:$pure_fn,
     OptionalAttr<Skeleton_PreferenceAttr>:$preference
   );
@@ -59,22 +60,24 @@ def Skeleton_MapOp : Op<Skeleton_Dialect, "map"> {
 
   let regions = (region AnyRegion:$body);
 
-  let assemblyFormat = [{
-    (`preference` `=` $preference^)?
-    (`pure_fn` `=` $pure_fn^)?
-    `ins` `(` $inputs `:` type($inputs) `)`
-    `outs` `(` $output `:` type($output) `)`
-    ($body^)?
-    `->` type($result)
-    attr-dict
-  }];
+  // Result type is derived from `init` (destination-passing, like linalg.map):
+  // the assembly omits `-> type($result)` and parse fills it from outs.
+  let hasCustomAssemblyFormat = 1;
+
+  // Derive the result type from `init` so C++ builders don't repeat it.
+  let builders = [
+    OpBuilder<(ins "ValueRange":$inputs, "Value":$init,
+                   "FlatSymbolRefAttr":$pureFn,
+                   "PreferenceAttr":$preference), [{
+      build($_builder, $_state, init.getType(), inputs, init, pureFn,
+            preference);
+    }]>
+  ];
 
   let hasVerifier = 1;
 }
 
-//===----------------------------------------------------------------------===//
 // Skeleton ReduceOp
-//===----------------------------------------------------------------------===//
 
 def Skeleton_ReduceOp : Op<Skeleton_Dialect, "reduce"> {
   let summary = "A skeleton reduce operation applying a pure function as reduction";
@@ -83,21 +86,24 @@ def Skeleton_ReduceOp : Op<Skeleton_Dialect, "reduce"> {
     (referenced via `pure_fn` attribute), or executes a nested skeleton
     computation graph provided in the optional `body` region.
 
-    At least one of `pure_fn` or `body` must be present.
+    Exactly one of `pure_fn` or `body` must be present.
 
     The pure function must be a binary associative operation: `(T, T) -> T`.
 
+    The result type is derived from the `outs` operand (destination-passing,
+    like linalg.map), so the assembly omits `-> type($result)`.
+
     Example:
     ```mlir
-    %r = skeleton.reduce {preference = #skeleton.preference<"CPU">, pure_fn = @my_add}
+    %r = skeleton.reduce preference = #skeleton.preference<"CPU"> pure_fn = @my_add
       ins(%input : tensor<?xf32>)
-      outs(%init : tensor<f32>) -> tensor<f32>
+      outs(%init : tensor<f32>)
     ```
   }];
 
   let arguments = (ins
     AnyRankedTensor:$input,
-    AnyRankedTensor:$output,
+    AnyRankedTensor:$init,
     OptionalAttr<FlatSymbolRefAttr>:$pure_fn,
     OptionalAttr<Skeleton_PreferenceAttr>:$preference
   );
@@ -106,22 +112,23 @@ def Skeleton_ReduceOp : Op<Skeleton_Dialect, "reduce"> {
 
   let regions = (region AnyRegion:$body);
 
-  let assemblyFormat = [{
-    (`preference` `=` $preference^)?
-    (`pure_fn` `=` $pure_fn^)?
-    `ins` `(` $input `:` type($input) `)`
-    `outs` `(` $output `:` type($output) `)`
-    ($body^)?
-    `->` type($result)
-    attr-dict
-  }];
+  // Result type is derived from `init` (destination-passing, like linalg.map).
+  let hasCustomAssemblyFormat = 1;
+
+  // Derive the result type from `init` so C++ builders don't repeat it.
+  let builders = [
+    OpBuilder<(ins "Value":$input, "Value":$init,
+                   "FlatSymbolRefAttr":$pureFn,
+                   "PreferenceAttr":$preference), [{
+      build($_builder, $_state, init.getType(), input, init, pureFn,
+            preference);
+    }]>
+  ];
 
   let hasVerifier = 1;
 }
 
-//===----------------------------------------------------------------------===//
 // Skeleton YieldOp
-//===----------------------------------------------------------------------===//
 
 def Skeleton_YieldOp : Op<Skeleton_Dialect, "yield", [
   Terminator, HasParent<"MapOp, ReduceOp">
@@ -137,11 +144,9 @@ def Skeleton_YieldOp : Op<Skeleton_Dialect, "yield", [
   let assemblyFormat = "$value attr-dict `:` type($value)";
 }
 
-//===----------------------------------------------------------------------===//
 // Skeleton VectorAddOp (named op, product of pattern merge)
-//===----------------------------------------------------------------------===//
 
-def Skeleton_VectorAddOp : Op<Skeleton_Dialect, "vector_add"> {
+def Skeleton_VectorAddOp : Op<Skeleton_Dialect, "vector.add"> {
   let summary = "A named skeleton vector addition operation";
   let description = [{
     Represents an element-wise vector addition (C[i] = A[i] + B[i]).
@@ -151,30 +156,36 @@ def Skeleton_VectorAddOp : Op<Skeleton_Dialect, "vector_add"> {
 
     This operation is lowered to linalg.add by the skeleton-to-linalg pass.
 
+    The result type is derived from the `outs` operand (destination-passing,
+    like linalg.map), so the assembly omits `-> type($result)`.
+
     Example:
-    ```
-    %0 = skeleton.vector_add preference = #skeleton.preference<"CPU">
+    ```mlir
+    %0 = skeleton.vector.add preference = #skeleton.preference<"CPU">
       ins(%lhs, %rhs : tensor<?xf32>, tensor<?xf32>)
-      outs(%out : tensor<?xf32>) -> tensor<?xf32>
+      outs(%out : tensor<?xf32>)
     ```
   }];
 
   let arguments = (ins
     AnyRankedTensor:$lhs,
     AnyRankedTensor:$rhs,
-    AnyRankedTensor:$output,
+    AnyRankedTensor:$init,
     OptionalAttr<Skeleton_PreferenceAttr>:$preference
   );
 
   let results = (outs AnyRankedTensor:$result);
 
-  let assemblyFormat = [{
-    (`preference` `=` $preference^)?
-    `ins` `(` $lhs `,` $rhs `:` type($lhs) `,` type($rhs) `)`
-    `outs` `(` $output `:` type($output) `)`
-    `->` type($result)
-    attr-dict
-  }];
+  // Result type is derived from `init` (destination-passing, like linalg.map).
+  let hasCustomAssemblyFormat = 1;
+
+  // Derive the result type from `init` so C++ builders don't repeat it.
+  let builders = [
+    OpBuilder<(ins "Value":$lhs, "Value":$rhs, "Value":$init,
+                   "PreferenceAttr":$preference), [{
+      build($_builder, $_state, init.getType(), lhs, rhs, init, preference);
+    }]>
+  ];
 
   let hasVerifier = 1;
 }

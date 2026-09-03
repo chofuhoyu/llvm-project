@@ -7,25 +7,33 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"
-#include "mlir/Dialect/Skeleton/IR/SkeletonOps.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonAttrs.h"
+#include "mlir/Dialect/Skeleton/IR/SkeletonOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
-#include "mlir/IR/OpImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;
 using namespace mlir::skeleton;
 
-//===----------------------------------------------------------------------===//
 // PreferenceAttr
-//===----------------------------------------------------------------------===//
 
 LogicalResult
 PreferenceAttr::verify(function_ref<InFlightDiagnostic()> emitError,
                        StringAttr value) {
   if (value != "CPU" && value != "GPU")
     return emitError() << "expected 'CPU' or 'GPU' for preference attribute, got '"
+                       << value.getValue() << "'";
+  return success();
+}
+
+// TargetAttr
+
+LogicalResult
+TargetAttr::verify(function_ref<InFlightDiagnostic()> emitError,
+                   StringAttr value) {
+  if (value != "CPU" && value != "GPU")
+    return emitError() << "expected 'CPU' or 'GPU' for target attribute, got '"
                        << value.getValue() << "'";
   return success();
 }
@@ -37,9 +45,7 @@ PreferenceAttr::verify(function_ref<InFlightDiagnostic()> emitError,
 // Include the dialect declarations.
 #include "mlir/Dialect/Skeleton/IR/SkeletonOpsDialect.cpp.inc"
 
-//===----------------------------------------------------------------------===//
 // SkeletonDialect
-//===----------------------------------------------------------------------===//
 
 void SkeletonDialect::initialize() {
   registerAttributes();

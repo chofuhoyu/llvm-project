@@ -47,7 +47,7 @@ struct SkeletonFinalizeMemRefToGpuPass
 
     bool hasGpuTarget = false;
     module.walk([&](func::FuncOp func) {
-      if (auto attr = func->getAttrOfType<StringAttr>("skeleton.target"))
+      if (auto attr = func->getAttrOfType<TargetAttr>("skeleton.target"))
         if (attr.getValue() == "GPU")
           hasGpuTarget = true;
     });

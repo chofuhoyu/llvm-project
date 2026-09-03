@@ -13,8 +13,8 @@
 // RUN:     -shared-libs=%mlir_c_runner_utils,%mlir_runner_utils \
 // RUN: | FileCheck %s
 
-// This is an end-to-end correctness test for the skeleton vector_add path:
-//   skeleton.vector_add → skeleton-to-linalg → linalg.add
+// This is an end-to-end correctness test for the skeleton vector.add path:
+//   skeleton.vector.add → skeleton-to-linalg → linalg.add
 //   → skeleton-preference-partition → outlined function
 //   → skeleton-target-lower → scf loops
 //   → full LLVM lowering → mlir-runner
@@ -28,9 +28,9 @@ func.func @main() {
   %B = arith.constant dense<[5.0, 6.0, 7.0, 8.0]> : tensor<4xf32>
   %C = arith.constant dense<0.0> : tensor<4xf32>
 
-  %result = skeleton.vector_add preference = #skeleton.preference<"CPU">
+  %result = skeleton.vector.add preference = #skeleton.preference<"CPU">
       ins(%A, %B : tensor<4xf32>, tensor<4xf32>)
-      outs(%C : tensor<4xf32>) -> tensor<4xf32>
+      outs(%C : tensor<4xf32>)
 
   %unranked = tensor.cast %result : tensor<4xf32> to tensor<*xf32>
   call @printMemrefF32(%unranked) : (tensor<*xf32>) -> ()

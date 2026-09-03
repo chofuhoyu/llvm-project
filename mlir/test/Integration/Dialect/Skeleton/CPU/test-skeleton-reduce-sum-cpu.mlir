@@ -31,7 +31,7 @@ func.func @main() {
 
   %result = skeleton.reduce preference = #skeleton.preference<"CPU"> pure_fn = @my_sum
     ins(%input : tensor<4xf32>)
-    outs(%init_t : tensor<f32>) -> tensor<f32>
+    outs(%init_t : tensor<f32>)
 
   %unranked = tensor.cast %result : tensor<f32> to tensor<*xf32>
   call @printMemrefF32(%unranked) : (tensor<*xf32>) -> ()

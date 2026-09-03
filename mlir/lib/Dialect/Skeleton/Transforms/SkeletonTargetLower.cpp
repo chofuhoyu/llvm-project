@@ -16,7 +16,6 @@
 // GPU ops are chained via async tokens to satisfy lowering pattern
 // requirements (isAsyncWithOneDependency).
 //
-//===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -52,7 +51,7 @@ struct SkeletonTargetLowerPass
     // Collect target functions before modifying IR.
     SmallVector<func::FuncOp> targets;
     module.walk([&](func::FuncOp func) {
-      if (func->getAttrOfType<StringAttr>("skeleton.target"))
+      if (func->getAttrOfType<TargetAttr>("skeleton.target"))
         targets.push_back(func);
     });
 
@@ -63,7 +62,7 @@ struct SkeletonTargetLowerPass
     // copies of the strings, avoiding dangling StringRefs after IR mutations).
     llvm::StringSet<> gpuTargetNames;
     for (func::FuncOp func : targets) {
-      if (auto attr = func->getAttrOfType<StringAttr>("skeleton.target")) {
+      if (auto attr = func->getAttrOfType<TargetAttr>("skeleton.target")) {
         if (attr.getValue() == "GPU")
           gpuTargetNames.insert(func.getSymName().str());
       }
@@ -71,10 +70,15 @@ struct SkeletonTargetLowerPass
 
     // Step 1: bufferize tensor ops. This pass is module-scoped and
     // requires function-boundaries mode to update function signatures.
+    // Function boundaries use identity layout maps so that host memrefs are
+    // statically contiguous; the GPU bridge below relies on that (gpu.memcpy
+    // is a raw byte copy of contiguous memory).
     {
       OpPassManager pm("builtin.module", OpPassManager::Nesting::Explicit);
       bufferization::OneShotBufferizePassOptions bufOpts;
       bufOpts.bufferizeFunctionBoundaries = true;
+      bufOpts.functionBoundaryTypeConversion =
+          bufferization::LayoutMapOption::IdentityLayoutMap;
       pm.addPass(bufferization::createOneShotBufferizePass(bufOpts));
       if (failed(runPipeline(pm, module)))
         return signalPassFailure();
@@ -121,16 +125,34 @@ struct SkeletonTargetLowerPass
         builder.setInsertionPoint(entry.call);
 
         if (entry.hostMemrefType.getNumDynamicDims() > 0) {
-          entry.call.emitWarning(
-              "skipping GPU memory bridging for dynamically-shaped memref "
-              "operand; static shapes required for GPU lowering");
-          continue;
+          // Dynamic shapes are not supported by GPU bridging: passing the
+          // host memref straight through would make the kernel read/write
+          // host memory. Fail explicitly instead of silently degrading.
+          entry.call.emitError(
+              "cannot bridge dynamically-shaped memref operand to GPU "
+              "(static shapes required for GPU lowering)");
+          signalPassFailure();
+          return;
+        }
+
+        if (!entry.hostMemrefType.getLayout().isIdentity()) {
+          // gpu.memcpy is a raw byte copy and only correct for contiguous
+          // (identity-layout) buffers. A non-contiguous host buffer (e.g. a
+          // hand-written strided memref) would be misaligned on the device;
+          // fail explicitly instead of producing wrong results.
+          entry.call.emitError(
+              "cannot bridge non-contiguous memref operand to GPU "
+              "(identity layout required for GPU lowering)");
+          signalPassFailure();
+          return;
         }
 
         // Sync alloc: no async, no token.
-        auto allocType =
-            MemRefType::get(entry.hostMemrefType.getShape(),
-                            entry.hostMemrefType.getElementType());
+        // Device memory is allocated with the host memref type. Host memrefs
+        // are identity-layout and statically contiguous (bufferize config
+        // above, plus the identity check above), so the allocation type
+        // matches the host type; the cast below is a type-level no-op.
+        auto allocType = entry.hostMemrefType;
         auto allocOp = gpu::AllocOp::create(
             builder, entry.call.getLoc(), allocType,
             /*asyncToken=*/Type(), {},
@@ -196,6 +218,11 @@ struct SkeletonTargetLowerPass
                                  gpuMemref);
         }
 
+        // TODO: Single-output assumption: only the last copied-back host
+        // memref replaces call.getResult(0) (hard-coded index 0), and the
+        // read-only check above treats every memref.get_global as
+        // immutable. Calls with several writable memrefs, multiple
+        // results, or written globals silently lose the other copy-backs.
         // Replace call result (device memref, now dealloc'd) with the
         // host memref that received the copy-back.
         if (outputHostMemref) {
@@ -210,7 +237,7 @@ struct SkeletonTargetLowerPass
 
     // Step 2: lower linalg per function, choosing loops or parallel loops.
     for (func::FuncOp func : targets) {
-      auto targetAttr = func->getAttrOfType<StringAttr>("skeleton.target");
+      auto targetAttr = func->getAttrOfType<TargetAttr>("skeleton.target");
       StringRef target = targetAttr.getValue();
 
       OpPassManager pm("func.func", OpPassManager::Nesting::Explicit);
@@ -228,6 +255,13 @@ struct SkeletonTargetLowerPass
       if (failed(runPipeline(pm, func)))
         return signalPassFailure();
     }
+
+    // The skeleton.target attribute has served its purpose once lowering is
+    // done. Remove it so it does not leak into downstream passes (e.g.
+    // mlir-runner in integration tests) that do not load the skeleton
+    // dialect and would fail to parse the typed #skeleton.target<...>.
+    for (func::FuncOp func : targets)
+      func->removeAttr("skeleton.target");
   }
 };
 

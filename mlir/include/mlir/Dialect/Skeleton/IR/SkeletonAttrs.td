@@ -12,9 +12,7 @@
 include "SkeletonDialect.td"
 include "mlir/IR/AttrTypeBase.td"
 
-//===----------------------------------------------------------------------===//
 // Skeleton Preference Attribute
-//===----------------------------------------------------------------------===//
 
 def Skeleton_PreferenceAttr : AttrDef<Skeleton_Dialect, "Preference"> {
   let summary = "A preference attribute indicating target execution preference";
@@ -23,6 +21,21 @@ def Skeleton_PreferenceAttr : AttrDef<Skeleton_Dialect, "Preference"> {
     from the frontend annotation down to the compilation pipeline.
   }];
   let mnemonic = "preference";
+  let parameters = (ins "StringAttr":$value);
+  let assemblyFormat = "`<` $value `>`";
+  let genVerifyDecl = 1;
+}
+
+// Skeleton Target Attribute
+
+def Skeleton_TargetAttr : AttrDef<Skeleton_Dialect, "Target"> {
+  let summary = "A target attribute marking the dispatch target of an outlined function";
+  let description = [{
+    This attribute is attached to outlined func.func ops by the
+    skeleton-preference-partition pass to record the dispatch target
+    ("CPU" or "GPU") chosen for that function.
+  }];
+  let mnemonic = "target";
   let parameters = (ins "StringAttr":$value);
   let assemblyFormat = "`<` $value `>`";
   let genVerifyDecl = 1;

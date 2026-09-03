@@ -83,7 +83,7 @@ def SkeletonPatternMerge : Pass<"skeleton-pattern-merge"> {
     into named skeleton ops for further optimization.
 
     Currently supports:
-    - skeleton.map {pure_fn = @add_fn} → skeleton.vector_add
+    - skeleton.map {pure_fn = @add_fn} → skeleton.vector.add
       (where @add_fn body is a single arith.addf of its arguments)
   }];
   let dependentDialects = [
