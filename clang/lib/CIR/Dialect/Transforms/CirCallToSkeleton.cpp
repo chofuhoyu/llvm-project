@@ -25,6 +25,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Dominance.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "clang/CIR/Dialect/IR/CIRAttrs.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
@@ -95,14 +96,19 @@ static DenseMap<StringRef, StringRef> collectSkeletonOpDecls(ModuleOp module) {
   return opDecls;
 }
 
-/// Extract a FlatSymbolRefAttr from a call argument that represents a
-/// function pointer (e.g. via cir.get_global @some_fn).
-static FlatSymbolRefAttr extractPureFnRef(cir::CallOp callOp, unsigned argIdx,
-                                          const DenseSet<StringRef> &pureFns) {
-  if (argIdx >= callOp.getNumOperands())
+/// Resolve a call argument that should name a pure function to the referenced
+/// function, following cir.cast wrappers and forwarding through values staged
+/// in a stack local (a cir.store into an alloca read back with a cir.load).
+/// Only a "skeleton.pure"-annotated global resolves to a symbol; every other
+/// shape returns an empty attribute and the caller reports the argument as not
+/// being a pure-function reference. Lambda-to-function-pointer arguments are
+/// not resolved here yet (see the lambda follow-up).
+static FlatSymbolRefAttr tracePureFnRef(Value arg,
+                                        const DenseSet<StringRef> &pureFns,
+                                        DominanceInfo &domInfo,
+                                        DenseSet<Value> &visited) {
+  if (!visited.insert(arg).second)
     return {};
-  Value arg = callOp.getOperand(argIdx);
-
   // Walk through cir.cast ops.
   while (auto castOp = arg.getDefiningOp<cir::CastOp>())
     arg = castOp.getSrc();
@@ -111,12 +117,45 @@ static FlatSymbolRefAttr extractPureFnRef(cir::CallOp callOp, unsigned argIdx,
   if (auto getGlobal = arg.getDefiningOp<cir::GetGlobalOp>()) {
     StringRef name = getGlobal.getName();
     if (pureFns.contains(name))
-      return SymbolRefAttr::get(callOp.getContext(), name);
+      return SymbolRefAttr::get(arg.getContext(), name);
+    return {};
   }
 
-  // TODO: Handle indirect references through cir.load chains.
-  // TODO: Lambda-to-function-pointer conversion.
+  // A function address may be staged in a stack local: forward through the
+  // single cir.store into an alloca that dominates this cir.load. Other
+  // address sources (function parameters, pointers loaded from elsewhere,
+  // globals) cannot be pinned to one pure function here, so they fail
+  // conservatively.
+  if (auto loadOp = arg.getDefiningOp<cir::LoadOp>()) {
+    Value addr = loadOp.getAddr();
+    if (addr.getDefiningOp<cir::AllocaOp>()) {
+      cir::StoreOp theStore;
+      for (OpOperand &use : addr.getUses()) {
+        auto store = dyn_cast<cir::StoreOp>(use.getOwner());
+        if (!store || use.getOperandNumber() != cir::StoreOp::odsIndex_addr)
+          continue;
+        if (!domInfo.dominates(store, loadOp))
+          continue;
+        if (theStore) // several writes in flight: not a fixed address
+          return {};
+        theStore = store;
+      }
+      if (theStore)
+        return tracePureFnRef(theStore.getValue(), pureFns, domInfo, visited);
+    }
+  }
   return {};
+}
+
+/// Extract a FlatSymbolRefAttr from a call argument that represents a
+/// function pointer (e.g. via cir.get_global @some_fn).
+static FlatSymbolRefAttr extractPureFnRef(cir::CallOp callOp, unsigned argIdx,
+                                          const DenseSet<StringRef> &pureFns,
+                                          DominanceInfo &domInfo) {
+  if (argIdx >= callOp.getNumOperands())
+    return {};
+  DenseSet<Value> visited;
+  return tracePureFnRef(callOp.getOperand(argIdx), pureFns, domInfo, visited);
 }
 
 /// Extract the preference string from the "skeleton.region" annotation on a
@@ -480,6 +519,8 @@ public:
     if (opDecls.empty())
       return;
 
+    DominanceInfo domInfo(module);
+
     // Phase 1: Collect all skeleton call info from the original CIR IR.
     SmallVector<SkeletonCallInfo> worklist;
 
@@ -495,7 +536,7 @@ public:
 
       StringRef opType = it->second;
 
-      auto pureFnRef = extractPureFnRef(callOp, 0, pureFns);
+      auto pureFnRef = extractPureFnRef(callOp, 0, pureFns, domInfo);
       if (!pureFnRef) {
         callOp.emitWarning("skeleton op call first argument must be a pure "
                            "function reference; semi-automatic path not yet "

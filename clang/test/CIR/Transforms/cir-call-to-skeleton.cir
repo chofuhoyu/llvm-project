@@ -97,3 +97,30 @@ module {
 // CHECK-SAME: pure_fn = @my_add_int
 // CHECK: return
 // CHECK-NOT: bufferization.materialize_in_destination
+
+// -----
+
+// Test 5: the pure function address is forwarded through a stack local
+// (written with a cir.store, read back with a cir.load) instead of being
+// passed to the skeleton call directly as a cir.get_global result. The pass
+// must follow the load chain back to the stored global address.
+module {
+  cir.func private @my_mul(!cir.float, !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">]
+  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @compute(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.region", ["CPU"]>] {
+    %slot = cir.alloca "fn" align(8) : !cir.ptr<!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>>
+    %fn = cir.get_global @my_mul : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    cir.store %fn, %slot : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>>
+    %fn_loaded = cir.load %slot : !cir.ptr<!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>>, !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @skeleton_map(%fn_loaded, %a, %b) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+}
+
+// CHECK-LABEL: func.func private @my_mul(f32, f32) -> f32
+// CHECK-LABEL: func.func @compute
+// CHECK: bufferization.to_tensor
+// CHECK: tensor.empty
+// CHECK: skeleton.map
+// CHECK-SAME: pure_fn = @my_mul
+// CHECK: return
