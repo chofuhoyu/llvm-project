@@ -71,3 +71,29 @@ module {
     cir.return %ret : !cir.ptr<!cir.float>
   }
 }
+
+// -----
+
+// Test 4: an integer map call. Exercises the cir::IntType → IntegerType
+// mapping in CirScalarTypeConverter: an i32 pure function used to be rejected
+// as "unsupported" because the old hand-written converter only matched MLIR's
+// IntegerType, which a !cir.int is not.
+module {
+  cir.func private @my_add_int(!cir.int<s, 32>, !cir.int<s, 32>) -> !cir.int<s, 32> [#cir.annotation<"skeleton.pure">]
+  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.int<s, 32>, !cir.int<s, 32>) -> !cir.int<s, 32>>>, !cir.ptr<!cir.int<s, 32>>, !cir.ptr<!cir.int<s, 32>>) -> !cir.ptr<!cir.int<s, 32>> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @compute_int(%a: !cir.ptr<!cir.int<s, 32>>, %b: !cir.ptr<!cir.int<s, 32>>) -> !cir.ptr<!cir.int<s, 32>> [#cir.annotation<"skeleton.region", ["CPU"]>] {
+    %fn = cir.get_global @my_add_int : !cir.ptr<!cir.func<(!cir.int<s, 32>, !cir.int<s, 32>) -> !cir.int<s, 32>>>
+    %ret = cir.call @skeleton_map(%fn, %a, %b) : (!cir.ptr<!cir.func<(!cir.int<s, 32>, !cir.int<s, 32>) -> !cir.int<s, 32>>>, !cir.ptr<!cir.int<s, 32>>, !cir.ptr<!cir.int<s, 32>>) -> !cir.ptr<!cir.int<s, 32>>
+    cir.return %ret : !cir.ptr<!cir.int<s, 32>>
+  }
+}
+
+// CHECK-LABEL: func.func private @my_add_int(i32, i32) -> i32
+// CHECK-LABEL: func.func @compute_int
+// CHECK-SAME: (%[[A:.*]]: memref<?xi32>, %[[B:.*]]: memref<?xi32>) -> tensor<?xi32>
+// CHECK: bufferization.to_tensor
+// CHECK: tensor.empty
+// CHECK: skeleton.map
+// CHECK-SAME: pure_fn = @my_add_int
+// CHECK: return
+// CHECK-NOT: bufferization.materialize_in_destination

@@ -25,6 +25,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "clang/CIR/Dialect/IR/CIRAttrs.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "clang/CIR/Dialect/IR/CIRTypes.h"
@@ -129,21 +130,34 @@ static std::string extractPreference(cir::FuncOp func) {
   return "CPU";
 }
 
-/// Map a CIR scalar type to standard MLIR type. Returns a null type for
-/// unsupported CIR types so callers emit a diagnostic instead of silently
-/// lowering to the wrong type.
-/// TODO: Replace this with a more robust type converter covering all CIR
-/// scalar types.
-static Type cirTypeToStdType(Type cirTy, MLIRContext *ctx) {
-  if (cirTy.isInteger(32))
-    return IntegerType::get(ctx, 32);
-  // cir.float → f32, cir.double → f64
-  if (cirTy.isF32() || isa<cir::SingleType>(cirTy))
-    return Float32Type::get(ctx);
-  if (cirTy.isF64() || isa<cir::DoubleType>(cirTy))
-    return Float64Type::get(ctx);
-  return Type();
-}
+/// Converts CIR scalar types to the standard MLIR scalar types that skeleton
+/// ops (and the arith bodies they inline) accept. Unsupported CIR types
+/// convert to a null type, so callers emit a diagnostic instead of silently
+/// lowering to the wrong type. Newly supported types are added here as
+/// additional conversions rather than an if/else chain.
+class CirScalarTypeConverter : public mlir::TypeConverter {
+public:
+  CirScalarTypeConverter() {
+    addConversion([](cir::IntType ty) -> std::optional<Type> {
+      // Project to a signless MLIR integer (the arith convention); signedness
+      // is a property of the CIR arithmetic that produced the value, not of
+      // the integer type the skeleton layer consumes.
+      return IntegerType::get(ty.getContext(), ty.getWidth());
+    });
+    addConversion([](cir::SingleType ty) -> std::optional<Type> {
+      return Float32Type::get(ty.getContext());
+    });
+    addConversion([](cir::DoubleType ty) -> std::optional<Type> {
+      return Float64Type::get(ty.getContext());
+    });
+    addConversion([](cir::FP16Type ty) -> std::optional<Type> {
+      return Float16Type::get(ty.getContext());
+    });
+    addConversion([](cir::BF16Type ty) -> std::optional<Type> {
+      return BFloat16Type::get(ty.getContext());
+    });
+  }
+};
 
 // TODO: This drops the pure function's body and keeps only its signature.
 // That satisfies the skeleton op verifier (pure_fn must resolve to a func.func
@@ -194,11 +208,12 @@ convertPureFunctionsToFunc(ModuleOp module,
   });
 
   auto *ctx = module.getContext();
+  CirScalarTypeConverter converter;
   for (cir::FuncOp cirFunc : toConvert) {
     SmallVector<Type> inputs, results;
     bool unsupported = false;
     for (Type t : cirFunc.getArgumentTypes()) {
-      Type mapped = cirTypeToStdType(t, ctx);
+      Type mapped = converter.convertType(t);
       if (!mapped) {
         cirFunc.emitError() << "unsupported CIR type in pure function: " << t;
         unsupported = true;
@@ -209,7 +224,7 @@ convertPureFunctionsToFunc(ModuleOp module,
     if (unsupported)
       continue;
     for (Type t : cirFunc.getResultTypes()) {
-      Type mapped = cirTypeToStdType(t, ctx);
+      Type mapped = converter.convertType(t);
       if (!mapped) {
         cirFunc.emitError() << "unsupported CIR type in pure function: " << t;
         unsupported = true;
@@ -316,13 +331,14 @@ static func::FuncOp rewriteToStandardFunc(cir::FuncOp cirFunc,
                                           StringRef opType) {
   auto loc = cirFunc.getLoc();
   auto *ctx = rewriter.getContext();
+  CirScalarTypeConverter converter;
 
   SmallVector<Type> newInputTypes;
   Type eltTy;
   for (unsigned i = 0; i < cirFunc.getNumArguments(); ++i) {
     Type argTy = cirFunc.getArgument(i).getType();
     if (auto ptrTy = dyn_cast<cir::PointerType>(argTy)) {
-      auto mappedElt = cirTypeToStdType(ptrTy.getPointee(), ctx);
+      auto mappedElt = converter.convertType(ptrTy.getPointee());
       if (!mappedElt) {
         cirFunc.emitError() << "unsupported CIR type in skeleton function: "
                             << ptrTy.getPointee();
@@ -333,7 +349,7 @@ static func::FuncOp rewriteToStandardFunc(cir::FuncOp cirFunc,
       if (!eltTy)
         eltTy = mappedElt;
     } else {
-      auto scalarTy = cirTypeToStdType(argTy, ctx);
+      auto scalarTy = converter.convertType(argTy);
       if (!scalarTy) {
         cirFunc.emitError()
             << "unsupported CIR type in skeleton function: " << argTy;
