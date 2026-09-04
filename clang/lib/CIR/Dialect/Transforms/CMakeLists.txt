@@ -16,6 +16,8 @@ add_clang_library(MLIRCIRTransforms
   LibOpt.cpp
   CirLoopToSkeleton.cpp
   CirCallToSkeleton.cpp
+  CirCallAnalysis.cpp
+  CirCallLowering.cpp
   CirFuncToArith.cpp
 
   DEPENDS

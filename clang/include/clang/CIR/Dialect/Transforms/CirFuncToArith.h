@@ -14,9 +14,6 @@
 // with a straight-line arith body computed from a single-block CIR function
 // body, resolving the alloca/store/load form that clang's codegen emits.
 //
-// CirCallToSkeleton uses this to lower skeleton pure functions that carry a
-// body; CirLoopToSkeleton will reuse it for the loop bodies it extracts.
-//
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_CLANG_CIR_DIALECT_TRANSFORMS_CIRFUNCTOARITH_H

@@ -7,10 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Maps CIR scalar types onto the MLIR builtin types that arith ops (and the
-// func.func signatures / bodies they appear in) accept. This is shared by the
-// CIR→arith function-body translator (CirFuncToArith) and by CirCallToSkeleton
-// when it converts skeleton pure function signatures.
+// Maps CIR scalar types onto the MLIR builtin types that arith ops and the
+// func.func signatures/bodies they appear in accept.
 //
 //===----------------------------------------------------------------------===//
 

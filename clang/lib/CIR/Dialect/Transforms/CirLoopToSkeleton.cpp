@@ -29,6 +29,7 @@
 #include "clang/CIR/Dialect/IR/CIRAttrs.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "clang/CIR/Dialect/Passes.h"
+#include "clang/CIR/Dialect/Transforms/CIRAnnotations.h"
 
 using namespace mlir;
 using namespace cir;
@@ -39,14 +40,6 @@ namespace mlir {
 } // namespace mlir
 
 namespace {
-
-/// Returns the first cir::AnnotationAttr from the op's annotations attribute.
-static cir::AnnotationAttr getFirstAnnotation(Operation *op) {
-  auto annotations = op->getAttrOfType<ArrayAttr>("annotations");
-  if (!annotations || annotations.empty())
-    return {};
-  return dyn_cast<cir::AnnotationAttr>(annotations[0]);
-}
 
 /// Extract loop annotation info. Returns true if the op carries a valid
 /// annotation.
