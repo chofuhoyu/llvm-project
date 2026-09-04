@@ -1,4 +1,4 @@
-// RUN: cir-opt %s -cir-call-to-skeleton -split-input-file -verify-diagnostics | FileCheck %s
+// RUN: cir-opt %s -cir-call-to-skeleton -split-input-file | FileCheck %s
 
 // The manual path: calls to skeleton helper functions are recognized through
 // the "skeleton.op" / "skeleton.pure" annotations on their declarations and
@@ -6,6 +6,10 @@
 // data operand of the helper call is an input; the output is a fresh
 // tensor.empty (the `outs`/destination) and the skeleton op result is
 // returned from the rewritten function.
+//
+// These cases use declaration-only pure functions. The translation of pure
+// functions that carry a body (the CIR-body → arith-body lowering) lives in
+// CirFuncToArith and is tested separately in cir-func-to-arith.cir.
 
 // Test 1: a map call (two inputs); output returned as a new tensor.
 module {
@@ -54,27 +58,7 @@ module {
 
 // -----
 
-// Test 3: a pure function that carries a body is rejected — translating a CIR
-// body to func.func is not implemented yet. Declaration-only pure functions
-// keep working (see the TODO above convertPureFunctionsToFunc).
-module {
-  cir.func private @my_add(!cir.float, !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">]
-  // expected-error@+1 {{translating its CIR body to func.func is not implemented}}
-  cir.func @my_add_impl(%a: !cir.float, %b: !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">] {
-    %0 = cir.fadd %a, %b : !cir.float
-    cir.return %0 : !cir.float
-  }
-  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
-  cir.func @compute(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> {
-    %fn = cir.get_global @my_add : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
-    %ret = cir.call @skeleton_map(%fn, %a, %b) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
-    cir.return %ret : !cir.ptr<!cir.float>
-  }
-}
-
-// -----
-
-// Test 4: an integer map call. Exercises the cir::IntType → IntegerType
+// Test 3: an integer map call. Exercises the cir::IntType → IntegerType
 // mapping in CirScalarTypeConverter: an i32 pure function used to be rejected
 // as "unsupported" because the old hand-written converter only matched MLIR's
 // IntegerType, which a !cir.int is not.
@@ -100,7 +84,7 @@ module {
 
 // -----
 
-// Test 5: the pure function address is forwarded through a stack local
+// Test 4: the pure function address is forwarded through a stack local
 // (written with a cir.store, read back with a cir.load) instead of being
 // passed to the skeleton call directly as a cir.get_global result. The pass
 // must follow the load chain back to the stored global address.

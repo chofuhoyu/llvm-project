@@ -1,0 +1,334 @@
+// RUN: cir-opt %s -cir-call-to-skeleton -split-input-file -verify-diagnostics | FileCheck %s
+
+// CirFuncToArith: translating a pure function that carries a body into a
+// func.func with a straight-line arith body.
+//
+// The translator is driven through cir-call-to-skeleton: a module must contain
+// a skeleton.op helper declaration and a host call for the pass to run (that
+// path is tested in cir-call-to-skeleton.cir). Each module here then annotates
+// pure functions with bodies and checks what populateArithFuncBody produces:
+// every supported CIR scalar op maps to its arith counterpart, clang's
+// alloca/store/load memory form collapses back to SSA, and anything outside
+// the supported set is rejected with a diagnostic instead of being silently
+// dropped.
+//
+// Supported ops: cir.const (#cir.int / #cir.fp), cir.add/sub/mul,
+// cir.div/cir.rem (signed and unsigned), cir.fadd/fsub/fmul/fdiv,
+// cir.fmuladd (expanded to mul + add), cir.fneg, cir.minus, cir.return.
+
+// -----
+
+// Integer: constant, add, sub, mul.
+
+module {
+  cir.func @iconst() -> !cir.int<s, 32> [#cir.annotation<"skeleton.pure">] {
+    %c = cir.const #cir.int<42> : !cir.int<s, 32>
+    cir.return %c : !cir.int<s, 32>
+  }
+  cir.func @iadd(%a: !cir.int<s, 32>, %b: !cir.int<s, 32>) -> !cir.int<s, 32> [#cir.annotation<"skeleton.pure">] {
+    %r = cir.add %a, %b : !cir.int<s, 32>
+    cir.return %r : !cir.int<s, 32>
+  }
+  cir.func @isub(%a: !cir.int<s, 32>, %b: !cir.int<s, 32>) -> !cir.int<s, 32> [#cir.annotation<"skeleton.pure">] {
+    %r = cir.sub %a, %b : !cir.int<s, 32>
+    cir.return %r : !cir.int<s, 32>
+  }
+  cir.func @imul(%a: !cir.int<s, 32>, %b: !cir.int<s, 32>) -> !cir.int<s, 32> [#cir.annotation<"skeleton.pure">] {
+    %r = cir.mul %a, %b : !cir.int<s, 32>
+    cir.return %r : !cir.int<s, 32>
+  }
+  cir.func private @hostpure(!cir.float, !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">]
+  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @host(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> {
+    %fn = cir.get_global @hostpure : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @skeleton_map(%fn, %a, %b) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+}
+
+// CHECK-LABEL: func.func @iconst
+// CHECK: %{{.*}} = arith.constant 42 : i32
+// CHECK: return
+// CHECK-LABEL: func.func @iadd
+// CHECK: %{{.*}} = arith.addi %arg0, %arg1 : i32
+// CHECK: return
+// CHECK-LABEL: func.func @isub
+// CHECK: %{{.*}} = arith.subi %arg0, %arg1 : i32
+// CHECK: return
+// CHECK-LABEL: func.func @imul
+// CHECK: %{{.*}} = arith.muli %arg0, %arg1 : i32
+// CHECK: return
+
+// -----
+
+// -----
+
+// Integer: division and remainder pick signed/unsigned from the operand type;
+// integer negation becomes `0 - x`.
+
+module {
+  cir.func @isdiv(%a: !cir.int<s, 32>, %b: !cir.int<s, 32>) -> !cir.int<s, 32> [#cir.annotation<"skeleton.pure">] {
+    %r = cir.div %a, %b : !cir.int<s, 32>
+    cir.return %r : !cir.int<s, 32>
+  }
+  cir.func @isrem(%a: !cir.int<s, 32>, %b: !cir.int<s, 32>) -> !cir.int<s, 32> [#cir.annotation<"skeleton.pure">] {
+    %r = cir.rem %a, %b : !cir.int<s, 32>
+    cir.return %r : !cir.int<s, 32>
+  }
+  cir.func @iudiv(%a: !cir.int<u, 32>, %b: !cir.int<u, 32>) -> !cir.int<u, 32> [#cir.annotation<"skeleton.pure">] {
+    %r = cir.div %a, %b : !cir.int<u, 32>
+    cir.return %r : !cir.int<u, 32>
+  }
+  cir.func @iurem(%a: !cir.int<u, 32>, %b: !cir.int<u, 32>) -> !cir.int<u, 32> [#cir.annotation<"skeleton.pure">] {
+    %r = cir.rem %a, %b : !cir.int<u, 32>
+    cir.return %r : !cir.int<u, 32>
+  }
+  cir.func @ineg(%a: !cir.int<s, 32>) -> !cir.int<s, 32> [#cir.annotation<"skeleton.pure">] {
+    %r = cir.minus nsw %a : !cir.int<s, 32>
+    cir.return %r : !cir.int<s, 32>
+  }
+  cir.func private @hostpure(!cir.float, !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">]
+  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @host(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> {
+    %fn = cir.get_global @hostpure : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @skeleton_map(%fn, %a, %b) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+}
+
+// Both signed and unsigned types project to signless i32; the op chosen is what
+// distinguishes them.
+// CHECK-LABEL: func.func @isdiv
+// CHECK: %{{.*}} = arith.divsi %arg0, %arg1 : i32
+// CHECK: return
+// CHECK-LABEL: func.func @isrem
+// CHECK: %{{.*}} = arith.remsi %arg0, %arg1 : i32
+// CHECK: return
+// CHECK-LABEL: func.func @iudiv
+// CHECK: %{{.*}} = arith.divui %arg0, %arg1 : i32
+// CHECK: return
+// CHECK-LABEL: func.func @iurem
+// CHECK: %{{.*}} = arith.remui %arg0, %arg1 : i32
+// CHECK: return
+// CHECK-LABEL: func.func @ineg
+// CHECK: %{{.*}} = arith.constant 0 : i32
+// CHECK: %{{.*}} = arith.subi %{{.*}}, %arg0 : i32
+// CHECK: return
+
+// -----
+
+// -----
+
+// Floating point: constant, add, sub, mul, div.
+
+module {
+  cir.func @fconst() -> !cir.float [#cir.annotation<"skeleton.pure">] {
+    %c = cir.const #cir.fp<1.500000e+00> : !cir.float
+    cir.return %c : !cir.float
+  }
+  cir.func @fadd(%a: !cir.float, %b: !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">] {
+    %r = cir.fadd %a, %b : !cir.float
+    cir.return %r : !cir.float
+  }
+  cir.func @fsub(%a: !cir.float, %b: !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">] {
+    %r = cir.fsub %a, %b : !cir.float
+    cir.return %r : !cir.float
+  }
+  cir.func @fmul(%a: !cir.float, %b: !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">] {
+    %r = cir.fmul %a, %b : !cir.float
+    cir.return %r : !cir.float
+  }
+  cir.func @fdiv(%a: !cir.float, %b: !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">] {
+    %r = cir.fdiv %a, %b : !cir.float
+    cir.return %r : !cir.float
+  }
+  cir.func private @hostpure(!cir.float, !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">]
+  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @host(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> {
+    %fn = cir.get_global @hostpure : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @skeleton_map(%fn, %a, %b) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+}
+
+// CHECK-LABEL: func.func @fconst
+// CHECK: %{{.*}} = arith.constant {{.*}} : f32
+// CHECK: return
+// CHECK-LABEL: func.func @fadd
+// CHECK: %{{.*}} = arith.addf %arg0, %arg1 : f32
+// CHECK: return
+// CHECK-LABEL: func.func @fsub
+// CHECK: %{{.*}} = arith.subf %arg0, %arg1 : f32
+// CHECK: return
+// CHECK-LABEL: func.func @fmul
+// CHECK: %{{.*}} = arith.mulf %arg0, %arg1 : f32
+// CHECK: return
+// CHECK-LABEL: func.func @fdiv
+// CHECK: %{{.*}} = arith.divf %arg0, %arg1 : f32
+// CHECK: return
+
+// -----
+
+// -----
+
+// Floating point: fused multiply-add (expanded to mul + add) and negation.
+
+module {
+  cir.func @ffma(%a: !cir.float, %b: !cir.float, %c: !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">] {
+    %r = cir.fmuladd %a, %b, %c : !cir.float
+    cir.return %r : !cir.float
+  }
+  cir.func @fneg(%a: !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">] {
+    %r = cir.fneg %a : !cir.float
+    cir.return %r : !cir.float
+  }
+  cir.func private @hostpure(!cir.float, !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">]
+  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @host(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> {
+    %fn = cir.get_global @hostpure : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @skeleton_map(%fn, %a, %b) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+}
+
+// CHECK-LABEL: func.func @ffma
+// CHECK: %{{.*}} = arith.mulf %arg0, %arg1 : f32
+// CHECK: %{{.*}} = arith.addf %{{.*}}, %arg2 : f32
+// CHECK: return
+// CHECK-LABEL: func.func @fneg
+// CHECK: %{{.*}} = arith.negf %arg0 : f32
+// CHECK: return
+
+// -----
+
+// -----
+
+// The memory form clang's codegen emits: parameters stored into allocas and
+// reloaded before use, the result routed through a __retval alloca. It
+// collapses back to a single SSA block.
+
+module {
+  cir.func @scale(%a: !cir.float, %b: !cir.float, %c: !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">] {
+    %a.addr = cir.alloca "a" align(4) init : !cir.ptr<!cir.float>
+    %b.addr = cir.alloca "b" align(4) init : !cir.ptr<!cir.float>
+    %c.addr = cir.alloca "c" align(4) init : !cir.ptr<!cir.float>
+    %retval = cir.alloca "__retval" align(4) : !cir.ptr<!cir.float>
+    cir.store %a, %a.addr : !cir.float, !cir.ptr<!cir.float>
+    cir.store %b, %b.addr : !cir.float, !cir.ptr<!cir.float>
+    cir.store %c, %c.addr : !cir.float, !cir.ptr<!cir.float>
+    %av = cir.load %a.addr : !cir.ptr<!cir.float>, !cir.float
+    %bv = cir.load %b.addr : !cir.ptr<!cir.float>, !cir.float
+    %cv = cir.load %c.addr : !cir.ptr<!cir.float>, !cir.float
+    %r = cir.fmuladd %av, %bv, %cv : !cir.float
+    cir.store %r, %retval : !cir.float, !cir.ptr<!cir.float>
+    %rv = cir.load %retval : !cir.ptr<!cir.float>, !cir.float
+    cir.return %rv : !cir.float
+  }
+  cir.func @memadd(%a: !cir.int<s, 32>, %b: !cir.int<s, 32>) -> !cir.int<s, 32> [#cir.annotation<"skeleton.pure">] {
+    %a.addr = cir.alloca "a" align(4) init : !cir.ptr<!cir.int<s, 32>>
+    %b.addr = cir.alloca "b" align(4) init : !cir.ptr<!cir.int<s, 32>>
+    %retval = cir.alloca "__retval" align(4) : !cir.ptr<!cir.int<s, 32>>
+    cir.store %a, %a.addr : !cir.int<s, 32>, !cir.ptr<!cir.int<s, 32>>
+    cir.store %b, %b.addr : !cir.int<s, 32>, !cir.ptr<!cir.int<s, 32>>
+    %av = cir.load %a.addr : !cir.ptr<!cir.int<s, 32>>, !cir.int<s, 32>
+    %bv = cir.load %b.addr : !cir.ptr<!cir.int<s, 32>>, !cir.int<s, 32>
+    %r = cir.add %av, %bv : !cir.int<s, 32>
+    cir.store %r, %retval : !cir.int<s, 32>, !cir.ptr<!cir.int<s, 32>>
+    %rv = cir.load %retval : !cir.ptr<!cir.int<s, 32>>, !cir.int<s, 32>
+    cir.return %rv : !cir.int<s, 32>
+  }
+  cir.func private @hostpure(!cir.float, !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">]
+  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @host(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> {
+    %fn = cir.get_global @hostpure : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @skeleton_map(%fn, %a, %b) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+}
+
+// No alloca/store/load or __retval survives; fmuladd expands to mul + add.
+// CHECK-LABEL: func.func @scale
+// CHECK: %{{.*}} = arith.mulf %arg0, %arg1 : f32
+// CHECK: %{{.*}} = arith.addf %{{.*}}, %arg2 : f32
+// CHECK: return
+// CHECK-LABEL: func.func @memadd
+// CHECK: %{{.*}} = arith.addi %arg0, %arg1 : i32
+// CHECK: return
+// CHECK-NOT: cir.alloca
+
+// -----
+
+// -----
+
+// Rejected shapes: each is reported, never silently dropped.
+
+// Volatile loads cannot be represented as plain SSA reads.
+module {
+  cir.func @volatile_load(%a: !cir.float, %b: !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">] {
+    %addr = cir.alloca "a" align(4) init : !cir.ptr<!cir.float>
+    cir.store %a, %addr : !cir.float, !cir.ptr<!cir.float>
+    // expected-error@+1 {{cannot translate a volatile/atomic load in a skeleton pure function body}}
+    %v = cir.load volatile %addr : !cir.ptr<!cir.float>, !cir.float
+    cir.return %v : !cir.float
+  }
+  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @host(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> {
+    %fn = cir.get_global @volatile_load : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @skeleton_map(%fn, %a, %b) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+}
+
+// -----
+
+// Reading an alloca before anything was stored into it.
+module {
+  cir.func @uninit_read(%a: !cir.float, %b: !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">] {
+    %addr = cir.alloca "a" align(4) : !cir.ptr<!cir.float>
+    // expected-error@+1 {{read of an uninitialized value in a pure function}}
+    %v = cir.load %addr : !cir.ptr<!cir.float>, !cir.float
+    cir.return %v : !cir.float
+  }
+  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @host(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> {
+    %fn = cir.get_global @uninit_read : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @skeleton_map(%fn, %a, %b) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+}
+
+// -----
+
+// An alloca whose address escapes the store/load pattern.
+module {
+  cir.func @escaped_addr(%a: !cir.float, %b: !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">] {
+    // expected-error@+1 {{cannot translate an alloca whose address escapes in a pure function}}
+    %addr = cir.alloca "a" align(4) : !cir.ptr<!cir.float>
+    %cast = cir.cast bitcast %addr : !cir.ptr<!cir.float> -> !cir.ptr<!cir.void>
+    cir.return %a : !cir.float
+  }
+  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @host(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> {
+    %fn = cir.get_global @escaped_addr : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @skeleton_map(%fn, %a, %b) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+}
+
+// -----
+
+// A body op outside the supported set.
+module {
+  cir.func @calls_ext(%a: !cir.float, %b: !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">] {
+    // expected-error@+1 {{unsupported operation in pure function body}}
+    %x = cir.call @ext(%a) : (!cir.float) -> !cir.float
+    cir.return %x : !cir.float
+  }
+  cir.func private @ext(!cir.float) -> !cir.float
+  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @host(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> {
+    %fn = cir.get_global @calls_ext : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @skeleton_map(%fn, %a, %b) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+}

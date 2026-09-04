@@ -16,6 +16,7 @@ add_clang_library(MLIRCIRTransforms
   LibOpt.cpp
   CirLoopToSkeleton.cpp
   CirCallToSkeleton.cpp
+  CirFuncToArith.cpp
 
   DEPENDS
   MLIRCIRPassIncGen

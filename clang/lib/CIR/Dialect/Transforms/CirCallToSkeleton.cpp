@@ -31,6 +31,8 @@
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "clang/CIR/Dialect/IR/CIRTypes.h"
 #include "clang/CIR/Dialect/Passes.h"
+#include "clang/CIR/Dialect/Transforms/CirFuncToArith.h"
+#include "clang/CIR/Dialect/Transforms/CirScalarTypeConverter.h"
 
 using namespace mlir;
 using namespace cir;
@@ -169,81 +171,19 @@ static std::string extractPreference(cir::FuncOp func) {
   return "CPU";
 }
 
-/// Converts CIR scalar types to the standard MLIR scalar types that skeleton
-/// ops (and the arith bodies they inline) accept. Unsupported CIR types
-/// convert to a null type, so callers emit a diagnostic instead of silently
-/// lowering to the wrong type. Newly supported types are added here as
-/// additional conversions rather than an if/else chain.
-class CirScalarTypeConverter : public mlir::TypeConverter {
-public:
-  CirScalarTypeConverter() {
-    addConversion([](cir::IntType ty) -> std::optional<Type> {
-      // Project to a signless MLIR integer (the arith convention); signedness
-      // is a property of the CIR arithmetic that produced the value, not of
-      // the integer type the skeleton layer consumes.
-      return IntegerType::get(ty.getContext(), ty.getWidth());
-    });
-    addConversion([](cir::SingleType ty) -> std::optional<Type> {
-      return Float32Type::get(ty.getContext());
-    });
-    addConversion([](cir::DoubleType ty) -> std::optional<Type> {
-      return Float64Type::get(ty.getContext());
-    });
-    addConversion([](cir::FP16Type ty) -> std::optional<Type> {
-      return Float16Type::get(ty.getContext());
-    });
-    addConversion([](cir::BF16Type ty) -> std::optional<Type> {
-      return BFloat16Type::get(ty.getContext());
-    });
-  }
-};
-
-// TODO: This drops the pure function's body and keeps only its signature.
-// That satisfies the skeleton op verifier (pure_fn must resolve to a func.func
-// symbol), but it stops the manual path at skeleton IR: SkeletonToLinalg needs
-// pure_fn to carry a real body, which it clones into the linalg region and
-// rejects with "pure_fn ... must be defined" when the function is only a
-// declaration. So a user's pure function (which does have a body in CIR)
-// cannot yet run through to linalg/execution via this path.
-//
-// Root cause: no CIR → standard-MLIR function lowering exists to reuse.
-// ClangIR keeps its own op set (cir.fadd, ...) and lowers straight to LLVM
-// (DirectToLLVM), so nothing upstream turns a CIR body into the arith body a
-// linalg region can accept. CirCallToSkeleton is the bridge between CIR and
-// the standard-MLIR world skeleton lives in, so the translation has to live
-// here (or in shared CIR tooling).
-//
-// Options when picked up:
-//   - Translate single-block, straight-line scalar pure_fn bodies from CIR to
-//     arith (constants, scalar arith, return) — the shape SkeletonToLinalg
-//     already requires.
-//   - Or recognize simple bodies (e.g. add) in CIR and emit named ops
-//     directly.
-//   - CirLoopToSkeleton needs the same CIR→func.func translation for the
-//     loop bodies it extracts; share the tooling between both paths.
-// Until then, pure functions that actually carry a body are rejected here
-// with an explicit diagnostic instead of being silently erased.
-
-/// Convert pure functions from cir.func to func.func declarations so that
-/// skeleton ops can reference them via pure_fn. Only declaration-only pure
-/// functions are supported; a pure function that carries a body is rejected,
-/// because translating its CIR body to a func.func body is not implemented
-/// yet (see the TODO above).
+/// Convert pure functions from cir.func to func.func so that skeleton ops can
+/// reference them via pure_fn. A declaration-only pure function becomes a
+/// func.func declaration. One that carries a body has it translated into an
+/// arith body by populateArithFuncBody, so SkeletonToLinalg can clone it. A
+/// body that cannot be translated is reported and the whole pass fails rather
+/// than silently dropping the function.
 static LogicalResult
 convertPureFunctionsToFunc(ModuleOp module,
                            const DenseSet<StringRef> &pureFns) {
   SmallVector<cir::FuncOp> toConvert;
   module.walk([&](cir::FuncOp func) {
-    if (!pureFns.contains(func.getSymName()))
-      return;
-    if (!func.isExternal()) {
-      func.emitError()
-          << "pure function '" << func.getSymName()
-          << "' has a body; translating its CIR body to func.func is not "
-             "implemented yet";
-      return;
-    }
-    toConvert.push_back(func);
+    if (pureFns.contains(func.getSymName()))
+      toConvert.push_back(func);
   });
 
   auto *ctx = module.getContext();
@@ -279,6 +219,18 @@ convertPureFunctionsToFunc(ModuleOp module,
     auto newFunc = func::FuncOp::create(builder, cirFunc.getLoc(),
                                         cirFunc.getSymName(), funcType);
     newFunc.setSymVisibility(cirFunc.getSymVisibility());
+
+    // A pure function that carries a body needs it translated into an arith
+    // body (populateArithFuncBody) so SkeletonToLinalg can clone it. On failure
+    // populateArithFuncBody already emitted a diagnostic; roll the partial
+    // func.func back and fail the pass.
+    if (!cirFunc.isExternal()) {
+      if (failed(populateArithFuncBody(cirFunc, newFunc, builder))) {
+        newFunc.erase();
+        return failure();
+      }
+    }
+
     cirFunc.erase();
   }
   return success();
