@@ -108,3 +108,24 @@ module {
 // CHECK: skeleton.map
 // CHECK-SAME: pure_fn = @my_mul
 // CHECK: return
+
+// -----
+
+// Test 5: module-level CIR codegen attributes (cir.*, and the dlti spec that
+// mentions !cir.ptr) are dropped from the rewritten module. They name the CIR
+// dialect, which mlir-opt (the next tool in the pipeline) does not register,
+// so keeping them would make the lowered module unparsable downstream.
+module attributes {cir.default_tls_model = #cir.tls_model<tls_dyn>, cir.triple = "x86_64-unknown-linux-gnu"} {
+  cir.func private @my_add(!cir.float, !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">]
+  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @compute(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.region", ["CPU"]>] {
+    %fn = cir.get_global @my_add : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @skeleton_map(%fn, %a, %b) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+}
+
+// CHECK-NOT: cir.
+// CHECK-NOT: dlti.
+// CHECK-LABEL: func.func @compute
+// CHECK: skeleton.map

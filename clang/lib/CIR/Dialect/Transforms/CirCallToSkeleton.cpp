@@ -25,7 +25,10 @@
 #include "clang/CIR/Dialect/Transforms/CirCallAnalysis.h"
 #include "clang/CIR/Dialect/Transforms/CirCallLowering.h"
 
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Dominance.h"
 
@@ -38,6 +41,23 @@ namespace mlir {
 } // namespace mlir
 
 namespace {
+
+/// Drop the CIR codegen attributes clang leaves on the module (the `cir.*`
+/// family and the dlti data-layout spec, whose entries mention !cir.ptr).
+/// Those attributes name the CIR dialect, which the downstream MLIR tools
+/// consuming a skeleton module do not register, so keeping them would make
+/// the lowered module unparsable there (e.g. mlir-opt). This only runs once
+/// the module has actually been rewritten into func.func + skeleton ops.
+static void dropCirModuleAttrs(ModuleOp module) {
+  SmallVector<StringAttr> toDrop;
+  for (const NamedAttribute &attr : module->getDiscardableAttrs()) {
+    StringRef name = attr.getName().strref();
+    if (name.starts_with("cir.") || name.starts_with("dlti."))
+      toDrop.push_back(attr.getName());
+  }
+  for (StringAttr name : toDrop)
+    module->removeAttr(name);
+}
 
 class CIRCallToSkeletonPass
     : public impl::CIRCallToSkeletonBase<CIRCallToSkeletonPass> {
@@ -144,6 +164,8 @@ public:
     });
     for (auto func : toErase)
       func.erase();
+
+    dropCirModuleAttrs(module);
   }
 };
 
