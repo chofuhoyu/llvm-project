@@ -1,0 +1,27 @@
+// RUN: not cir-opt %s -cir-call-to-skeleton 2>&1 | FileCheck %s
+
+// The pass lowers a module of skeleton code into func.func + skeleton ops by
+// erasing every cir.func it understands (pure functions, skeleton op
+// declarations, and region hosts). A module that also carries ordinary C++
+// functions is not supported yet: a caller of a rewritten host would reference
+// a function that no longer exists (its cir.func is erased and replaced by a
+// memref/tensor func.func), and the module's CIR layout attributes get dropped
+// regardless. Rather than emit that corrupt half-converted module, the pass
+// refuses loudly.
+
+// CHECK: error: non-skeleton function main is left in CIR
+
+module {
+  cir.func private @my_add(!cir.float, !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">]
+  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @vec_add(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.region", ["CPU"]>] {
+    %fn = cir.get_global @my_add : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @skeleton_map(%fn, %a, %b) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+  // Ordinary code around the skeleton region: not supported yet.
+  cir.func @main() -> !cir.int<s, 32> {
+    %c0 = cir.const #cir.int<0> : !cir.int<s, 32>
+    cir.return %c0 : !cir.int<s, 32>
+  }
+}

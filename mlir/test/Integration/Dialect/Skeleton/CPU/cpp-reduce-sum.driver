@@ -1,0 +1,25 @@
+// Concatenated (by the test's RUN line) after the C++-compiled operators.
+// Top-level ops only; no `module {` wrapper, so the whole stream stays one
+// implicit module.
+func.func @main() {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %c2 = arith.constant 2 : index
+  %c3 = arith.constant 3 : index
+  %c4 = arith.constant 4 : index
+  %a0 = arith.constant 1.0 : f32
+  %a1 = arith.constant 2.0 : f32
+  %a2 = arith.constant 3.0 : f32
+  %a3 = arith.constant 4.0 : f32
+  %A = memref.alloc(%c4) : memref<?xf32>
+  memref.store %a0, %A[%c0] : memref<?xf32>
+  memref.store %a1, %A[%c1] : memref<?xf32>
+  memref.store %a2, %A[%c2] : memref<?xf32>
+  memref.store %a3, %A[%c3] : memref<?xf32>
+  %res = call @sum_all(%A) : (memref<?xf32>) -> tensor<f32>
+  %unranked = tensor.cast %res : tensor<f32> to tensor<*xf32>
+  call @printMemrefF32(%unranked) : (tensor<*xf32>) -> ()
+  return
+}
+
+func.func private @printMemrefF32(%ptr : tensor<*xf32>)
