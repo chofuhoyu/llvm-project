@@ -1,0 +1,13 @@
+// RUN: not cir-opt %s -cir-call-to-skeleton 2>&1 | FileCheck %s
+//
+// Invalid "skeleton.op" annotations are reported on the declaring function
+// before any rewriting happens. Both declarations live in one module so that a
+// single run reports every illegal annotation.
+
+// CHECK: error: invalid "skeleton.op" annotation: unsupported op type "frobnicate"
+// CHECK: error: invalid "skeleton.op" annotation: expected one argument naming the operator ("map" or "reduce")
+
+module {
+  cir.func private @skeleton_frobnicate(!cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["frobnicate"]>]
+  cir.func private @skeleton_untyped(!cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op">]
+}

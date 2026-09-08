@@ -18,6 +18,7 @@ add_clang_library(MLIRCIRTransforms
   CirCallToSkeleton.cpp
   CirCallAnalysis.cpp
   CirCallLowering.cpp
+  CirSkeletonAnnotations.cpp
   CirFuncToArith.cpp
 
   DEPENDS

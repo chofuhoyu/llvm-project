@@ -21,9 +21,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/CIR/Dialect/Passes.h"
-#include "clang/CIR/Dialect/Transforms/CIRAnnotations.h"
 #include "clang/CIR/Dialect/Transforms/CirCallAnalysis.h"
 #include "clang/CIR/Dialect/Transforms/CirCallLowering.h"
+#include "clang/CIR/Dialect/Transforms/CirSkeletonAnnotations.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -31,6 +31,8 @@
 #include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Dominance.h"
+
+#include "llvm/Support/ErrorHandling.h"
 
 using namespace mlir;
 using namespace cir;
@@ -68,14 +70,18 @@ public:
     auto module = getOperation();
     auto pureFns = collectPureFunctions(module);
     auto opDecls = collectSkeletonOpDecls(module);
-
-    if (opDecls.empty())
+    if (failed(opDecls)) {
+      signalPassFailure();
+      return;
+    }
+    if (opDecls->empty())
       return;
 
     DominanceInfo domInfo(module);
 
     // Phase 1: Collect all skeleton call info from the original CIR IR.
     SmallVector<SkeletonCallInfo> worklist;
+    bool invalidRegion = false;
 
     module.walk([&](cir::CallOp callOp) {
       auto calleeOpt = callOp.getCallee();
@@ -83,11 +89,11 @@ public:
         return;
       StringRef callee = *calleeOpt;
 
-      auto it = opDecls.find(callee);
-      if (it == opDecls.end())
+      auto it = opDecls->find(callee);
+      if (it == opDecls->end())
         return;
 
-      StringRef opType = it->second;
+      SkeletonOpType opType = it->second;
 
       auto pureFnRef = extractPureFnRef(callOp, 0, pureFns, domInfo);
       if (!pureFnRef) {
@@ -104,15 +110,25 @@ public:
       unsigned numArgs = callOp.getNumOperands();
       unsigned numInputs = numArgs - 1; // minus pure_fn
 
+      auto preference = getSkeletonPreference(cirFunc);
+      if (failed(preference)) {
+        invalidRegion = true; // the error was already reported on cirFunc
+        return;
+      }
+
       SkeletonCallInfo info{cirFunc,
                             callOp,
                             opType,
                             pureFnRef.getRootReference().getValue(),
-                            extractPreference(cirFunc),
+                            *preference,
                             numInputs};
       worklist.push_back(info);
     });
 
+    if (invalidRegion) {
+      signalPassFailure();
+      return;
+    }
     if (worklist.empty())
       return;
 
@@ -138,13 +154,16 @@ public:
       builder.setInsertionPointToStart(&newFunc.getBody().front());
 
       Value result;
-      if (info.opType == "map")
+      switch (info.opType) {
+      case SkeletonOpType::Map:
         result = lowerMapCall(info, newFunc, builder);
-      else if (info.opType == "reduce")
+        break;
+      case SkeletonOpType::Reduce:
         result = lowerReduceCall(info, newFunc, builder);
-      else
-        info.callOp.emitWarning("unknown skeleton op type '")
-            << info.opType << "'";
+        break;
+      default:
+        llvm_unreachable("unknown skeleton op type");
+      }
 
       if (result)
         func::ReturnOp::create(builder, newFunc.getLoc(), ValueRange(result));
@@ -156,10 +175,12 @@ public:
         info.cirFunc.erase();
     }
 
-    // Erase skeleton op declarations (external, no body).
+    // Erase skeleton op declarations (external, no body). The declarations were
+    // parsed into opDecls above, so membership there identifies them.
     SmallVector<cir::FuncOp> toErase;
     module.walk([&](cir::FuncOp func) {
-      if (func.isExternal() && getAnnotationByName(func, "skeleton.op"))
+      if (func.isExternal() &&
+          opDecls->find(func.getSymName()) != opDecls->end())
         toErase.push_back(func);
     });
     for (auto func : toErase)

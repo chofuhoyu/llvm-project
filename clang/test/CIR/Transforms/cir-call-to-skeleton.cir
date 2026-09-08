@@ -129,3 +129,25 @@ module attributes {cir.default_tls_model = #cir.tls_model<tls_dyn>, cir.triple =
 // CHECK-NOT: dlti.
 // CHECK-LABEL: func.func @compute
 // CHECK: skeleton.map
+
+// -----
+
+// Test 6: a GPU-preference host. The preference survives into the skeleton op
+// as #skeleton.preference<"GPU"> (the enum is translated back to a string in
+// the lowering).
+module {
+  cir.func private @gpu_add(!cir.float, !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">]
+  cir.func private @skeleton_gpu_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @gpu_compute(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.region", ["GPU"]>] {
+    %fn = cir.get_global @gpu_add : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @skeleton_gpu_map(%fn, %a, %b) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+}
+
+// CHECK-LABEL: func.func private @gpu_add(f32, f32) -> f32
+// CHECK-LABEL: func.func @gpu_compute
+// CHECK: skeleton.map
+// CHECK-SAME: preference = <"GPU">
+// CHECK-SAME: pure_fn = @gpu_add
+

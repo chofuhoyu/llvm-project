@@ -8,16 +8,17 @@
 //
 // Phase-1 analysis for cir-call-to-skeleton: read the CIR input and answer the
 // questions the rewriting phase needs. What pure functions and skeleton-op
-// declarations the user marked with annotations, which preference a host
-// function carries, and — for a given skeleton-helper call — which pure
-// function its first argument refers to.
+// declarations the user marked with annotations, and — for a given
+// skeleton-helper call — which pure function its first argument refers to.
+// The skeleton annotation semantics (the enum types and their typed readers)
+// live in CirSkeletonAnnotations.h.
 //
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_CLANG_CIR_DIALECT_TRANSFORMS_CIRCALLANALYSIS_H
 #define LLVM_CLANG_CIR_DIALECT_TRANSFORMS_CIRCALLANALYSIS_H
 
-#include <string>
+#include "clang/CIR/Dialect/Transforms/CirSkeletonAnnotations.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/DenseMap.h"
@@ -38,14 +39,11 @@ class FuncOp;
 llvm::DenseSet<llvm::StringRef> collectPureFunctions(mlir::ModuleOp module);
 
 /// Collect skeleton op declarations: external functions carrying the
-/// "skeleton.op" annotation. Returns map: function name → op type
-/// ("map", "reduce"), taken from the annotation's first argument.
-llvm::DenseMap<llvm::StringRef, llvm::StringRef>
+/// "skeleton.op" annotation. Returns a map from function name to the validated
+/// operator type; an annotation that does not name a supported operator is
+/// reported on its function and the whole result fails.
+mlir::FailureOr<llvm::DenseMap<llvm::StringRef, SkeletonOpType>>
 collectSkeletonOpDecls(mlir::ModuleOp module);
-
-/// Extract the preference string from the "skeleton.region" annotation on a
-/// cir.func. Falls back to "CPU" when the annotation is absent.
-std::string extractPreference(cir::FuncOp func);
 
 /// Extract a FlatSymbolRefAttr from a call argument that represents a
 /// function pointer (e.g. via cir.get_global @some_fn).

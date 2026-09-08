@@ -1,0 +1,23 @@
+// RUN: not cir-opt %s -cir-call-to-skeleton 2>&1 | FileCheck %s
+//
+// Invalid "skeleton.region" annotations on hosts that wrap a skeleton call are
+// reported on the host function. An absent annotation still defaults to CPU
+// (covered by the reduce case in cir-call-to-skeleton.cir).
+
+// CHECK: error: invalid "skeleton.region" annotation: unsupported preference "GPUx"
+// CHECK: error: invalid "skeleton.region" annotation: expected one argument naming the preference ("CPU" or "GPU")
+
+module {
+  cir.func private @bad_add(!cir.float, !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">]
+  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>] 
+  cir.func @bad_pref(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.region", ["GPUx"]>] {
+    %fn = cir.get_global @bad_add : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @skeleton_map(%fn, %a, %b) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+  cir.func @no_arg(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.region">] {
+    %fn = cir.get_global @bad_add : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @skeleton_map(%fn, %a, %b) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+}

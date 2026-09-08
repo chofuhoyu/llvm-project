@@ -18,10 +18,9 @@
 #ifndef LLVM_CLANG_CIR_DIALECT_TRANSFORMS_CIRCALL_LOWERING_H
 #define LLVM_CLANG_CIR_DIALECT_TRANSFORMS_CIRCALL_LOWERING_H
 
-#include <string>
-
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
+#include "clang/CIR/Dialect/Transforms/CirSkeletonAnnotations.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringRef.h"
 
@@ -36,9 +35,9 @@ namespace cir {
 struct SkeletonCallInfo {
   cir::FuncOp cirFunc;
   cir::CallOp callOp;
-  llvm::StringRef opType;     // "map" or "reduce"
+  SkeletonOpType opType;
   llvm::StringRef pureFnName; // the referenced pure function
-  std::string preference;     // "CPU" or "GPU"
+  SkeletonPreference preference;
   // Number of data operands in the call. Return-value style: every data
   // operand is an input; the output is a fresh tensor returned from the
   // function, not a caller-supplied buffer.
@@ -59,7 +58,7 @@ convertPureFunctionsToFunc(mlir::ModuleOp module,
 /// parameters are memrefs and whose result is the skeleton op's output tensor.
 mlir::func::FuncOp rewriteToStandardFunc(cir::FuncOp cirFunc,
                                          mlir::OpBuilder &rewriter,
-                                         llvm::StringRef opType);
+                                         SkeletonOpType opType);
 
 /// Process a map call: create a skeleton.map whose result is the function's
 /// return value. Returns the skeleton op result (nullptr on failure).

@@ -11,7 +11,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Dominance.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
-#include "clang/CIR/Dialect/Transforms/CIRAnnotations.h"
+#include "clang/CIR/Dialect/Transforms/CirSkeletonAnnotations.h"
 
 using namespace mlir;
 using namespace cir;
@@ -76,44 +76,29 @@ namespace cir {
 DenseSet<StringRef> collectPureFunctions(ModuleOp module) {
   DenseSet<StringRef> pureFns;
   module.walk([&](cir::FuncOp func) {
-    if (getAnnotationByName(func, "skeleton.pure"))
+    if (hasSkeletonPureAnnotation(func))
       pureFns.insert(func.getSymName());
   });
   return pureFns;
 }
 
-DenseMap<StringRef, StringRef> collectSkeletonOpDecls(ModuleOp module) {
-  DenseMap<StringRef, StringRef> opDecls;
+FailureOr<DenseMap<StringRef, SkeletonOpType>>
+collectSkeletonOpDecls(ModuleOp module) {
+  DenseMap<StringRef, SkeletonOpType> opDecls;
+  bool invalid = false;
   module.walk([&](cir::FuncOp func) {
-    if (!func.isExternal())
+    if (!func.isExternal() || !hasSkeletonOpAnnotation(func))
       return;
-    auto ann = getAnnotationByName(func, "skeleton.op");
-    if (!ann)
+    auto opType = getSkeletonOpType(func);
+    if (failed(opType)) {
+      invalid = true; // the error was already reported on func
       return;
-    StringRef opType;
-    if (auto args = ann.getArgs())
-      if (!args.empty())
-        if (auto arg = dyn_cast<StringAttr>(args[0]))
-          opType = arg.getValue();
-    // TODO: Validate opType against the set of supported operators ("map",
-    // "reduce") here. An unknown type currently flows all the way into the
-    // rewrite phase, where it leaves an empty func.func and only surfaces as
-    // the "unknown skeleton op type" warning at dispatch time. The supported
-    // set should live in one place shared with outputMemrefShape and the
-    // map/reduce dispatch below.
-    if (!opType.empty())
-      opDecls[func.getSymName()] = opType;
+    }
+    opDecls[func.getSymName()] = *opType;
   });
+  if (invalid)
+    return failure();
   return opDecls;
-}
-
-std::string extractPreference(cir::FuncOp func) {
-  if (auto ann = getAnnotationByName(func, "skeleton.region"))
-    if (auto args = ann.getArgs())
-      if (!args.empty())
-        if (auto pref = dyn_cast<StringAttr>(args[0]))
-          return pref.getValue().str();
-  return "CPU";
 }
 
 FlatSymbolRefAttr extractPureFnRef(cir::CallOp callOp, unsigned argIdx,

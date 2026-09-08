@@ -100,8 +100,8 @@ static Value createToTensor(OpBuilder &builder, Location loc, Value memref) {
 /// the input; reduce collapses its input to a rank-0 scalar. The element type
 /// equals the input's (map/reduce verifiers require output elt == input elt).
 /// Future operators add their own output-shape rule here.
-static RankedTensorType outputTensorType(StringRef opType, Type eltTy) {
-  if (opType == "reduce")
+static RankedTensorType outputTensorType(SkeletonOpType opType, Type eltTy) {
+  if (opType == SkeletonOpType::Reduce)
     return RankedTensorType::get({}, eltTy);
   return RankedTensorType::get({ShapedType::kDynamic}, eltTy);
 }
@@ -152,7 +152,7 @@ static Value createEmptyOutput(OpBuilder &builder, Location loc,
 /// would be silently dropped and several skeleton calls would each emit a
 /// same-named func.func (see review doc front-end follow-ups).
 func::FuncOp rewriteToStandardFunc(cir::FuncOp cirFunc, OpBuilder &rewriter,
-                                   StringRef opType) {
+                                   SkeletonOpType opType) {
   auto loc = cirFunc.getLoc();
   auto *ctx = rewriter.getContext();
   CirScalarTypeConverter converter;
@@ -243,7 +243,7 @@ Value lowerMapCall(SkeletonCallInfo &info, func::FuncOp newFunc,
 
   auto pureFnAttr = SymbolRefAttr::get(ctx, info.pureFnName);
   auto prefAttr =
-      skeleton::PreferenceAttr::get(ctx, StringAttr::get(ctx, info.preference));
+      skeleton::PreferenceAttr::get(ctx, StringAttr::get(ctx, toString(info.preference)));
 
   auto mapOp = skeleton::MapOp::create(
       builder, loc, init.getType(), inputTensors, init, pureFnAttr, prefAttr);
@@ -276,7 +276,7 @@ Value lowerReduceCall(SkeletonCallInfo &info, func::FuncOp newFunc,
 
   auto pureFnAttr = SymbolRefAttr::get(ctx, info.pureFnName);
   auto prefAttr =
-      skeleton::PreferenceAttr::get(ctx, StringAttr::get(ctx, info.preference));
+      skeleton::PreferenceAttr::get(ctx, StringAttr::get(ctx, toString(info.preference)));
 
   auto reduceOp = skeleton::ReduceOp::create(
       builder, loc, init.getType(), inputTensor, init, pureFnAttr, prefAttr);
