@@ -151,3 +151,29 @@ module {
 // CHECK-SAME: preference = <"GPU">
 // CHECK-SAME: pure_fn = @gpu_add
 
+// -----
+
+// Test 7: a map call whose data operands are passed in a different order than
+// the host declares its parameters (%b before %a). The map's inputs must
+// follow the call's argument order, not the host's parameter order; otherwise a
+// non-commutative pure function would silently receive its operands swapped.
+module {
+  cir.func private @my_sub(!cir.float, !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">]
+  cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @swap(%a: !cir.ptr<!cir.float>, %b: !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.region", ["CPU"]>] {
+    %fn = cir.get_global @my_sub : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @skeleton_map(%fn, %b, %a) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.float>, !cir.ptr<!cir.float>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+}
+
+// CHECK-LABEL: func.func private @my_sub(f32, f32) -> f32
+// CHECK-LABEL: func.func @swap
+// CHECK-SAME: (%[[A:.*]]: memref<?xf32>, %[[B:.*]]: memref<?xf32>) -> tensor<?xf32>
+// The call passes %b (the second parameter, %[[B]]) before %a, so %[[B]] must
+// be turned into a tensor and fed to the map first.
+// CHECK: %[[T_B:.*]] = bufferization.to_tensor %[[B]]
+// CHECK: %[[T_A:.*]] = bufferization.to_tensor %[[A]]
+// CHECK: skeleton.map{{.*}}pure_fn = @my_sub{{.*}}ins(%[[T_B]], %[[T_A]]
+// CHECK: return
+

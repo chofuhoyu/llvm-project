@@ -107,9 +107,6 @@ public:
       if (!cirFunc)
         return;
 
-      unsigned numArgs = callOp.getNumOperands();
-      unsigned numInputs = numArgs - 1; // minus pure_fn
-
       auto preference = getSkeletonPreference(cirFunc);
       if (failed(preference)) {
         invalidRegion = true; // the error was already reported on cirFunc
@@ -120,8 +117,7 @@ public:
                             callOp,
                             opType,
                             pureFnRef.getRootReference().getValue(),
-                            *preference,
-                            numInputs};
+                            *preference};
       worklist.push_back(info);
     });
 

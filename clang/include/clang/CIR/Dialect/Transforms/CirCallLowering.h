@@ -38,10 +38,6 @@ struct SkeletonCallInfo {
   SkeletonOpType opType;
   llvm::StringRef pureFnName; // the referenced pure function
   SkeletonPreference preference;
-  // Number of data operands in the call. Return-value style: every data
-  // operand is an input; the output is a fresh tensor returned from the
-  // function, not a caller-supplied buffer.
-  unsigned numInputs;
 };
 
 /// Convert pure functions from cir.func to func.func so that skeleton ops can

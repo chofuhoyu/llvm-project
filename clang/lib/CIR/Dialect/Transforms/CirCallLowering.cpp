@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Skeleton/IR/SkeletonAttrs.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -93,6 +94,38 @@ static Value createToTensor(OpBuilder &builder, Location loc, Value memref) {
   return bufferization::ToTensorOp::create(builder, loc, tensorType, memref,
                                            /*restrict=*/true,
                                            /*writable=*/true);
+}
+
+/// Return the memref block argument of the rewritten function that backs the
+/// `operandIndex`-th data operand of the skeleton call, or null if that operand
+/// does not come straight from a host parameter.
+///
+/// The rewritten function keeps the host's parameter list in order
+/// (rewriteToStandardFunc maps every cir.func parameter one-to-one), so a call
+/// operand that is the host entry block's argument `k` is carried by `newFunc`'s
+/// argument `k`. Resolving through the call's operand rather than grabbing
+/// memref arguments positionally honors the call's actual argument order: a
+/// host that passes its parameters in a different order, or does not use all of
+/// them, must not shift or drop the map inputs.
+static Value mapDataOperandToMemref(SkeletonCallInfo &info,
+                                    func::FuncOp newFunc,
+                                    unsigned operandIndex) {
+  Value operand = info.callOp.getOperand(operandIndex);
+  auto blockArg = dyn_cast<BlockArgument>(operand);
+  if (!blockArg ||
+      blockArg.getOwner()->getParentOp() != info.cirFunc.getOperation()) {
+    info.callOp.emitWarning(
+        "skeleton call data operand is not a direct parameter of the host "
+        "function; only thin-wrapper hosts are supported");
+    return {};
+  }
+  Value memref = newFunc.getArgument(blockArg.getArgNumber());
+  if (!isa<MemRefType>(memref.getType())) {
+    info.callOp.emitWarning(
+        "skeleton call data operand maps to a non-pointer host parameter");
+    return {};
+  }
+  return memref;
 }
 
 /// The skeleton op's output tensor type, determined by the op's semantics.
@@ -209,33 +242,22 @@ Value lowerMapCall(SkeletonCallInfo &info, func::FuncOp newFunc,
   auto loc = info.callOp.getLoc();
   auto *ctx = builder.getContext();
 
-  // Map call args to new function's memref block arguments.
-  // We need to find the memref block args that correspond to the original
-  // cir.ptr params. In the rewritten function, all cir.ptr<T> params become
-  // memref<?xT>. We walk all memref block args and assign them positionally.
-  // TODO: This positional matching assumes the rewritten function's memref
-  // params appear in the same order as the skeleton call's data operands,
-  // and that the function has no other pointer params — an extra or
-  // reordered param silently binds the wrong operand. Recover the
-  // correspondence from the original call's argument values instead.
-  SmallVector<Value> memrefArgs;
-  for (unsigned i = 0; i < newFunc.getNumArguments(); ++i) {
-    if (isa<MemRefType>(newFunc.getArgument(i).getType()))
-      memrefArgs.push_back(newFunc.getArgument(i));
+  // Map each data operand of the skeleton call (operand 0 is the pure function
+  // reference) to the memref holding the host parameter it was passed from,
+  // then view that memref as a tensor. Walking the call's operands keeps the
+  // map's inputs in the call's argument order (return-value style: every data
+  // operand is an input).
+  SmallVector<Value> inputTensors;
+  for (unsigned i = 1; i < info.callOp.getNumOperands(); ++i) {
+    Value memref = mapDataOperandToMemref(info, newFunc, i);
+    if (!memref)
+      return {};
+    inputTensors.push_back(createToTensor(builder, loc, memref));
   }
-
-  // The call has: arg0=pure_fn, arg1..argN = inputs. We need numInputs
-  // memrefs; all data operands are inputs (return-value style).
-  if (memrefArgs.size() < info.numInputs) {
-    info.callOp.emitWarning(
-        "not enough memref arguments in rewritten function");
+  if (inputTensors.empty()) {
+    info.callOp.emitWarning("skeleton map call has no data operands");
     return {};
   }
-
-  // Create to_tensor for each input memref.
-  SmallVector<Value> inputTensors;
-  for (unsigned i = 0; i < info.numInputs; ++i)
-    inputTensors.push_back(createToTensor(builder, loc, memrefArgs[i]));
 
   // Output is a fresh tensor.empty (the outs/destination), not a
   // caller-supplied buffer.
@@ -256,20 +278,12 @@ Value lowerReduceCall(SkeletonCallInfo &info, func::FuncOp newFunc,
   auto loc = info.callOp.getLoc();
   auto *ctx = builder.getContext();
 
-  // TODO: Same positional memref-arg matching assumption as lowerMapCall.
-  SmallVector<Value> memrefArgs;
-  for (unsigned i = 0; i < newFunc.getNumArguments(); ++i) {
-    if (isa<MemRefType>(newFunc.getArgument(i).getType()))
-      memrefArgs.push_back(newFunc.getArgument(i));
-  }
-
-  if (memrefArgs.size() < info.numInputs) {
-    info.callOp.emitWarning("not enough memref arguments");
+  // The reduce call's single data operand, resolved the same way as
+  // lowerMapCall's (operand 0 is the pure function reference).
+  Value memref = mapDataOperandToMemref(info, newFunc, 1);
+  if (!memref)
     return {};
-  }
-
-  Value inputMemref = memrefArgs[0];
-  auto inputTensor = createToTensor(builder, loc, inputMemref);
+  auto inputTensor = createToTensor(builder, loc, memref);
 
   // Output is a fresh rank-0 tensor.empty.
   Value init = createEmptyOutput(builder, loc, newFunc, inputTensor);
