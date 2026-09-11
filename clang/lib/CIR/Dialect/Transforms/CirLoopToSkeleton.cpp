@@ -156,8 +156,18 @@ static bool isArrayIndex(Value stride, Value ivAllocaAddr) {
 }
 
 /// Recognize the canonical ascending `for (i = 0; i < N; ++i)` shape and the
-/// induction variable's alloca address.
-static bool recognizeInduction(cir::ForOp loop, Value &ivAllocaAddr) {
+/// induction variable's alloca address. The bound must be one of the host's
+/// parameters: the iteration count is later taken from the input tensor's
+/// extent, so a bound that is anything else — a constant, or an expression
+/// such as `N - 1` — would silently change how many elements are covered.
+///
+/// Requiring a parameter is necessary but not sufficient. Nothing here checks
+/// that the caller passes the array length as that parameter, so a call such
+/// as `f(3, A, B, C)` over a ten-element `A` is still rewritten to cover all
+/// ten. CIR carries no link between a loop bound and an array's extent, so the
+/// assumption cannot be discharged at this level.
+static bool recognizeInduction(cir::ForOp loop, cir::FuncOp host,
+                               Value &ivAllocaAddr) {
   // The condition region compares the induction variable against a bound.
   auto &condReg = loop.getCond();
   if (!condReg.hasOneBlock())
@@ -196,12 +206,16 @@ static bool recognizeInduction(cir::ForOp loop, Value &ivAllocaAddr) {
     auto load = v.getDefiningOp<cir::LoadOp>();
     return load && load.getAddr() == ivAllocaAddr;
   };
+  Value bound;
   auto kind = cmp.getKind();
   if (loadsIv(cmp.getLhs()) && kind == cir::CmpOpKind::lt)
-    return true; // i < N
-  if (loadsIv(cmp.getRhs()) && kind == cir::CmpOpKind::gt)
-    return true; // N > i
-  return false;
+    bound = cmp.getRhs(); // i < N
+  else if (loadsIv(cmp.getRhs()) && kind == cir::CmpOpKind::gt)
+    bound = cmp.getLhs(); // N > i
+  else
+    return false;
+
+  return static_cast<bool>(traceToHostValue(bound, host));
 }
 
 /// The loop must start from a constant zero stored into the induction variable
@@ -245,7 +259,7 @@ static bool analyzeMapPattern(cir::ForOp loop, cir::FuncOp host,
   auto &body = bodyReg.front();
 
   Value ivAllocaAddr;
-  if (!recognizeInduction(loop, ivAllocaAddr))
+  if (!recognizeInduction(loop, host, ivAllocaAddr))
     return false;
   if (!hasZeroInit(loop, ivAllocaAddr))
     return false;
