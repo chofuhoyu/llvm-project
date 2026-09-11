@@ -267,27 +267,35 @@ def CallConvLowering : Pass<"cir-call-conv-lowering", "mlir::ModuleOp"> {
   ];
 }
 
-def CIRLoopToSkeleton : Pass<"cir-loop-to-skeleton"> {
+def CIRLoopToSkeleton : Pass<"cir-loop-to-skeleton", "mlir::ModuleOp"> {
   let summary = "Convert annotated CIR loops to Skeleton dialect operations";
   let description = [{
-    Recognizes `cir.for`, `cir.while`, and `cir.do` operations that carry
-    `cir.annotation` attributes and converts them to Skeleton dialect
-    operations.
+    Semi-automatic path: recognizes `cir.for` loops carrying the
+    `skeleton.region` annotation (written `__attribute__((annotate("skeleton.region",
+    "CPU")))` in C/C++) and rewrites them into Skeleton dialect operations. The
+    operator (map or reduce) is inferred from the loop shape, not named by the
+    annotation; the annotation's optional first string argument is the
+    execution preference ("CPU" or "GPU", default CPU).
 
-    The annotation name determines the target skeleton operation type.
-    The first string argument (if present) becomes the skeleton preference.
+    For an element-wise loop (`C[i] = f(A[i], ...)`) the pass extracts the
+    loop body's scalar computation into a func.func pure function (an arith
+    body), rewrites the enclosing host cir.func into a func.func taking one
+    `memref<?xelt>` per input array and returning the output `tensor<?xelt>`,
+    and emits a `skeleton.map` referencing the extracted pure function.
 
-    Currently supports:
-    - `annotate("skeleton.vector.add", "CPU|GPU")` → `skeleton.vector.add`
-
-    Future enhancements will recognize additional annotation names and
-    produce type-specific operations.
+    Only a canonical ascending unit-stride `cir.for` with a straight-line
+    scalar body over array elements is supported; anything else is reported
+    and left untouched. While/do-while loops are not supported yet.
   }];
   let constructor = "mlir::createCIRLoopToSkeletonPass()";
   let dependentDialects = [
     "cir::CIRDialect",
     "mlir::skeleton::SkeletonDialect",
-    "mlir::func::FuncDialect"
+    "mlir::func::FuncDialect",
+    "mlir::arith::ArithDialect",
+    "mlir::tensor::TensorDialect",
+    "mlir::memref::MemRefDialect",
+    "mlir::bufferization::BufferizationDialect"
   ];
 }
 

@@ -25,8 +25,12 @@
 #include "llvm/ADT/StringRef.h"
 
 namespace mlir {
+class Location;
 class ModuleOp;
 class OpBuilder;
+class RankedTensorType;
+class Type;
+class Value;
 } // namespace mlir
 
 namespace cir {
@@ -49,6 +53,27 @@ struct SkeletonCallInfo {
 mlir::LogicalResult
 convertPureFunctionsToFunc(mlir::ModuleOp module,
                            const llvm::DenseSet<llvm::StringRef> &pureFns);
+
+/// Create bufferization.to_tensor from a memref. Shared host-body helper: used
+/// by the manual path's lowerMapCall/lowerReduceCall and by the semi-automatic
+/// loop path's host rewriting.
+mlir::Value createToTensor(mlir::OpBuilder &builder, mlir::Location loc,
+                           mlir::Value memref);
+
+/// The skeleton op's output tensor type determined by the op's semantics: map
+/// is element-wise, so its output is 1-D with a dynamic extent matching the
+/// input; reduce collapses its input to a rank-0 scalar. The element type
+/// equals the input's (map/reduce verifiers require output elt == input elt).
+mlir::RankedTensorType outputTensorType(SkeletonOpType opType,
+                                        mlir::Type eltTy);
+
+/// Create a tensor.empty whose type matches \p newFunc's result tensor type
+/// (the skeleton op's output). Dynamic extents in the result shape are filled
+/// from the corresponding dimension of \p firstInputTensor, since map/reduce
+/// outputs share the input's shape.
+mlir::Value createEmptyOutput(mlir::OpBuilder &builder, mlir::Location loc,
+                              mlir::func::FuncOp newFunc,
+                              mlir::Value firstInputTensor);
 
 /// Rewrite the cir.func that hosts a skeleton call to a func.func whose
 /// parameters are memrefs and whose result is the skeleton op's output tensor.

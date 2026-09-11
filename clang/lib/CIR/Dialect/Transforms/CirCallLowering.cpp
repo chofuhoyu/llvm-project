@@ -8,6 +8,7 @@
 
 #include "clang/CIR/Dialect/Transforms/CirCallLowering.h"
 
+#include "clang/CIR/Dialect/Transforms/CirCallAnalysis.h"
 #include "clang/CIR/Dialect/Transforms/CirFuncToArith.h"
 #include "clang/CIR/Dialect/Transforms/CirScalarTypeConverter.h"
 
@@ -36,58 +37,18 @@ LogicalResult convertPureFunctionsToFunc(ModuleOp module,
       toConvert.push_back(func);
   });
 
-  auto *ctx = module.getContext();
-  CirScalarTypeConverter converter;
   for (cir::FuncOp cirFunc : toConvert) {
-    SmallVector<Type> inputs, results;
-    bool unsupported = false;
-    for (Type t : cirFunc.getArgumentTypes()) {
-      Type mapped = converter.convertType(t);
-      if (!mapped) {
-        cirFunc.emitError() << "unsupported CIR type in pure function: " << t;
-        unsupported = true;
-        break;
-      }
-      inputs.push_back(mapped);
-    }
-    if (unsupported)
-      continue;
-    for (Type t : cirFunc.getResultTypes()) {
-      Type mapped = converter.convertType(t);
-      if (!mapped) {
-        cirFunc.emitError() << "unsupported CIR type in pure function: " << t;
-        unsupported = true;
-        break;
-      }
-      results.push_back(mapped);
-    }
-    if (unsupported)
-      continue;
-
-    auto funcType = FunctionType::get(ctx, inputs, results);
     OpBuilder builder(cirFunc);
-    auto newFunc = func::FuncOp::create(builder, cirFunc.getLoc(),
-                                        cirFunc.getSymName(), funcType);
-    newFunc.setSymVisibility(cirFunc.getSymVisibility());
-
-    // A pure function that carries a body needs it translated into an arith
-    // body (populateArithFuncBody) so SkeletonToLinalg can clone it. On
-    // failure populateArithFuncBody already emitted a diagnostic; roll the
-    // partial func.func back and fail the pass.
-    if (!cirFunc.isExternal()) {
-      if (failed(populateArithFuncBody(cirFunc, newFunc, builder))) {
-        newFunc.erase();
-        return failure();
-      }
-    }
-
+    auto newFunc = createFuncFromCirBody(cirFunc, cirFunc.getSymName(), builder);
+    if (!newFunc)
+      return failure();
     cirFunc.erase();
   }
   return success();
 }
 
 /// Create bufferization.to_tensor from a memref.
-static Value createToTensor(OpBuilder &builder, Location loc, Value memref) {
+Value createToTensor(OpBuilder &builder, Location loc, Value memref) {
   auto memrefType = cast<MemRefType>(memref.getType());
   auto tensorType =
       RankedTensorType::get(memrefType.getShape(), memrefType.getElementType());
@@ -111,15 +72,14 @@ static Value mapDataOperandToMemref(SkeletonCallInfo &info,
                                     func::FuncOp newFunc,
                                     unsigned operandIndex) {
   Value operand = info.callOp.getOperand(operandIndex);
-  auto blockArg = dyn_cast<BlockArgument>(operand);
-  if (!blockArg ||
-      blockArg.getOwner()->getParentOp() != info.cirFunc.getOperation()) {
+  auto hostArg = resolveToHostArg(operand, info.cirFunc);
+  if (failed(hostArg)) {
     info.callOp.emitWarning(
         "skeleton call data operand is not a direct parameter of the host "
         "function; only thin-wrapper hosts are supported");
     return {};
   }
-  Value memref = newFunc.getArgument(blockArg.getArgNumber());
+  Value memref = newFunc.getArgument(hostArg->getArgNumber());
   if (!isa<MemRefType>(memref.getType())) {
     info.callOp.emitWarning(
         "skeleton call data operand maps to a non-pointer host parameter");
@@ -133,7 +93,7 @@ static Value mapDataOperandToMemref(SkeletonCallInfo &info,
 /// the input; reduce collapses its input to a rank-0 scalar. The element type
 /// equals the input's (map/reduce verifiers require output elt == input elt).
 /// Future operators add their own output-shape rule here.
-static RankedTensorType outputTensorType(SkeletonOpType opType, Type eltTy) {
+RankedTensorType outputTensorType(SkeletonOpType opType, Type eltTy) {
   if (opType == SkeletonOpType::Reduce)
     return RankedTensorType::get({}, eltTy);
   return RankedTensorType::get({ShapedType::kDynamic}, eltTy);
@@ -143,8 +103,8 @@ static RankedTensorType outputTensorType(SkeletonOpType opType, Type eltTy) {
 /// tensor type (the skeleton op's result). Dynamic extents in the result
 /// shape are filled from the corresponding dimension of the first input
 /// tensor, since map/reduce outputs share the input's shape.
-static Value createEmptyOutput(OpBuilder &builder, Location loc,
-                               func::FuncOp newFunc, Value firstInputTensor) {
+Value createEmptyOutput(OpBuilder &builder, Location loc,
+                        func::FuncOp newFunc, Value firstInputTensor) {
   auto resultTy = cast<RankedTensorType>(newFunc.getResultTypes().front());
   ArrayRef<int64_t> shape = resultTy.getShape();
   SmallVector<Value> dynSizes;

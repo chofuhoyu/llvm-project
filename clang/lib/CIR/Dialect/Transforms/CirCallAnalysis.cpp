@@ -8,6 +8,8 @@
 
 #include "clang/CIR/Dialect/Transforms/CirCallAnalysis.h"
 
+#include <functional>
+
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Dominance.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
@@ -108,6 +110,36 @@ FlatSymbolRefAttr extractPureFnRef(cir::CallOp callOp, unsigned argIdx,
     return {};
   DenseSet<Value> visited;
   return tracePureFnRef(callOp.getOperand(argIdx), pureFns, domInfo, visited);
+}
+
+FailureOr<BlockArgument> resolveToHostArg(Value operand, cir::FuncOp host) {
+  DenseSet<Value> visited;
+  std::function<FailureOr<BlockArgument>(Value)> walk =
+      [&](Value v) -> FailureOr<BlockArgument> {
+    if (!v || !visited.insert(v).second)
+      return failure();
+    if (auto blockArg = dyn_cast<BlockArgument>(v))
+      if (blockArg.getOwner()->getParentOp() == host.getOperation())
+        return blockArg;
+    auto load = v.getDefiningOp<cir::LoadOp>();
+    if (!load || !load.getAddr().getDefiningOp<cir::AllocaOp>())
+      return failure();
+    // The address is a local alloca staging a host parameter; a straight-line
+    // parameter copy stores it exactly once.
+    Value stored;
+    for (OpOperand &use : load.getAddr().getUses()) {
+      auto store = dyn_cast<cir::StoreOp>(use.getOwner());
+      if (!store || use.getOperandNumber() != cir::StoreOp::odsIndex_addr)
+        continue;
+      if (stored)
+        return failure(); // several writes: not a plain parameter copy
+      stored = store.getValue();
+    }
+    if (!stored)
+      return failure();
+    return walk(stored);
+  };
+  return walk(operand);
 }
 
 } // namespace cir

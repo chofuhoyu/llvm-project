@@ -26,8 +26,10 @@
 #include "llvm/ADT/StringRef.h"
 
 namespace mlir {
+class BlockArgument;
 class DominanceInfo;
 class ModuleOp;
+class Value;
 } // namespace mlir
 
 namespace cir {
@@ -51,6 +53,16 @@ mlir::FlatSymbolRefAttr
 extractPureFnRef(cir::CallOp callOp, unsigned argIdx,
                  const llvm::DenseSet<llvm::StringRef> &pureFns,
                  mlir::DominanceInfo &domInfo);
+
+/// Resolve a value that should name one of the host's data parameters to the
+/// host entry block argument it was copied from. Clang's codegen stages every
+/// function parameter through an alloca (`store` at entry, `load` before
+/// use), so a call operand is often a `cir.load` of a parameter slot rather
+/// than the entry block argument itself. This follows that
+/// `store -> alloca -> load` form; anything that is not (derived from) a
+/// direct parameter fails.
+mlir::FailureOr<mlir::BlockArgument> resolveToHostArg(mlir::Value operand,
+                                                      cir::FuncOp host);
 
 } // namespace cir
 

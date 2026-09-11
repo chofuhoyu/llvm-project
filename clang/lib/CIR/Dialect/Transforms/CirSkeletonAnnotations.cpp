@@ -16,11 +16,45 @@ using namespace mlir;
 using namespace cir;
 
 namespace {
-// The annotation names the manual path reads off CIR ops. They live only here:
-// consumers refer to these annotations through the typed accessors below.
+// The annotation names the skeleton paths read off CIR ops. They live only
+// here: consumers refer to these annotations through the typed accessors
+// below. "skeleton.pure" marks pure functions, "skeleton.op" names the
+// operator of a skeleton helper declaration, and "skeleton.region" marks the
+// scope handed to the skeleton compiler — a host function (manual path) or an
+// annotated loop (semi-automatic path) — carrying the execution preference.
 constexpr char kSkeletonPure[] = "skeleton.pure";
 constexpr char kSkeletonOp[] = "skeleton.op";
 constexpr char kSkeletonRegion[] = "skeleton.region";
+
+/// Parse the preference a "skeleton.region" annotation carries as its first
+/// string argument, reporting on \p op with \p annName in the message.
+FailureOr<SkeletonPreference> parsePreference(Operation *op,
+                                              AnnotationAttr ann,
+                                              StringRef annName) {
+  auto args = ann.getArgs();
+  if (!args || args.empty()) {
+    op->emitError() << "invalid \"" << annName
+                    << "\" annotation: expected one argument naming the "
+                       "preference (\"CPU\" or \"GPU\")";
+    return failure();
+  }
+  auto prefStr = dyn_cast<StringAttr>(args[0]);
+  if (!prefStr) {
+    op->emitError() << "invalid \"" << annName
+                    << "\" annotation: the first argument must be a string "
+                       "naming the preference (\"CPU\" or \"GPU\")";
+    return failure();
+  }
+  StringRef pref = prefStr.getValue();
+  if (pref == "CPU")
+    return SkeletonPreference::CPU;
+  if (pref == "GPU")
+    return SkeletonPreference::GPU;
+  op->emitError() << "invalid \"" << annName
+                  << "\" annotation: unsupported preference \"" << pref
+                  << R"(", expected "CPU" or "GPU")";
+  return failure();
+}
 } // namespace
 
 namespace cir {
@@ -80,30 +114,11 @@ FailureOr<SkeletonPreference> getSkeletonPreference(Operation *op) {
   AnnotationAttr ann = getAnnotationByName(op, kSkeletonRegion);
   if (!ann)
     return SkeletonPreference::CPU;
+  return parsePreference(op, ann, kSkeletonRegion);
+}
 
-  auto args = ann.getArgs();
-  if (!args || args.empty()) {
-    op->emitError() << "invalid \"" << kSkeletonRegion
-                    << "\" annotation: expected one argument naming the "
-                       "preference (\"CPU\" or \"GPU\")";
-    return failure();
-  }
-  auto prefStr = dyn_cast<StringAttr>(args[0]);
-  if (!prefStr) {
-    op->emitError() << "invalid \"" << kSkeletonRegion
-                    << "\" annotation: the first argument must be a string "
-                       "naming the preference (\"CPU\" or \"GPU\")";
-    return failure();
-  }
-  StringRef pref = prefStr.getValue();
-  if (pref == "CPU")
-    return SkeletonPreference::CPU;
-  if (pref == "GPU")
-    return SkeletonPreference::GPU;
-  op->emitError() << "invalid \"" << kSkeletonRegion
-                  << "\" annotation: unsupported preference \"" << pref
-                  << R"(", expected "CPU" or "GPU")";
-  return failure();
+bool hasSkeletonRegionAnnotation(Operation *op) {
+  return static_cast<bool>(getAnnotationByName(op, kSkeletonRegion));
 }
 
 } // namespace cir

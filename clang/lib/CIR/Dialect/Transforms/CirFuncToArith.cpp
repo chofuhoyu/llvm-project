@@ -22,6 +22,48 @@ using namespace cir;
 
 namespace cir {
 
+func::FuncOp createFuncFromCirBody(cir::FuncOp cirFunc, StringRef newName,
+                                   OpBuilder &builder) {
+  auto *ctx = builder.getContext();
+  CirScalarTypeConverter converter;
+
+  SmallVector<Type> inputs, results;
+  for (Type t : cirFunc.getArgumentTypes()) {
+    Type mapped = converter.convertType(t);
+    if (!mapped) {
+      cirFunc.emitError() << "unsupported CIR type in pure function: " << t;
+      return nullptr;
+    }
+    inputs.push_back(mapped);
+  }
+  for (Type t : cirFunc.getResultTypes()) {
+    Type mapped = converter.convertType(t);
+    if (!mapped) {
+      cirFunc.emitError() << "unsupported CIR type in pure function: " << t;
+      return nullptr;
+    }
+    results.push_back(mapped);
+  }
+
+  auto funcType = FunctionType::get(ctx, inputs, results);
+  auto newFunc =
+      func::FuncOp::create(builder, cirFunc.getLoc(), newName, funcType);
+  newFunc.setSymVisibility(cirFunc.getSymVisibility());
+
+  // A pure function that carries a body needs it translated into an arith body
+  // (populateArithFuncBody) so SkeletonToLinalg can clone it. On failure
+  // populateArithFuncBody has already emitted a diagnostic; roll the partial
+  // func.func back and report the failure to the caller.
+  if (!cirFunc.isExternal()) {
+    if (failed(populateArithFuncBody(cirFunc, newFunc, builder))) {
+      newFunc.erase();
+      return nullptr;
+    }
+  }
+
+  return newFunc;
+}
+
 LogicalResult populateArithFuncBody(cir::FuncOp cirFunc,
                                     func::FuncOp targetFunc,
                                     OpBuilder &builder) {
