@@ -32,6 +32,7 @@ add_clang_library(MLIRCIRTransforms
   MLIRABI
   MLIRAnalysis
   MLIRBufferizationDialect
+  MLIRControlFlowDialect
   MLIRDLTIDialect
   MLIRIR
   MLIRMemRefDialect

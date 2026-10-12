@@ -64,7 +64,7 @@ module {
 // CHECK-SAME: ([[A:.*]]: memref<?xf32>, [[B:.*]]: memref<?xf32>) -> tensor<?xf32>
 // CHECK: bufferization.to_tensor
 // CHECK: tensor.empty
-// CHECK: skeleton.map
+// CHECK: {{%.*}} = skeleton.map
 // CHECK-SAME: pure_fn = @__skeleton_pure_0
 // CHECK: return
 // CHECK-NOT: bufferization.materialize_in_destination

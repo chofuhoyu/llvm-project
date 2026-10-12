@@ -17,7 +17,7 @@
 // CHECK: bufferization.to_tensor
 // CHECK: tensor.dim
 // CHECK: tensor.empty
-// CHECK: skeleton.map
+// CHECK: {{%.*}} = skeleton.map
 // CHECK-SAME: preference = <"CPU"> pure_fn = @__skeleton_pure_0
 
 // Return-value style: no destination-passing.

@@ -26,6 +26,7 @@
 #include "clang/CIR/Dialect/Transforms/CirSkeletonAnnotations.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"
@@ -81,7 +82,7 @@ public:
 
     // Phase 1: Collect all skeleton call info from the original CIR IR.
     SmallVector<SkeletonCallInfo> worklist;
-    bool invalidRegion = false;
+    bool reportedError = false;
 
     module.walk([&](cir::CallOp callOp) {
       auto calleeOpt = callOp.getCallee();
@@ -109,7 +110,7 @@ public:
 
       auto preference = getSkeletonPreference(cirFunc);
       if (failed(preference)) {
-        invalidRegion = true; // the error was already reported on cirFunc
+        reportedError = true; // the error was already reported on cirFunc
         return;
       }
 
@@ -118,10 +119,18 @@ public:
                             opType,
                             pureFnRef.getRootReference().getValue(),
                             *preference};
+      // Resolve the data operands against the host's parameters now, while the
+      // module is still intact: a mismatch is a property of the source, and
+      // catching it here keeps it from reaching the IR the rewrite below
+      // builds.
+      if (failed(resolveDataOperands(info))) {
+        reportedError = true;
+        return;
+      }
       worklist.push_back(info);
     });
 
-    if (invalidRegion) {
+    if (reportedError) {
       signalPassFailure();
       return;
     }
@@ -144,7 +153,7 @@ public:
         continue;
 
       builder.setInsertionPoint(info.cirFunc);
-      auto newFunc = rewriteToStandardFunc(info.cirFunc, builder, info.opType);
+      auto newFunc = rewriteToStandardFunc(info, builder);
       if (!newFunc)
         continue;
       builder.setInsertionPointToStart(&newFunc.getBody().front());

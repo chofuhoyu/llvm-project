@@ -112,8 +112,11 @@ FlatSymbolRefAttr extractPureFnRef(cir::CallOp callOp, unsigned argIdx,
   return tracePureFnRef(callOp.getOperand(argIdx), pureFns, domInfo, visited);
 }
 
-FailureOr<BlockArgument> resolveToHostArg(Value operand, cir::FuncOp host) {
+FailureOr<HostArg> resolveToHostArg(Value operand, cir::FuncOp host) {
   DenseSet<Value> visited;
+  // The member the operand names, if it reaches the call through one. Only one
+  // member access can appear on the way back to the parameter.
+  std::optional<unsigned> memberIndex;
   std::function<FailureOr<BlockArgument>(Value)> walk =
       [&](Value v) -> FailureOr<BlockArgument> {
     if (!v || !visited.insert(v).second)
@@ -121,13 +124,26 @@ FailureOr<BlockArgument> resolveToHostArg(Value operand, cir::FuncOp host) {
     if (auto blockArg = dyn_cast<BlockArgument>(v))
       if (blockArg.getOwner()->getParentOp() == host.getOperation())
         return blockArg;
-    auto load = v.getDefiningOp<cir::LoadOp>();
-    if (!load || !load.getAddr().getDefiningOp<cir::AllocaOp>())
+
+    // Peel back to the host parameter the value is held in: a slot's contents
+    // (a load), a member of what the slot holds (a span's data pointer or its
+    // length), or the slot itself (the helper takes its data arguments by
+    // reference, so a pointer parameter reaches the call as the address of its
+    // slot).
+    if (auto load = v.getDefiningOp<cir::LoadOp>())
+      return walk(load.getAddr());
+    if (auto member = v.getDefiningOp<cir::GetMemberOp>()) {
+      memberIndex = static_cast<unsigned>(member.getIndex());
+      return walk(member.getAddr());
+    }
+
+    // What is left is an address; a local alloca staging a host parameter is
+    // the one to follow, and a straight-line parameter copy stores it exactly
+    // once.
+    if (!v.getDefiningOp<cir::AllocaOp>())
       return failure();
-    // The address is a local alloca staging a host parameter; a straight-line
-    // parameter copy stores it exactly once.
     Value stored;
-    for (OpOperand &use : load.getAddr().getUses()) {
+    for (OpOperand &use : v.getUses()) {
       auto store = dyn_cast<cir::StoreOp>(use.getOwner());
       if (!store || use.getOperandNumber() != cir::StoreOp::odsIndex_addr)
         continue;
@@ -139,7 +155,11 @@ FailureOr<BlockArgument> resolveToHostArg(Value operand, cir::FuncOp host) {
       return failure();
     return walk(stored);
   };
-  return walk(operand);
+
+  auto arg = walk(operand);
+  if (failed(arg))
+    return failure();
+  return HostArg{*arg, memberIndex};
 }
 
 } // namespace cir

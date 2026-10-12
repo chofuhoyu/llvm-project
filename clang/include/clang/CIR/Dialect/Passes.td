@@ -295,7 +295,8 @@ def CIRLoopToSkeleton : Pass<"cir-loop-to-skeleton", "mlir::ModuleOp"> {
     "mlir::arith::ArithDialect",
     "mlir::tensor::TensorDialect",
     "mlir::memref::MemRefDialect",
-    "mlir::bufferization::BufferizationDialect"
+    "mlir::bufferization::BufferizationDialect",
+    "mlir::cf::ControlFlowDialect"
   ];
 }
 
@@ -329,7 +330,8 @@ def CIRCallToSkeleton : Pass<"cir-call-to-skeleton", "mlir::ModuleOp"> {
     "mlir::skeleton::SkeletonDialect",
     "mlir::func::FuncDialect",
     "mlir::memref::MemRefDialect",
-    "mlir::bufferization::BufferizationDialect"
+    "mlir::bufferization::BufferizationDialect",
+    "mlir::cf::ControlFlowDialect"
   ];
 }
 

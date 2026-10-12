@@ -41,6 +41,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonAttrs.h"
@@ -502,9 +503,12 @@ static func::FuncOp buildHostFunc(MapPattern &pattern, OpBuilder &builder,
     paramTypes.push_back(MemRefType::get({ShapedType::kDynamic}, mapped));
   }
 
-  auto funcType =
-      FunctionType::get(ctx, paramTypes,
-                        {outputTensorType(SkeletonOpType::Map, eltTy)});
+  // An annotated loop has a runtime trip count, so its data arrays are all
+  // dynamic; the map output takes that shape.
+  auto resultTy =
+      outputTensorType(SkeletonOpType::Map, {ShapedType::kDynamic}, eltTy);
+
+  auto funcType = FunctionType::get(ctx, paramTypes, {resultTy});
   auto hostFunc = func::FuncOp::create(builder, loc,
                                        pattern.host.getSymName(), funcType);
   hostFunc.setSymVisibility(pattern.host.getSymVisibility());
@@ -516,7 +520,11 @@ static func::FuncOp buildHostFunc(MapPattern &pattern, OpBuilder &builder,
   for (Value param : entryBlock->getArguments()) {
     inputTensors.push_back(createToTensor(builder, loc, param));
   }
-  Value init = createEmptyOutput(builder, loc, hostFunc, inputTensors.front());
+
+  // The arrays' lengths are runtime values here too.
+  emitExtentCheck(builder, loc, resultTy, inputTensors);
+
+  Value init = createEmptyOutput(builder, loc, resultTy, inputTensors.front());
 
   auto pureFnAttr = SymbolRefAttr::get(ctx, pureName);
   auto prefAttr = skeleton::PreferenceAttr::get(

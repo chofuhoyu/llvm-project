@@ -24,6 +24,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringRef.h"
+#include <optional>
 
 namespace mlir {
 class BlockArgument;
@@ -54,15 +55,29 @@ extractPureFnRef(cir::CallOp callOp, unsigned argIdx,
                  const llvm::DenseSet<llvm::StringRef> &pureFns,
                  mlir::DominanceInfo &domInfo);
 
+/// A host parameter a skeleton call's data operand was passed from.
+struct HostArg {
+  /// The host entry block argument the operand was copied from.
+  mlir::BlockArgument arg;
+
+  /// The member of that parameter the operand names, when the operand reaches
+  /// the call as a member access (a skeleton_detail::span arriving as `a.data`
+  /// or `a.size`). Absent when the operand is the parameter itself.
+  std::optional<unsigned> memberIndex;
+};
+
 /// Resolve a value that should name one of the host's data parameters to the
 /// host entry block argument it was copied from. Clang's codegen stages every
 /// function parameter through an alloca (`store` at entry, `load` before
-/// use), so a call operand is often a `cir.load` of a parameter slot rather
-/// than the entry block argument itself. This follows that
-/// `store -> alloca -> load` form; anything that is not (derived from) a
-/// direct parameter fails.
-mlir::FailureOr<mlir::BlockArgument> resolveToHostArg(mlir::Value operand,
-                                                      cir::FuncOp host);
+/// use), so a call operand reaches the call as a load of a parameter slot, as
+/// the address of that slot (the skeleton helpers take their data arguments by
+/// reference), or as a load of a member of what the slot holds (a
+/// skeleton_detail::span's data pointer). All of those lead back to the entry
+/// argument; anything not derived from a direct parameter fails. Which member
+/// was named, if any, is the caller's to judge: only some of a parameter's
+/// members are data.
+mlir::FailureOr<HostArg> resolveToHostArg(mlir::Value operand,
+                                          cir::FuncOp host);
 
 } // namespace cir
 

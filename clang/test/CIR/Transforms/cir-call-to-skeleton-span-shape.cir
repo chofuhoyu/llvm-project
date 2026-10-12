@@ -1,0 +1,48 @@
+// RUN: not cir-opt %s -cir-call-to-skeleton 2>&1 | FileCheck %s
+//
+// skeleton_detail::span<T> is recognized by its name together with both of its
+// members' roles: the first member is the data pointer and the second is the
+// length, an integer. A struct that only resembles that is not a data array,
+// and the host parameter holding it is reported as such rather than being
+// silently given a memref. The manual-path header fixes the name and the field
+// types, so these shapes cannot be written in real C++ (see
+// skeleton-manual-path-invalid.cpp for the cases that can) and are built by
+// hand here.
+
+!span_size_not_int = !cir.struct<"skeleton_detail::span<float>" {data !cir.ptr<!cir.float>, data !cir.float}>
+!span_wrong_name = !cir.struct<"my_vec" {data !cir.ptr<!cir.float>, data !cir.int<u, 64>}>
+!span_one_field = !cir.struct<"skeleton_detail::span<float>" {data !cir.ptr<!cir.float>}>
+
+module {
+  cir.func private @my_add(!cir.float, !cir.float) -> !cir.float [#cir.annotation<"skeleton.pure">]
+
+  // A second member that is not an integer holds no length.
+  //
+  // CHECK: error: skeleton call data operand 0 is host parameter 0 of type '!cir.ptr<!cir.struct<"skeleton_detail::span<float>" {{.*}}>>', which is not a data array
+  cir.func private @map_size_not_int(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!span_size_not_int>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @host_size_not_int(%a: !cir.ptr<!span_size_not_int>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.region", ["CPU"]>] {
+    %fn = cir.get_global @my_add : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @map_size_not_int(%fn, %a) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!span_size_not_int>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+
+  // A struct of another name is somebody else's type, whatever its members.
+  //
+  // CHECK: error: skeleton call data operand 0 is host parameter 0 of type '!cir.ptr<!cir.struct<"my_vec" {{.*}}>>', which is not a data array
+  cir.func private @map_wrong_name(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!span_wrong_name>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @host_wrong_name(%a: !cir.ptr<!span_wrong_name>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.region", ["CPU"]>] {
+    %fn = cir.get_global @my_add : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @map_wrong_name(%fn, %a) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!span_wrong_name>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+
+  // A span name over a single member has no length member to read.
+  //
+  // CHECK: error: skeleton call data operand 0 is host parameter 0 of type '!cir.ptr<!cir.struct<"skeleton_detail::span<float>" {{.*}}>>', which is not a data array
+  cir.func private @map_one_field(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!span_one_field>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.op", ["map"]>]
+  cir.func @host_one_field(%a: !cir.ptr<!span_one_field>) -> !cir.ptr<!cir.float> [#cir.annotation<"skeleton.region", ["CPU"]>] {
+    %fn = cir.get_global @my_add : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
+    %ret = cir.call @map_one_field(%fn, %a) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!span_one_field>) -> !cir.ptr<!cir.float>
+    cir.return %ret : !cir.ptr<!cir.float>
+  }
+}
