@@ -260,8 +260,9 @@ host 在 driver 模式是 JIT 的；在产物模式是 AOT 的。两条路共用
   产物可直接运行。
 - M4 完成：driver 读产物 IR、按需重编 GPU 实现；GPU 单元走
   wrapper + `skeleton-target-lower` 的 UVM 桥接 + NVVM 管线。
-- M5 未开始。旧的 `preference-partition` 已无人使用；`target-lower` 仍被 GPU
-  单元的 lowering 复用（它不再做放置决策，只做“把一个单元降成 GPU 代码”）。
+- M5 完成：`preference-partition` 与 `finalize-memref-to-gpu` 及其测试已删除；
+  CPU/GPU 全部 e2e 已迁到 driver（输入与期望输出不变）；`target-lower` 保留，
+  作为 driver 编译单个 GPU 单元时的 lowering 工具，不再做放置决策。
 
 2026-10-28 远端验证：单元测试 13/13、集成测试 16/16、CIR 9/9 全部通过。
 集成测试里新增：`driver-matmul`（driver 跑 CPU 闭环）、`driver-artifact`
@@ -301,14 +302,19 @@ host 在 driver 模式是 JIT 的；在产物模式是 AOT 的。两条路共用
 | 2026-10-28 | 编译缓存的实现位置 | 运行时表 + provider 回调 | 运行时管策略，driver 管编译，产物没有 provider |
 | 2026-10-28 | GPU 单元的编译复用 | 保留 `skeleton-target-lower` 作为 lowering 工具 | 它不再做放置决策，只负责桥接与按目标降级；删掉它要先把逻辑搬进 driver |
 | 2026-10-28 | 并行 loop 到 GPU 的映射 | `func.func(...)` 嵌套调度 | 这两个是函数级 pass，模块级调度会被拒绝 |
+| 2026-10-28 | 旧 pass 的去留 | 删 `preference-partition` / `finalize`，留 `target-lower` | 前两个已无人调用；`target-lower` 仍是 driver 编译 GPU 单元的工具 |
+| 2026-10-28 | reduce 的初值 | 元素类型零值 | 入口点没有初值参数，`tensor.empty` 会把结果变成分配器行为 |
 
-## 15. 观察到的问题
+## 15. 修掉的问题
 
-- **CPU reduce 路径也有间歇性错误**：2026-10-28 在远端重复运行
-  `cpp-reduce-sum.mlir` 20 次，2 次输出 `[-3.07e+38]` 而非 `[10]`（约 10%）。
-  该用例只走 CPU 路径，与本次运行时改动无关；症状与此前 GPU 的 20% 垃圾输出同类
-  （读到未初始化/未就绪的内存）。在信任任何放置实验的数据之前必须先查清。
-  单次 `llvm-lit` 运行时通常通过，所以这条只能靠重复运行暴露。
+- **CPU reduce 从零开始**（2026-10-28 修复）：手动路径给 `skeleton.reduce` 的
+  `init` 生成的是 `tensor.empty()`，而 `linalg.reduce` 会把 `outs` 的当前内容当作
+  累加初值，于是结果取决于 malloc 是否恰好返回清零的页。表现为
+  `cpp-reduce-sum.mlir` 约 10% 的运行输出 `[-3.07e+38]` 而不是 `[10]`。
+  修法是给 reduce 生成元素类型零值的 `arith.constant`（`[cir]` 提交），
+  并记录该入口点暂不提供自定义初值这一限制。修复后远端重复 100 次 0 失败。
+  这与本节早先记录的 GPU 20% 垃圾输出是同一类“读未初始化内存”的症状，
+  但根因不同、互相独立。
 
 ## 16. 已知风险
 
