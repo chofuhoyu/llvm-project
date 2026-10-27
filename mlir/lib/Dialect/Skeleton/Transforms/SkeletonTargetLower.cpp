@@ -210,9 +210,13 @@ struct SkeletonTargetLowerPass
         // read-only check above treats every memref.get_global as
         // immutable. Calls with several writable memrefs, multiple
         // results, or written globals silently lose the other copy-backs.
+        // A GPU-target call may also return void (or a non-memref value):
+        // there is then no result to redirect at the host memref, but the
+        // copy-backs above still refresh the writable operands.
         // Replace call result (UVM memref, now dealloc'd) with the
         // host memref that received the copy-back.
-        if (outputHostMemref) {
+        if (outputHostMemref && call->getNumResults() > 0 &&
+            isa<MemRefType>(call.getResult(0).getType())) {
           auto retType = cast<MemRefType>(call.getResult(0).getType());
           auto retCast = memref::CastOp::create(builder, call.getLoc(), retType,
                                                 outputHostMemref);
