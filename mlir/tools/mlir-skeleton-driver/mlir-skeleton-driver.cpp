@@ -32,8 +32,17 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Target/LLVMIR/Dialect/All.h"
+#include "mlir/Target/LLVMIR/Export.h"
 
 #include "llvm/ExecutionEngine/JITSymbol.h"
+#include "llvm/IR/LegacyPassManager.h"
+#include "llvm/MC/TargetRegistry.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Program.h"
+#include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/TargetMachine.h"
+#include "llvm/Target/TargetOptions.h"
 #include "llvm/ExecutionEngine/Orc/Core.h"
 #include "llvm/ExecutionEngine/Orc/Mangling.h"
 #include "llvm/Support/CommandLine.h"
@@ -68,6 +77,19 @@ static llvm::cl::opt<bool> traceDecisions(
     "trace", llvm::cl::desc("Trace placement decisions and compiles"),
     llvm::cl::init(false));
 
+static llvm::cl::opt<std::string> emitPath(
+    "emit", llvm::cl::desc("Emit a standalone program artifact at this path"),
+    llvm::cl::init(""));
+
+static llvm::cl::opt<std::string> runtimeLib(
+    "runtime-lib",
+    llvm::cl::desc("Static runtime archive linked into an emitted artifact"),
+    llvm::cl::init(""));
+
+static llvm::cl::opt<std::string> linkerPath(
+    "linker", llvm::cl::desc("Linker driver used to produce an artifact"),
+    llvm::cl::init("clang"));
+
 static llvm::cl::opt<bool> dumpHostIR(
     "dump-host-ir",
     llvm::cl::desc("Print the lowered host module before execution"),
@@ -101,6 +123,9 @@ struct DriverState {
   /// Backing storage for ExecutionEngineOptions::sharedLibPaths, which keeps
   /// an ArrayRef into this vector.
   SmallVector<StringRef> libs;
+
+  std::string runtimeArchive;
+  std::string linker;
 };
 
 DriverState *driverState = nullptr;
@@ -363,7 +388,9 @@ FailureOr<int> runDriver(ModuleOp module, DriverState &state) {
     skeleton_rt_declare(unit->id, unit->preference, unit->bytes);
 
   void *empty = nullptr;
-  if (llvm::Error error = state.hostEngine->invokePacked(entryPoint, {&empty})) {
+  void *entryArgs[] = {&empty};
+  if (llvm::Error error =
+          state.hostEngine->invokePacked(entryPoint, entryArgs)) {
     llvm::errs() << "execution failed: " << llvm::toString(std::move(error))
                  << "\n";
     return failure();
@@ -375,6 +402,259 @@ FailureOr<int> runDriver(ModuleOp module, DriverState &state) {
 }
 
 } // namespace
+
+
+//===----------------------------------------------------------------------===//
+// Artifact emission
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+/// Metadata captured from an op unit before lowering drops the attributes.
+struct UnitMeta {
+  int64_t id = 0;
+  int32_t preference = SKELETON_DEVICE_CPU;
+  int64_t bytes = 0;
+  std::string symbol;
+};
+
+std::optional<std::string> captureSkeletonIR(ModuleOp module) {
+  std::string text;
+  llvm::raw_string_ostream stream(text);
+  module.print(stream);
+  stream.flush();
+  if (text.empty())
+    return std::nullopt;
+  return text;
+}
+
+void addRuntimeDeclarations(OpBuilder &builder, ModuleOp module, Location loc) {
+  MLIRContext *ctx = builder.getContext();
+  auto i64Ty = builder.getI64Type();
+  auto i32Ty = builder.getI32Type();
+  auto ptrTy = LLVM::LLVMPointerType::get(ctx);
+  auto voidTy = LLVM::LLVMVoidType::get(ctx);
+
+  builder.setInsertionPointToEnd(module.getBody());
+  LLVM::LLVMFuncOp::create(
+      builder, loc, "skeleton_rt_declare",
+      LLVM::LLVMFunctionType::get(voidTy, {i64Ty, i32Ty, i64Ty}));
+  LLVM::LLVMFuncOp::create(
+      builder, loc, "skeleton_rt_register",
+      LLVM::LLVMFunctionType::get(voidTy, {i64Ty, i32Ty, ptrTy}));
+}
+
+/// Generate skeleton_program_init: declare every op unit and register the CPU
+/// implementation that was linked into the artifact.
+LogicalResult addProgramInit(OpBuilder &builder, ModuleOp module,
+                             ArrayRef<UnitMeta> units, Location loc) {
+  MLIRContext *ctx = builder.getContext();
+  auto i64Ty = builder.getI64Type();
+  auto i32Ty = builder.getI32Type();
+  auto ptrTy = LLVM::LLVMPointerType::get(ctx);
+  auto voidTy = LLVM::LLVMVoidType::get(ctx);
+
+  builder.setInsertionPointToEnd(module.getBody());
+  auto init = LLVM::LLVMFuncOp::create(
+      builder, loc, "skeleton_program_init",
+      LLVM::LLVMFunctionType::get(voidTy, {}));
+  Block *block = init.addEntryBlock(builder);
+  builder.setInsertionPointToStart(block);
+
+  for (const UnitMeta &unit : units) {
+    Value id = LLVM::ConstantOp::create(builder, loc, i64Ty,
+                                        builder.getI64IntegerAttr(unit.id));
+    Value preference = LLVM::ConstantOp::create(
+        builder, loc, i32Ty, builder.getI32IntegerAttr(unit.preference));
+    Value bytes = LLVM::ConstantOp::create(
+        builder, loc, i64Ty, builder.getI64IntegerAttr(unit.bytes));
+    LLVM::CallOp::create(builder, loc, TypeRange{},
+                         FlatSymbolRefAttr::get(ctx, "skeleton_rt_declare"),
+                         ValueRange{id, preference, bytes});
+
+    auto impl = module.lookupSymbol<LLVM::LLVMFuncOp>(unit.symbol);
+    if (!impl) {
+      llvm::errs() << "op unit '" << unit.symbol
+                   << "' disappeared before emission\n";
+      return failure();
+    }
+    Value cpu = LLVM::ConstantOp::create(builder, loc, i32Ty,
+                                         builder.getI32IntegerAttr(
+                                             SKELETON_DEVICE_CPU));
+    Value address = LLVM::AddressOfOp::create(builder, loc, impl);
+    LLVM::CallOp::create(builder, loc, TypeRange{},
+                         FlatSymbolRefAttr::get(ctx, "skeleton_rt_register"),
+                         ValueRange{id, cpu, address});
+  }
+  LLVM::ReturnOp::create(builder, loc);
+  return success();
+}
+
+/// Generate the C entry point: run the registration, then the program.
+void addMain(OpBuilder &builder, ModuleOp module, StringRef entryName,
+             Location loc) {
+  MLIRContext *ctx = builder.getContext();
+  auto i32Ty = builder.getI32Type();
+
+  builder.setInsertionPointToEnd(module.getBody());
+  auto mainFn = LLVM::LLVMFuncOp::create(
+      builder, loc, "main", LLVM::LLVMFunctionType::get(i32Ty, {}));
+  Block *block = mainFn.addEntryBlock(builder);
+  builder.setInsertionPointToStart(block);
+
+  LLVM::CallOp::create(builder, loc, TypeRange{},
+                       FlatSymbolRefAttr::get(ctx, "skeleton_program_init"),
+                       ValueRange{});
+  LLVM::CallOp::create(builder, loc, TypeRange{},
+                       FlatSymbolRefAttr::get(ctx, entryName), ValueRange{});
+  Value zero = LLVM::ConstantOp::create(builder, loc, i32Ty,
+                                        builder.getI32IntegerAttr(0));
+  LLVM::ReturnOp::create(builder, loc, ValueRange{zero});
+}
+
+/// Embed the skeleton IR in its own section so the driver can re-read it from
+/// the artifact.
+void addSkeletonIR(OpBuilder &builder, ModuleOp module, StringRef ir,
+                   Location loc) {
+  MLIRContext *ctx = builder.getContext();
+  auto i8Ty = builder.getI8Type();
+  auto arrayTy = LLVM::LLVMArrayType::get(i8Ty, ir.size());
+
+  SmallVector<NamedAttribute> attrs{
+      NamedAttribute(StringAttr::get(ctx, "section"),
+                     StringAttr::get(ctx, ".skeleton.ir"))};
+
+  builder.setInsertionPointToEnd(module.getBody());
+  LLVM::GlobalOp::create(builder, loc, arrayTy, /*isConstant=*/true,
+                         LLVM::Linkage::Internal, "skeleton.ir",
+                         builder.getStringAttr(ir), /*alignment=*/1,
+                         /*addrSpace=*/0, /*dsoLocal=*/false,
+                         LLVM::ThreadLocalMode::NotThreadLocal,
+                         /*comdat=*/SymbolRefAttr{}, attrs);
+}
+
+/// Emit `module` as an object file and link it with the runtime archive.
+LogicalResult writeAndLink(ModuleOp module, StringRef output,
+                           StringRef runtimeArchive, StringRef linker) {
+  llvm::LLVMContext llvmContext;
+  std::unique_ptr<llvm::Module> llvmModule =
+      translateModuleToLLVMIR(module, llvmContext);
+  if (!llvmModule) {
+    llvm::errs() << "failed to translate the artifact to LLVM IR\n";
+    return failure();
+  }
+
+  std::string triple = llvm::sys::getDefaultTargetTriple();
+  std::string error;
+  const llvm::Target *target = llvm::TargetRegistry::lookupTarget(triple, error);
+  if (!target) {
+    llvm::errs() << "no target for " << triple << ": " << error << "\n";
+    return failure();
+  }
+
+  llvm::TargetOptions targetOptions;
+  std::unique_ptr<llvm::TargetMachine> machine(target->createTargetMachine(
+      triple, /*CPU=*/"generic", /*Features=*/"", targetOptions, std::nullopt));
+  if (!machine) {
+    llvm::errs() << "cannot create a target machine\n";
+    return failure();
+  }
+  llvmModule->setDataLayout(machine->createDataLayout());
+  llvmModule->setTargetTriple(triple);
+
+  llvm::SmallVector<char, 0> object;
+  llvm::raw_svector_ostream objectStream(object);
+  llvm::legacy::PassManager passManager;
+  if (machine->addPassesToEmitFile(passManager, objectStream, nullptr,
+                                   llvm::CodeGenFileType::ObjectFile)) {
+    llvm::errs() << "the target cannot emit object files\n";
+    return failure();
+  }
+  passManager.run(*llvmModule);
+
+  llvm::SmallString<128> objectPath;
+  int fd = -1;
+  if (std::error_code ec =
+          llvm::sys::fs::createTemporaryFile("skeleton-artifact", "o", fd,
+                                             objectPath)) {
+    llvm::errs() << "cannot create a temporary object file: " << ec.message()
+                 << "\n";
+    return failure();
+  }
+  {
+    llvm::raw_fd_ostream file(fd, /*shouldClose=*/true);
+    file.write(object.data(), object.size());
+  }
+
+  SmallVector<StringRef, 8> args{linker, objectPath, runtimeArchive, "-o",
+                                 output, "-ldl", "-lstdc++", "-lm"};
+  std::string program = linker.str();
+  int status = llvm::sys::ExecuteAndWait(program, args);
+  llvm::sys::fs::remove(objectPath);
+  if (status != 0) {
+    llvm::errs() << "linking the artifact failed (status " << status << ")\n";
+    return failure();
+  }
+  return success();
+}
+
+} // namespace
+
+/// Emit a standalone artifact: CPU implementations, the embedded skeleton IR
+/// and the runtime. The artifact has no GPU code and no compiler, so running
+/// it directly is CPU-only.
+LogicalResult emitArtifact(ModuleOp module, DriverState &state,
+                           StringRef output) {
+  MLIRContext *context = state.context;
+
+  {
+    PassManager pm(context);
+    pm.addPass(skeleton::createSkeletonOutlinePass());
+    if (failed(pm.run(module)))
+      return failure();
+  }
+
+  SmallVector<UnitMeta> units;
+  for (func::FuncOp func : module.getOps<func::FuncOp>()) {
+    if (!func->hasAttr("skeleton.op_id"))
+      continue;
+    UnitMeta unit;
+    unit.id = func->getAttrOfType<IntegerAttr>("skeleton.op_id").getInt();
+    unit.preference = deviceFromPreference(func);
+    if (auto bytes = func->getAttrOfType<IntegerAttr>("skeleton.bytes"))
+      unit.bytes = bytes.getInt();
+    unit.symbol = func.getSymName().str();
+    units.push_back(std::move(unit));
+  }
+  if (units.empty()) {
+    llvm::errs() << "no operator units to emit\n";
+    return failure();
+  }
+
+  std::optional<std::string> skeletonIR = captureSkeletonIR(module);
+  if (!skeletonIR)
+    return failure();
+
+  auto entry = module.lookupSymbol<func::FuncOp>(entryPoint);
+  if (!entry) {
+    llvm::errs() << "entry function '" << entryPoint << "' not found\n";
+    return failure();
+  }
+  entry.setName("__skeleton_entry");
+
+  if (failed(lowerToLLVM(module, context, /*isHost=*/true)))
+    return failure();
+
+  Location loc = module.getLoc();
+  OpBuilder builder(context);
+  addRuntimeDeclarations(builder, module, loc);
+  if (failed(addProgramInit(builder, module, units, loc)))
+    return failure();
+  addMain(builder, module, "__skeleton_entry", loc);
+  addSkeletonIR(builder, module, *skeletonIR, loc);
+
+  return writeAndLink(module, output, state.runtimeArchive, state.linker);
+}
 
 //===----------------------------------------------------------------------===//
 // Main
@@ -403,7 +683,17 @@ int main(int argc, char **argv) {
   state.context = &context;
   for (const std::string &lib : sharedLibs)
     state.libs.push_back(lib);
+  state.runtimeArchive = runtimeLib;
+  state.linker = linkerPath;
   driverState = &state;
+
+  if (!emitPath.empty()) {
+    if (state.runtimeArchive.empty()) {
+      llvm::errs() << "--emit requires --runtime-lib\n";
+      return 1;
+    }
+    return failed(emitArtifact(*module, state, emitPath)) ? 1 : 0;
+  }
 
   FailureOr<int> result = runDriver(*module, state);
   if (failed(result))
