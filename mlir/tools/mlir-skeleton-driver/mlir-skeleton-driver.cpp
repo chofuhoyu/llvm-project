@@ -495,7 +495,7 @@ LogicalResult addProgramInit(OpBuilder &builder, ModuleOp module,
                          FlatSymbolRefAttr::get(ctx, "skeleton_rt_register"),
                          ValueRange{id, cpu, address});
   }
-  LLVM::ReturnOp::create(builder, loc);
+  LLVM::ReturnOp::create(builder, loc, ValueRange{});
   return success();
 }
 
@@ -572,7 +572,7 @@ LogicalResult writeAndLink(ModuleOp module, StringRef output,
     return failure();
   }
   llvmModule->setDataLayout(machine->createDataLayout());
-  llvmModule->setTargetTriple(triple);
+  llvmModule->setTargetTriple(targetTriple);
 
   llvm::SmallVector<char, 0> object;
   llvm::raw_svector_ostream objectStream(object);
@@ -652,6 +652,11 @@ LogicalResult emitArtifact(ModuleOp module, DriverState &state,
   auto entry = module.lookupSymbol<func::FuncOp>(entryPoint);
   if (!entry) {
     llvm::errs() << "entry function '" << entryPoint << "' not found\n";
+    return failure();
+  }
+  FunctionType entryType = entry.getFunctionType();
+  if (entryType.getNumInputs() != 0 || entryType.getNumResults() != 0) {
+    llvm::errs() << "artifact entry must take no arguments and return void\n";
     return failure();
   }
   entry.setName("__skeleton_entry");
