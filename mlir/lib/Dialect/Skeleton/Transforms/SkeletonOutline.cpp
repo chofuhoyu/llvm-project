@@ -58,6 +58,12 @@ int64_t computeOpBytes(Operation *op) {
 }
 
 bool isOpUnit(Operation *op) {
+  // Already-outlined modules (the IR embedded in an artifact) keep their
+  // operators inside functions carrying skeleton.op_id; outlining them again
+  // would nest units inside units.
+  if (auto parent = op->getParentOfType<func::FuncOp>())
+    if (parent->hasAttr("skeleton.op_id"))
+      return false;
   if (isa<MapOp, ReduceOp, VectorAddOp>(op))
     return true;
   if (isa<linalg::LinalgOp>(op) && op->hasAttr("skeleton.preference"))

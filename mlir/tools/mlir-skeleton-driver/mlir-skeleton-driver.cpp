@@ -37,7 +37,9 @@
 #include "llvm/ExecutionEngine/JITSymbol.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/MC/TargetRegistry.h"
+#include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
@@ -85,6 +87,11 @@ static llvm::cl::opt<std::string> runtimeLib(
     "runtime-lib",
     llvm::cl::desc("Static runtime archive linked into an emitted artifact"),
     llvm::cl::init(""));
+
+static llvm::cl::list<std::string> linkArgs(
+    "link-arg",
+    llvm::cl::desc("Extra argument passed to the linker when emitting"),
+    llvm::cl::ZeroOrMore);
 
 static llvm::cl::opt<std::string> linkerPath(
     "linker", llvm::cl::desc("Linker driver used to produce an artifact"),
@@ -588,6 +595,8 @@ LogicalResult writeAndLink(ModuleOp module, StringRef output,
 
   SmallVector<StringRef, 8> args{linker, objectPath, runtimeArchive, "-o",
                                  output, "-ldl", "-lstdc++", "-lm"};
+  for (const std::string &extra : linkArgs)
+    args.push_back(extra);
   std::string program = linker.str();
   int status = llvm::sys::ExecuteAndWait(program, args);
   llvm::sys::fs::remove(objectPath);
@@ -660,6 +669,40 @@ LogicalResult emitArtifact(ModuleOp module, DriverState &state,
 // Main
 //===----------------------------------------------------------------------===//
 
+/// Load either a skeleton-level MLIR file or an emitted artifact. An artifact
+/// carries its skeleton IR in the .skeleton.ir section.
+static OwningOpRef<ModuleOp> loadProgram(StringRef path, MLIRContext *context) {
+  auto bufferOrErr = llvm::MemoryBuffer::getFile(path);
+  if (!bufferOrErr) {
+    llvm::errs() << "cannot read " << path << "\n";
+    return {};
+  }
+  StringRef data = (*bufferOrErr)->getBuffer();
+  if (!data.starts_with("\x7f" "ELF"))
+    return parseSourceFile<ModuleOp>(path, context);
+
+  auto objectOrErr = llvm::object::ObjectFile::createObjectFile(path);
+  if (!objectOrErr) {
+    llvm::errs() << "cannot read the artifact: "
+                 << llvm::toString(objectOrErr.takeError()) << "\n";
+    return {};
+  }
+  for (const llvm::object::SectionRef &section : (*objectOrErr)->sections()) {
+    auto nameOrErr = section.getName();
+    if (!nameOrErr || *nameOrErr != ".skeleton.ir")
+      continue;
+    auto contentsOrErr = section.getContents();
+    if (!contentsOrErr) {
+      llvm::errs() << "cannot read .skeleton.ir: "
+                   << llvm::toString(contentsOrErr.takeError()) << "\n";
+      return {};
+    }
+    return parseSourceString<ModuleOp>(*contentsOrErr, context);
+  }
+  llvm::errs() << "artifact has no .skeleton.ir section\n";
+  return {};
+}
+
 int main(int argc, char **argv) {
   llvm::InitLLVM initLLVM(argc, argv);
   llvm::cl::ParseCommandLineOptions(argc, argv,
@@ -673,7 +716,7 @@ int main(int argc, char **argv) {
   MLIRContext context(registry);
   context.loadAllAvailableDialects();
 
-  OwningOpRef<ModuleOp> module = parseSourceFile<ModuleOp>(inputFilename, &context);
+  OwningOpRef<ModuleOp> module = loadProgram(inputFilename, &context);
   if (!module) {
     llvm::errs() << "cannot parse " << inputFilename << "\n";
     return 1;
