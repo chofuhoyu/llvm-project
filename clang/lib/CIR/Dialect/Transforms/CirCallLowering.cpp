@@ -194,6 +194,18 @@ RankedTensorType outputTensorType(SkeletonOpType opType,
   return RankedTensorType::get(inputShape, eltTy);
 }
 
+/// Create a zero-filled tensor of \p resultTy. A reduction starts from the
+/// element type's zero value: the C++ entry point takes no initial
+/// accumulator, so the identity has to be the one every sum-like operator
+/// agrees on. Operating on an empty tensor here would make the result depend
+/// on whatever memory the allocator happened to hand out.
+Value createZeroOutput(OpBuilder &builder, Location loc,
+                       RankedTensorType resultTy) {
+  Attribute zero = builder.getZeroAttr(resultTy.getElementType());
+  auto value = DenseElementsAttr::get(resultTy, ArrayRef<Attribute>{zero});
+  return arith::ConstantOp::create(builder, loc, resultTy, value);
+}
+
 /// Create a tensor.empty of \p resultTy. Dynamic extents are filled from the
 /// corresponding dimension of the input tensor the output shares its shape
 /// with.
@@ -350,8 +362,8 @@ Value lowerReduceCall(SkeletonCallInfo &info, func::FuncOp newFunc,
   auto inputTensor = createToTensor(
       builder, loc, newFunc.getArgument(info.dataOperandHostParams.front()));
 
-  // Output is a fresh rank-0 tensor.empty.
-  Value init = createEmptyOutput(builder, loc, resultTy, inputTensor);
+  // The accumulator starts at zero; see createZeroOutput.
+  Value init = createZeroOutput(builder, loc, resultTy);
 
   auto pureFnAttr = SymbolRefAttr::get(ctx, info.pureFnName);
   auto prefAttr =

@@ -64,7 +64,10 @@ typename skeleton_detail::DataElement<T>::type *
 skeleton_map(Fn fn, const T &first, const Ts &...rest);
 
 // skeleton.reduce: reduces the elements of a single data array with the binary
-// function fn.
+// function fn. The accumulator starts at the element type's zero value: the
+// entry point takes no initial accumulator, so operators whose identity is not
+// zero (min, max, product) reduce from zero and must not rely on this
+// overload until it grows an initial value.
 template <typename Fn, typename T>
 __attribute__((annotate("skeleton.op", "reduce")))
 typename skeleton_detail::DataElement<T>::type
