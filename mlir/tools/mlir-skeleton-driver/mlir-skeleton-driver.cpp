@@ -193,6 +193,59 @@ LogicalResult lowerToLLVM(ModuleOp module, MLIRContext *context, bool isHost) {
 }
 
 //===----------------------------------------------------------------------===//
+// GPU operator units
+//===----------------------------------------------------------------------===//
+
+/// Turn the op unit module into the shape skeleton-target-lower expects: an
+/// implementation marked as a GPU target plus a wrapper with the original
+/// name. The wrapper is what the host calls; target-lower puts the UVM bridge
+/// around its call, so the host stays device-agnostic.
+LogicalResult prepareGpuUnit(ModuleOp module, const UnitInfo &unit) {
+  MLIRContext *context = module.getContext();
+  auto impl = module.lookupSymbol<func::FuncOp>(unit.symbol);
+  if (!impl) {
+    llvm::errs() << "op unit '" << unit.symbol << "' not found\n";
+    return failure();
+  }
+
+  FunctionType signature = impl.getFunctionType();
+  impl.setName((unit.symbol + "_impl").str());
+  impl->setAttr(
+      "skeleton.target",
+      skeleton::TargetAttr::get(context, StringAttr::get(context, "GPU")));
+
+  OpBuilder builder(context);
+  builder.setInsertionPoint(impl);
+  auto wrapper = func::FuncOp::create(builder, impl.getLoc(), unit.symbol,
+                                      signature);
+  wrapper.setPrivate();
+  Block *block = wrapper.addEntryBlock();
+  builder.setInsertionPointToStart(block);
+  auto call = func::CallOp::create(builder, impl.getLoc(), impl.getSymName(),
+                                   signature.getResults(),
+                                   block->getArguments());
+  func::ReturnOp::create(builder, impl.getLoc(), call.getResults());
+  return success();
+}
+
+/// Lower a GPU op unit: skeleton form, bufferization and UVM bridge through
+/// target-lower, then the NVVM pipeline that produces the cubin and the host
+/// side launch code.
+LogicalResult lowerGpuUnit(ModuleOp module, const UnitInfo &unit) {
+  MLIRContext *context = module.getContext();
+  if (failed(prepareGpuUnit(module, unit)))
+    return failure();
+
+  PassManager pm(context);
+  pm.addPass(skeleton::createSkeletonToLinalgPass());
+  pm.addPass(skeleton::createSkeletonTargetLowerPass());
+  if (failed(parsePassPipeline(
+          "gpu-lower-to-nvvm-pipeline{cubin-format=fatbin}", pm)))
+    return failure();
+  return pm.run(module);
+}
+
+//===----------------------------------------------------------------------===//
 // JIT
 //===----------------------------------------------------------------------===//
 
@@ -244,18 +297,20 @@ void *compileUnit(UnitInfo &unit, int32_t device) {
     return nullptr;
   }
 
-  // v1 only lowers operator units for the CPU. The GPU pipeline is added once
-  // the per-operator device bridge is in place.
-  if (device != SKELETON_DEVICE_CPU) {
+  if (device == SKELETON_DEVICE_GPU) {
+    if (failed(lowerGpuUnit(*module, unit)))
+      return nullptr;
+  } else if (device == SKELETON_DEVICE_CPU) {
+    if (failed(lowerToLLVM(*module, state.context, /*isHost=*/false)))
+      return nullptr;
+  } else {
     llvm::errs() << "[skeleton-driver] op=" << unit.id
-                 << ": device " << device << " is not supported yet\n";
+                 << ": unknown device " << device << "\n";
     return nullptr;
   }
 
-  if (failed(lowerToLLVM(*module, state.context, /*isHost=*/false)))
-    return nullptr;
-
-  auto engineOrErr = ExecutionEngine::create(*module, engineOptions(state, false));
+  auto engineOrErr = ExecutionEngine::create(
+      *module, engineOptions(state, /*withSharedLibs=*/device != SKELETON_DEVICE_CPU));
   if (!engineOrErr) {
     llvm::errs() << "[skeleton-driver] op=" << unit.id
                  << ": JIT failed: " << llvm::toString(engineOrErr.takeError())
@@ -263,6 +318,7 @@ void *compileUnit(UnitInfo &unit, int32_t device) {
     return nullptr;
   }
   std::unique_ptr<ExecutionEngine> engine = std::move(*engineOrErr);
+  engine->initialize();
 
   auto symbol = engine->lookup(unit.symbol);
   if (!symbol) {
