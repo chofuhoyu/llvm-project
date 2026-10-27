@@ -209,7 +209,7 @@ LogicalResult prepareGpuUnit(ModuleOp module, const UnitInfo &unit) {
   }
 
   FunctionType signature = impl.getFunctionType();
-  impl.setName((unit.symbol + "_impl").str());
+  impl.setName(unit.symbol + "_impl");
   impl->setAttr(
       "skeleton.target",
       skeleton::TargetAttr::get(context, StringAttr::get(context, "GPU")));
