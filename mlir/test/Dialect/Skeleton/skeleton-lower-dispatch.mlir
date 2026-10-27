@@ -12,7 +12,7 @@
 // CHECK: llvm.return %[[R]]
 // CHECK-NOT: __skeleton_op_0
 
-llvm.func private @__skeleton_op_0(!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+llvm.func @__skeleton_op_0(!llvm.ptr, !llvm.ptr) -> !llvm.ptr
 
 llvm.func @host(%a: !llvm.ptr, %b: !llvm.ptr) -> !llvm.ptr {
   %0 = llvm.call @__skeleton_op_0(%a, %b) : (!llvm.ptr, !llvm.ptr) -> !llvm.ptr

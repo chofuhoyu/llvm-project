@@ -57,6 +57,18 @@ int64_t computeOpBytes(Operation *op) {
   return total;
 }
 
+/// The placement preference of an operator. Skeleton operators carry it as a
+/// registered attribute; a linalg operator carries it as a discardable one.
+Attribute getPreference(Operation *op) {
+  if (auto map = dyn_cast<MapOp>(op))
+    return map.getPreferenceAttr();
+  if (auto reduce = dyn_cast<ReduceOp>(op))
+    return reduce.getPreferenceAttr();
+  if (auto add = dyn_cast<VectorAddOp>(op))
+    return add.getPreferenceAttr();
+  return op->getDiscardableAttr("skeleton.preference");
+}
+
 bool isOpUnit(Operation *op) {
   // Already-outlined modules (the IR embedded in an artifact) keep their
   // operators inside functions carrying skeleton.op_id; outlining them again
@@ -108,7 +120,7 @@ struct SkeletonOutlinePass
       outlined->setAttr("skeleton.op_id", builder.getI64IntegerAttr(opId));
       outlined->setAttr("skeleton.bytes",
                         builder.getI64IntegerAttr(computeOpBytes(op)));
-      if (Attribute preference = op->getDiscardableAttr("skeleton.preference"))
+      if (Attribute preference = getPreference(op))
         outlined->setDiscardableAttr("skeleton.preference", preference);
 
       Block *entryBlock = outlined.addEntryBlock();

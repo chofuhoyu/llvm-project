@@ -716,6 +716,9 @@ static OwningOpRef<ModuleOp> loadProgram(StringRef path, MLIRContext *context) {
 
 int main(int argc, char **argv) {
   llvm::InitLLVM initLLVM(argc, argv);
+  llvm::InitializeNativeTarget();
+  llvm::InitializeNativeTargetAsmPrinter();
+  llvm::InitializeNativeTargetAsmParser();
   llvm::cl::ParseCommandLineOptions(argc, argv,
                                     "Skeleton runtime placement driver\n");
 

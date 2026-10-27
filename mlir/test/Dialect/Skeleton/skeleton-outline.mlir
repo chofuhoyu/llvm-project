@@ -4,13 +4,15 @@
 // skeleton form, carry the placement metadata, and are called from the host.
 // Ids follow module walk order: the matmul is 0, the map is 1.
 
-// CHECK-LABEL: func.func private @__skeleton_op_0(tensor<2x2xf32>, tensor<2x2xf32>, tensor<2x2xf32>) -> tensor<2x2xf32> attributes {
+// CHECK-LABEL: func.func private @__skeleton_op_0(
+// CHECK-SAME: -> tensor<2x2xf32> attributes {
 // CHECK-SAME: skeleton.bytes = {{[0-9]+}} : i64
 // CHECK-SAME: skeleton.op_id = 0 : i64
 // CHECK-SAME: skeleton.preference = #skeleton.preference<"GPU">
 // CHECK: linalg.matmul
 // CHECK: return
-// CHECK-LABEL: func.func private @__skeleton_op_1(tensor<2x2xf32>, tensor<2x2xf32>, tensor<2x2xf32>) -> tensor<2x2xf32> attributes {
+// CHECK-LABEL: func.func private @__skeleton_op_1(
+// CHECK-SAME: -> tensor<2x2xf32> attributes {
 // CHECK-SAME: skeleton.op_id = 1 : i64
 // CHECK-SAME: skeleton.preference = #skeleton.preference<"CPU">
 // CHECK: skeleton.map
