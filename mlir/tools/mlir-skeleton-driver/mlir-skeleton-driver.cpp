@@ -19,6 +19,7 @@
 
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonAttrs.h"
 #include "mlir/Dialect/Skeleton/Runtime/SkeletonRuntime.h"
 #include "mlir/Dialect/Skeleton/Transforms/Passes.h"
@@ -41,6 +42,7 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Program.h"
+#include "llvm/TargetParser/Host.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
@@ -552,8 +554,10 @@ LogicalResult writeAndLink(ModuleOp module, StringRef output,
   }
 
   std::string triple = llvm::sys::getDefaultTargetTriple();
+  llvm::Triple targetTriple(triple);
   std::string error;
-  const llvm::Target *target = llvm::TargetRegistry::lookupTarget(triple, error);
+  const llvm::Target *target =
+      llvm::TargetRegistry::lookupTarget(targetTriple, error);
   if (!target) {
     llvm::errs() << "no target for " << triple << ": " << error << "\n";
     return failure();
@@ -561,7 +565,8 @@ LogicalResult writeAndLink(ModuleOp module, StringRef output,
 
   llvm::TargetOptions targetOptions;
   std::unique_ptr<llvm::TargetMachine> machine(target->createTargetMachine(
-      triple, /*CPU=*/"generic", /*Features=*/"", targetOptions, std::nullopt));
+      targetTriple, /*CPU=*/"generic", /*Features=*/"", targetOptions,
+      std::nullopt));
   if (!machine) {
     llvm::errs() << "cannot create a target machine\n";
     return failure();
@@ -687,7 +692,8 @@ static OwningOpRef<ModuleOp> loadProgram(StringRef path, MLIRContext *context) {
                  << llvm::toString(objectOrErr.takeError()) << "\n";
     return {};
   }
-  for (const llvm::object::SectionRef &section : (*objectOrErr)->sections()) {
+  llvm::object::ObjectFile *object = objectOrErr->getBinary();
+  for (const llvm::object::SectionRef &section : object->sections()) {
     auto nameOrErr = section.getName();
     if (!nameOrErr || *nameOrErr != ".skeleton.ir")
       continue;
