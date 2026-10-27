@@ -17,8 +17,8 @@ func.func @call_dynamic(%arg0: tensor<?x?xf32>, %arg1: tensor<?x?xf32>, %arg2: t
 // -----
 
 // Test 2: a non-contiguous (non-identity-layout) memref operand to a
-// GPU-target call fails explicitly: gpu.memcpy is a raw byte copy and
-// cannot bridge strided host buffers.
+// GPU-target call fails explicitly: the UVM buffer is a contiguous byte copy
+// of the host buffer, so strided host buffers cannot be bridged this way.
 
 func.func private @gpu_func_noncontig(%arg0: memref<2x4xf32, strided<[1, 2], offset: 0>>) attributes {skeleton.target = #skeleton.target<"GPU">} {
   return

@@ -62,9 +62,11 @@ def SkeletonPreferencePartition : Pass<"skeleton-preference-partition"> {
 def SkeletonFinalizeMemRefToGpu : Pass<"skeleton-finalize-memref-to-gpu"> {
   let summary = "Lower GPU memory lifecycle ops to LLVM";
   let description = [{
-    Finalizes GPU memory lifecycle operations inserted by skeleton-target-lower
-    into LLVM IR. Converts gpu.alloc host_shared to mgpuMemAlloc runtime calls,
-    gpu.dealloc to mgpuMemFree, and memref.copy to llvm.intr.memcpy.
+    Finalizes host-side memory operations inserted by skeleton-target-lower
+    into LLVM IR: host buffers, casts and the memref.copy that fills/drains
+    the host-shared UVM allocation become LLVM memref ops and llvm.intr.memcpy.
+    gpu.alloc host_shared and gpu.dealloc are left for the subsequent GPU
+    lowering pipeline, which turns them into mgpuMemAlloc/mgpuMemFree.
     GPU kernel functions (marked with skeleton.target) are left untouched for
     the subsequent GPU lowering pipeline.
   }];

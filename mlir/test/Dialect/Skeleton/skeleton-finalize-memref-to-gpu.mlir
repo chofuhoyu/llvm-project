@@ -1,18 +1,17 @@
 // RUN: mlir-opt %s -skeleton-finalize-memref-to-gpu | FileCheck %s
 
-// Verify the pass converts memref ops and gpu.memcpy to LLVM, while
-// leaving gpu.alloc and gpu.dealloc for the subsequent GPU pipeline
-// (sync versions are now supported by gpu-to-llvm, #191661).
+// Verify the pass converts host-side memref lifecycle ops (here the
+// memref.copy that fills a host-shared UVM buffer) to LLVM, while leaving
+// gpu.alloc host_shared and gpu.dealloc for the subsequent GPU pipeline,
+// which lowers them to mgpuMemAlloc/mgpuMemFree.
 
 // CHECK-LABEL: func.func @basic
-// CHECK: gpu.alloc
-// CHECK: gpu.wait
-// CHECK: llvm.call @mgpuMemcpy
+// CHECK: gpu.alloc {{.*}}host_shared
+// CHECK: llvm.intr.memcpy
 // CHECK: gpu.dealloc
 func.func @basic(%host : memref<2x2xf32>) {
-  %dev = gpu.alloc () : memref<2x2xf32>
-  %t0 = gpu.wait async
-  %t1 = gpu.memcpy async [%t0] %dev, %host : memref<2x2xf32>, memref<2x2xf32>
+  %dev = gpu.alloc host_shared () : memref<2x2xf32>
+  memref.copy %host, %dev : memref<2x2xf32> to memref<2x2xf32>
   gpu.dealloc %dev : memref<2x2xf32>
   return
 }

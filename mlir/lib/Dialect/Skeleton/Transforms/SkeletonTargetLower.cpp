@@ -11,10 +11,13 @@
 // GPU targets use -convert-linalg-to-parallel-loops (scf.parallel).
 //
 // Bufferization produces host memory (memref.get_global / memref.alloc).
-// GPU kernels cannot access host memory, so we replace host buffers with
-// device memory (gpu.alloc) and use gpu.memcpy for explicit data transfers.
-// GPU ops are chained via async tokens to satisfy lowering pattern
-// requirements (isAsyncWithOneDependency).
+// GPU kernels cannot access plain host memory, so each GPU call operand is
+// given a Unified Memory (UVM) buffer instead: gpu.alloc with host_shared
+// lowers to cuMemAllocManaged, and the same allocation is visible to both the
+// host and the kernel. The host copies the initial contents in and the results
+// back out with memref.copy, which is a plain synchronous host memcpy into
+// host-visible memory. No explicit device transfers (gpu.memcpy) or async
+// streams are involved, so there is no copy/kernel ordering race.
 //
 
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
@@ -85,12 +88,12 @@ struct SkeletonTargetLowerPass
     }
 
     // Step 1b: ensure GPU target functions receive GPU-accessible memory.
-    //   a) gpu.alloc (sync, device memory) + gpu.memcpy async (H→D)
-    //   b) gpu.memcpy async (D→H) + gpu.dealloc (sync)
-    //   (skip copy-back + dealloc for read-only memref.get_global operands)
-    //
-    // gpu.alloc and gpu.dealloc now use sync versions thanks to #191661.
-    // Only gpu.memcpy still requires async (isAsyncWithOneDependency).
+    //   a) gpu.alloc host_shared (UVM) + memref.copy (host -> UVM) before
+    //      each GPU call
+    //   b) memref.copy (UVM -> host) + gpu.dealloc after each GPU call
+    //   (skip copy-back for read-only memref.get_global operands)
+    // The host and the kernel use the same managed buffer, so there are no
+    // async device transfers and no stream/token choreography.
     if (!gpuTargetNames.empty()) {
       struct GPUBridgeEntry {
         func::CallOp call;
@@ -114,12 +117,10 @@ struct SkeletonTargetLowerPass
       });
 
       OpBuilder builder(&getContext());
-      auto asyncTokenType =
-          gpu::AsyncTokenType::get(builder.getContext());
 
-      // Phase A: sync alloc + async memcpy(H→D) before each GPU call.
+      // Phase A: UVM alloc + host-to-UVM copy before each GPU call.
       DenseMap<func::CallOp, SmallVector<std::pair<Value, Value>>>
-          callGpuMemrefs; // call -> (gpuMemref, hostMemref) pairs
+          callGpuMemrefs; // call -> (uvmMemref, hostMemref) pairs
 
       for (auto &entry : bridgeWorklist) {
         builder.setInsertionPoint(entry.call);
@@ -136,10 +137,11 @@ struct SkeletonTargetLowerPass
         }
 
         if (!entry.hostMemrefType.getLayout().isIdentity()) {
-          // gpu.memcpy is a raw byte copy and only correct for contiguous
-          // (identity-layout) buffers. A non-contiguous host buffer (e.g. a
-          // hand-written strided memref) would be misaligned on the device;
-          // fail explicitly instead of producing wrong results.
+          // The allocation is a byte-for-byte copy of the host buffer and the
+          // kernel receives it with the host memref's type. A non-contiguous
+          // host buffer (e.g. a hand-written strided memref) would need its
+          // strides preserved explicitly; fail instead of producing wrong
+          // results.
           entry.call.emitError(
               "cannot bridge non-contiguous memref operand to GPU "
               "(identity layout required for GPU lowering)");
@@ -147,47 +149,38 @@ struct SkeletonTargetLowerPass
           return;
         }
 
-        // Sync alloc: no async, no token.
-        // Device memory is allocated with the host memref type. Host memrefs
-        // are identity-layout and statically contiguous (bufferize config
-        // above, plus the identity check above), so the allocation type
-        // matches the host type; the cast below is a type-level no-op.
+        // Host-shared allocation: on CUDA this is cuMemAllocManaged, i.e.
+        // Unified Memory accessible from both the host and the kernel.
+        // Host memrefs are identity-layout and statically contiguous
+        // (bufferize config above, plus the identity check above), so the
+        // allocation type matches the host type; the cast below is a
+        // type-level no-op.
         auto allocType = entry.hostMemrefType;
         auto allocOp = gpu::AllocOp::create(
             builder, entry.call.getLoc(), allocType,
-            /*asyncToken=*/Type(), {},
-            {}, {}, /*hostShared=*/false);
+            /*asyncToken=*/Type(), {}, {}, {}, /*hostShared=*/true);
 
-        // Async memcpy host → device (only this op needs a token).
-        auto waitOp = gpu::WaitOp::create(builder, entry.call.getLoc(),
-                                           asyncTokenType, {});
-        Value token = waitOp.getAsyncToken();
-        gpu::MemcpyOp::create(builder, entry.call.getLoc(),
-                               /*asyncToken=*/asyncTokenType,
-                               /*asyncDependencies=*/ValueRange{token},
-                               allocOp.getMemref(), entry.hostMemref);
+        // Synchronous host memcpy into host-visible UVM memory. The kernel
+        // reads the very same buffer later, so no device transfer is needed.
+        memref::CopyOp::create(builder, entry.call.getLoc(), entry.hostMemref,
+                               allocOp.getMemref());
 
         // Cast to strided type and replace call operand.
-        auto casted = memref::CastOp::create(
-            builder, entry.call.getLoc(), entry.hostMemrefType,
-            allocOp.getMemref());
+        auto casted =
+            memref::CastOp::create(builder, entry.call.getLoc(),
+                                   entry.hostMemrefType, allocOp.getMemref());
         entry.call->setOperand(entry.operandIdx, casted);
 
         callGpuMemrefs[entry.call].push_back(
             {allocOp.getMemref(), entry.hostMemref});
       }
 
-      // Phase B: async memcpy(D→H) + sync dealloc after each GPU call.
+      // Phase B: host copy-back + dealloc after each GPU call.
       for (auto &kv : callGpuMemrefs) {
         func::CallOp call = kv.first;
         auto &pairs = kv.second;
 
         builder.setInsertionPointAfter(call);
-
-        // Fresh async token for post-kernel memcpy chain.
-        auto waitOp = gpu::WaitOp::create(builder, call.getLoc(),
-                                           asyncTokenType, {});
-        Value token = waitOp.getAsyncToken();
         Value outputHostMemref;
 
         for (auto &pair : pairs) {
@@ -196,26 +189,20 @@ struct SkeletonTargetLowerPass
 
           // Skip copy-back for read-only constants (memref.get_global).
           Value source = hostMemref;
-          while (auto castOp =
-                     source.getDefiningOp<memref::CastOp>())
+          while (auto castOp = source.getDefiningOp<memref::CastOp>())
             source = castOp.getSource();
-          bool isReadOnly =
-              source.getDefiningOp<memref::GetGlobalOp>();
+          bool isReadOnly = source.getDefiningOp<memref::GetGlobalOp>();
           if (!isReadOnly) {
-            auto memcpyOut = gpu::MemcpyOp::create(
-                builder, call.getLoc(),
-                /*asyncToken=*/asyncTokenType,
-                /*asyncDependencies=*/ValueRange{token},
-                hostMemref, gpuMemref);
-            token = memcpyOut.getAsyncToken();
+            // Synchronous host memcpy out of the UVM buffer. The kernel is
+            // launched synchronously, so its results are already visible.
+            memref::CopyOp::create(builder, call.getLoc(), gpuMemref,
+                                   hostMemref);
             outputHostMemref = hostMemref;
           }
 
-          // Sync dealloc: no async, no token.
           gpu::DeallocOp::create(builder, call.getLoc(),
                                  /*asyncToken=*/Type(),
-                                 /*asyncDependencies=*/ValueRange{},
-                                 gpuMemref);
+                                 /*asyncDependencies=*/ValueRange{}, gpuMemref);
         }
 
         // TODO: Single-output assumption: only the last copied-back host
@@ -223,13 +210,12 @@ struct SkeletonTargetLowerPass
         // read-only check above treats every memref.get_global as
         // immutable. Calls with several writable memrefs, multiple
         // results, or written globals silently lose the other copy-backs.
-        // Replace call result (device memref, now dealloc'd) with the
+        // Replace call result (UVM memref, now dealloc'd) with the
         // host memref that received the copy-back.
         if (outputHostMemref) {
-          auto retType =
-              cast<MemRefType>(call.getResult(0).getType());
-          auto retCast = memref::CastOp::create(
-              builder, call.getLoc(), retType, outputHostMemref);
+          auto retType = cast<MemRefType>(call.getResult(0).getType());
+          auto retCast = memref::CastOp::create(builder, call.getLoc(), retType,
+                                                outputHostMemref);
           call->getResult(0).replaceAllUsesWith(retCast.getResult());
         }
       }
