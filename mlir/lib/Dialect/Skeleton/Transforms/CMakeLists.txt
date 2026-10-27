@@ -1,9 +1,7 @@
 add_mlir_dialect_library(MLIRSkeletonTransforms
   SkeletonToLinalg.cpp
-  SkeletonPreferencePartition.cpp
   SkeletonPatternMerge.cpp
   SkeletonTargetLower.cpp
-  SkeletonFinalizeMemRefToGpu.cpp
   SkeletonOutline.cpp
   SkeletonLowerDispatch.cpp
 

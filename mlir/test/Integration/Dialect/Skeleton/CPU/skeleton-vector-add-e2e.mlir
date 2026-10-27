@@ -3,9 +3,8 @@
 
 // This is an end-to-end correctness test for the skeleton vector.add path:
 //   skeleton.vector.add → skeleton-to-linalg → linalg.add
-//   → skeleton-preference-partition → outlined function
-//   → skeleton-target-lower → scf loops
-//   → full LLVM lowering → mlir-runner
+//   → outlined operator unit → scf loops
+//   (all run by the driver, which outlines, compiles and executes)
 
 // A = [1.0, 2.0, 3.0, 4.0]  (4-element vector)
 // B = [5.0, 6.0, 7.0, 8.0]  (4-element vector)

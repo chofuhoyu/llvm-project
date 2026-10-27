@@ -6,9 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Lowers linalg.matmul ops in func.func ops marked with skeleton.target.
-// CPU targets use -convert-linalg-to-loops (scf.for),
-// GPU targets use -convert-linalg-to-parallel-loops (scf.parallel).
+// Lowers the linalg ops of a func.func marked with skeleton.target. The
+// runtime driver uses this to compile one operator unit for the device it
+// placed it on. CPU targets use -convert-linalg-to-loops (scf.for), GPU
+// targets use -convert-linalg-to-parallel-loops (scf.parallel).
 //
 // Bufferization produces host memory (memref.get_global / memref.alloc).
 // GPU kernels cannot access plain host memory, so each GPU call operand is

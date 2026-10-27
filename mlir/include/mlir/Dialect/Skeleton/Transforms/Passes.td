@@ -27,12 +27,15 @@ def SkeletonToLinalg : Pass<"skeleton-to-linalg"> {
 }
 
 def SkeletonTargetLower : Pass<"skeleton-target-lower"> {
-  let summary = "Lower ops based on skeleton.target attribute";
+  let summary = "Lower an operator unit marked with skeleton.target";
   let description = [{
-    Lowers linalg.matmul ops in functions marked with skeleton.target
-    attribute. CPU targets use -convert-linalg-to-loops (scf.for),
-    while GPU targets use -convert-linalg-to-parallel-loops (scf.parallel).
-    Both paths are preceded by one-shot-bufferize.
+    Lowers the linalg ops of a function marked with skeleton.target. CPU
+    targets use -convert-linalg-to-loops (scf.for), GPU targets use
+    -convert-linalg-to-parallel-loops (scf.parallel) and get a Unified Memory
+    bridge around their call. Both paths are preceded by one-shot-bufferize.
+
+    The runtime driver uses this pass to compile one operator unit for the
+    device it placed it on; it no longer makes placement decisions itself.
   }];
   let dependentDialects = [
     "mlir::linalg::LinalgDialect",
@@ -41,40 +44,6 @@ def SkeletonTargetLower : Pass<"skeleton-target-lower"> {
     "mlir::memref::MemRefDialect",
     "mlir::func::FuncDialect",
     "mlir::gpu::GPUDialect"
-  ];
-}
-
-def SkeletonPreferencePartition : Pass<"skeleton-preference-partition"> {
-  let summary = "Partition ops by skeleton.preference into separate functions";
-  let description = [{
-    Partitions linalg.matmul ops that carry a skeleton.preference attribute
-    into separate func.func ops. Each outlined function is marked with a
-    skeleton.target attribute ("CPU" or "GPU") and the original op is
-    replaced with a func.call.
-  }];
-  let dependentDialects = [
-    "mlir::func::FuncDialect",
-    "mlir::linalg::LinalgDialect",
-    "mlir::skeleton::SkeletonDialect"
-  ];
-}
-
-def SkeletonFinalizeMemRefToGpu : Pass<"skeleton-finalize-memref-to-gpu"> {
-  let summary = "Lower GPU memory lifecycle ops to LLVM";
-  let description = [{
-    Finalizes host-side memory operations inserted by skeleton-target-lower
-    into LLVM IR: host buffers, casts and the memref.copy that fills/drains
-    the host-shared UVM allocation become LLVM memref ops and llvm.intr.memcpy.
-    gpu.alloc host_shared and gpu.dealloc are left for the subsequent GPU
-    lowering pipeline, which turns them into mgpuMemAlloc/mgpuMemFree.
-    GPU kernel functions (marked with skeleton.target) are left untouched for
-    the subsequent GPU lowering pipeline.
-  }];
-  let dependentDialects = [
-    "mlir::skeleton::SkeletonDialect",
-    "mlir::memref::MemRefDialect",
-    "mlir::gpu::GPUDialect",
-    "mlir::LLVM::LLVMDialect"
   ];
 }
 

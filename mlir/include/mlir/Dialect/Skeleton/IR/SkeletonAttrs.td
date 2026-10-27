@@ -31,9 +31,10 @@ def Skeleton_PreferenceAttr : AttrDef<Skeleton_Dialect, "Preference"> {
 def Skeleton_TargetAttr : AttrDef<Skeleton_Dialect, "Target"> {
   let summary = "A target attribute marking the dispatch target of an outlined function";
   let description = [{
-    This attribute is attached to outlined func.func ops by the
-    skeleton-preference-partition pass to record the dispatch target
-    ("CPU" or "GPU") chosen for that function.
+    This attribute marks a function as a GPU target while an operator unit is
+    lowered for the GPU. The driver sets it on the unit implementation; the
+    lowering pass uses it to decide which functions to bridge and lower, and
+    removes it afterwards.
   }];
   let mnemonic = "target";
   let parameters = (ins "StringAttr":$value);

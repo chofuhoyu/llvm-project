@@ -18,9 +18,7 @@ namespace skeleton {
 #include "mlir/Dialect/Skeleton/Transforms/Passes.h.inc"
 
 std::unique_ptr<Pass> createSkeletonToLinalgPass();
-std::unique_ptr<Pass> createSkeletonPreferencePartitionPass();
 std::unique_ptr<Pass> createSkeletonTargetLowerPass();
-std::unique_ptr<Pass> createSkeletonFinalizeMemRefToGpuPass();
 std::unique_ptr<Pass> createSkeletonPatternMergePass();
 std::unique_ptr<Pass> createSkeletonOutlinePass();
 std::unique_ptr<Pass> createSkeletonLowerDispatchPass();
