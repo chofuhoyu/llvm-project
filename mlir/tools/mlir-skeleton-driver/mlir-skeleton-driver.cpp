@@ -241,7 +241,7 @@ LogicalResult lowerGpuUnit(ModuleOp module, const UnitInfo &unit) {
   pm.addPass(skeleton::createSkeletonToLinalgPass());
   pm.addPass(skeleton::createSkeletonTargetLowerPass());
   if (failed(parsePassPipeline(
-          "gpu-map-parallel-loops,convert-parallel-loops-to-gpu,"
+          "func.func(gpu-map-parallel-loops,convert-parallel-loops-to-gpu),"
           "gpu-lower-to-nvvm-pipeline{cubin-format=fatbin}",
           pm)))
     return failure();
