@@ -195,6 +195,7 @@ tools = [
     "mlir-capi-transform-interpreter-test",
     "mlir-capi-translation-test",
     "mlir-runner",
+    "mlir-skeleton-driver",
     add_runtime("mlir_runner_utils"),
     add_runtime("mlir_c_runner_utils"),
     add_runtime("mlir_async_runtime"),

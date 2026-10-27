@@ -13,4 +13,5 @@ add_subdirectory(tblgen-to-irdl)
 # mlir-runner requires ExecutionEngine.
 if(MLIR_ENABLE_EXECUTION_ENGINE)
   add_subdirectory(mlir-runner)
+  add_subdirectory(mlir-skeleton-driver)
 endif()
