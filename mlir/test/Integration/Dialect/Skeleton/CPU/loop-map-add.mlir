@@ -13,13 +13,8 @@
 // RUN: cir-opt %t.cir -cir-loop-to-skeleton -o %t.skel.mlir
 // RUN: sh %S/skeleton-peel-module.sh %t.skel.mlir > %t.funcs.mlir
 // RUN: cat %t.funcs.mlir %S/loop-map-add.driver > %t.all.mlir
-// RUN: mlir-opt %t.all.mlir -skeleton-to-linalg -skeleton-preference-partition -skeleton-target-lower \
-// RUN:   -convert-scf-to-cf -expand-strided-metadata -convert-arith-to-llvm \
-// RUN:   -finalize-memref-to-llvm -convert-func-to-llvm -convert-cf-to-llvm \
-// RUN:   -reconcile-unrealized-casts -o - | \
-// RUN: mlir-runner -e main -entry-point-result=void \
-// RUN:   -shared-libs=%mlir_c_runner_utils,%mlir_runner_utils | \
-// RUN: FileCheck %s
+// RUN: mlir-skeleton-driver %t.all.mlir -entry main \
+// RUN:   --shared-libs=%mlir_c_runner_utils,%mlir_runner_utils | FileCheck %s
 
 // CHECK: Unranked Memref
 // CHECK-SAME: rank = 1

@@ -11,13 +11,11 @@
 // RUN: sh %S/skeleton-peel-module.sh %t.skel.mlir > %t.funcs.mlir
 // RUN: cat %t.funcs.mlir %S/cpp-map-add-mismatch.driver > %t.all.mlir
 // RUN: mlir-opt %t.all.mlir -skeleton-to-linalg -o - | FileCheck %s --check-prefix=SKELETON
-// RUN: mlir-opt %t.all.mlir -skeleton-to-linalg -skeleton-preference-partition -skeleton-target-lower \
-// RUN:   -convert-scf-to-cf -expand-strided-metadata -convert-arith-to-llvm \
-// RUN:   -finalize-memref-to-llvm -convert-func-to-llvm -convert-cf-to-llvm \
-// RUN:   -reconcile-unrealized-casts -o %t.ll.mlir
-// RUN: FileCheck %s --check-prefix=LLVM < %t.ll.mlir
-// RUN: not --crash mlir-runner %t.ll.mlir -e main -entry-point-result=void \
-// RUN:   -shared-libs=%mlir_c_runner_utils,%mlir_runner_utils > %t.out 2>&1
+// RUN: not --crash mlir-skeleton-driver %t.all.mlir -entry main --dump-host-ir \
+// RUN:   --shared-libs=%mlir_c_runner_utils,%mlir_runner_utils > /dev/null 2> %t.host.mlir
+// RUN: FileCheck %s --check-prefix=LLVM < %t.host.mlir
+// RUN: not --crash mlir-skeleton-driver %t.all.mlir -entry main \
+// RUN:   --shared-libs=%mlir_c_runner_utils,%mlir_runner_utils > %t.out 2>&1
 
 // The check rides in the host function, next to the op it guards ...
 //

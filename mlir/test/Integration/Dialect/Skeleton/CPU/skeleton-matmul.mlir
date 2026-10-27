@@ -1,16 +1,5 @@
-// RUN: mlir-opt %s \
-// RUN:   -skeleton-preference-partition \
-// RUN:   -skeleton-target-lower \
-// RUN:   -convert-scf-to-cf \
-// RUN:   -expand-strided-metadata \
-// RUN:   -convert-arith-to-llvm \
-// RUN:   -finalize-memref-to-llvm \
-// RUN:   -convert-func-to-llvm \
-// RUN:   -convert-cf-to-llvm \
-// RUN:   -reconcile-unrealized-casts \
-// RUN: | mlir-runner -e main -entry-point-result=void \
-// RUN:     -shared-libs=%mlir_c_runner_utils,%mlir_runner_utils \
-// RUN: | FileCheck %s
+// RUN: mlir-skeleton-driver %s -entry main \
+// RUN:   --shared-libs=%mlir_c_runner_utils,%mlir_runner_utils | FileCheck %s
 
 // A = [[1, 2], [3, 4]]   (2x2)
 // B = [[5, 6], [7, 8]]   (2x2)

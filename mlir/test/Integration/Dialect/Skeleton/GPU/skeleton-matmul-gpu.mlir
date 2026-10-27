@@ -1,15 +1,5 @@
-// RUN: mlir-opt %s \
-// RUN:   -skeleton-preference-partition \
-// RUN:   -skeleton-target-lower \
-// RUN:   -skeleton-finalize-memref-to-gpu \
-// RUN:   -gpu-map-parallel-loops \
-// RUN:   -convert-parallel-loops-to-gpu \
-// RUN:   -gpu-kernel-outlining \
-// RUN:   -gpu-lower-to-nvvm-pipeline="cubin-format=fatbin" \
-// RUN: | mlir-runner \
-// RUN:     -e main -entry-point-result=void \
-// RUN:     --shared-libs=%mlir_cuda_runtime,%mlir_runner_utils,%mlir_c_runner_utils \
-// RUN: | FileCheck %s
+// RUN: mlir-skeleton-driver %s -entry main \
+// RUN:   --shared-libs=%mlir_cuda_runtime,%mlir_runner_utils,%mlir_c_runner_utils | FileCheck %s
 
 // A = [[1, 2], [3, 4]]   (2x2)
 // B = [[5, 6], [7, 8]]   (2x2)

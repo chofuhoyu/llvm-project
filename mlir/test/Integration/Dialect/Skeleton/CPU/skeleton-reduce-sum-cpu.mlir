@@ -1,17 +1,5 @@
-// RUN: mlir-opt %s \
-// RUN:   -skeleton-to-linalg \
-// RUN:   -skeleton-preference-partition \
-// RUN:   -skeleton-target-lower \
-// RUN:   -convert-scf-to-cf \
-// RUN:   -expand-strided-metadata \
-// RUN:   -convert-arith-to-llvm \
-// RUN:   -finalize-memref-to-llvm \
-// RUN:   -convert-func-to-llvm \
-// RUN:   -convert-cf-to-llvm \
-// RUN:   -reconcile-unrealized-casts \
-// RUN: | mlir-runner -e main -entry-point-result=void \
-// RUN:     -shared-libs=%mlir_c_runner_utils,%mlir_runner_utils \
-// RUN: | FileCheck %s
+// RUN: mlir-skeleton-driver %s -entry main \
+// RUN:   --shared-libs=%mlir_c_runner_utils,%mlir_runner_utils | FileCheck %s
 
 // End-to-end correctness test for skeleton.reduce on CPU:
 //   skeleton.reduce {pure_fn = @my_sum} → linalg.reduce → scf loops → LLVM

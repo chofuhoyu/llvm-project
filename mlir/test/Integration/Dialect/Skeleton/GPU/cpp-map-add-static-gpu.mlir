@@ -10,12 +10,8 @@
 // RUN: cir-opt %t.cir -cir-call-to-skeleton -o %t.skel.mlir
 // RUN: sh %S/../CPU/skeleton-peel-module.sh %t.skel.mlir > %t.funcs.mlir
 // RUN: cat %t.funcs.mlir %S/../CPU/cpp-map-add-static.driver > %t.all.mlir
-// RUN: mlir-opt %t.all.mlir -skeleton-to-linalg -skeleton-preference-partition -skeleton-target-lower \
-// RUN:   -skeleton-finalize-memref-to-gpu -gpu-map-parallel-loops -convert-parallel-loops-to-gpu \
-// RUN:   -gpu-kernel-outlining -gpu-lower-to-nvvm-pipeline="cubin-format=fatbin" -o - | \
-// RUN: mlir-runner -e main -entry-point-result=void \
-// RUN:   --shared-libs=%mlir_cuda_runtime,%mlir_runner_utils,%mlir_c_runner_utils | \
-// RUN: FileCheck %s
+// RUN: mlir-skeleton-driver %t.all.mlir -entry main \
+// RUN:   --shared-libs=%mlir_cuda_runtime,%mlir_runner_utils,%mlir_c_runner_utils | FileCheck %s
 
 // CHECK: Unranked Memref
 // CHECK-SAME: rank = 1
