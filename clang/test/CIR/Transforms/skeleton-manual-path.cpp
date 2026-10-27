@@ -36,8 +36,8 @@
 // The accumulator is zero-initialized, not an uninitialized tensor.empty.
 // CHECK: %[[INIT:.*]] = arith.constant dense<0.000000e+00> : tensor<f32>
 // CHECK: skeleton.reduce
-// CHECK-SAME: outs(%[[INIT]] : tensor<f32>)
 // CHECK-SAME: pure_fn = @_Z6my_sumff
+// CHECK-SAME: outs(%[[INIT]] : tensor<f32>)
 //
 // The same reduction over an array reference, whose extent is in the type.
 //

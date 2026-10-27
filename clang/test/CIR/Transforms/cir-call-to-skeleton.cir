@@ -50,9 +50,10 @@ module {
 // CHECK-LABEL: func.func @sum
 // CHECK-SAME: (%[[A:.*]]: memref<?xf32>) -> tensor<f32>
 // CHECK: bufferization.to_tensor
-// CHECK: tensor.empty
+// CHECK: %[[INIT:.*]] = arith.constant dense<0.000000e+00> : tensor<f32>
 // CHECK: skeleton.reduce
 // CHECK-SAME: pure_fn = @my_sum
+// CHECK-SAME: outs(%[[INIT]] : tensor<f32>)
 // CHECK: return
 // CHECK-NOT: bufferization.materialize_in_destination
 
