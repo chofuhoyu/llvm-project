@@ -251,6 +251,17 @@ host 在 driver 模式是 JIT 的；在产物模式是 AOT 的。两条路共用
 
 每个里程碑都要能构建、能解释测试结果。只 commit，不 amend、不 rebase、不 force push。
 
+状态（2026-10-28）：
+
+- M0 完成：本文与 roadmap 更新。
+- M1 完成：`MLIRSkeletonRuntime`、`skeleton-outline`、`skeleton-lower-dispatch`。
+- M2 完成：driver 读入、切分、host 降级 + JIT、按需编译 CPU 实现、决策日志。
+- M3 完成：`--emit` 产物（AOT CPU 实现 + 内嵌 IR + 运行时 + 生成 `main`），
+  产物可直接运行。
+- M4 进行中：driver 读产物 IR 并重编 GPU 实现；GPU 单元走
+  wrapper + `skeleton-target-lower` 的 UVM 桥接 + NVVM 管线。
+- M5 未开始。
+
 ## 13. 已否决的方案
 
 - **产物里带 PTX / cubin**：把“生成什么代码”在构建期固化，运行期只剩选变体，
@@ -277,8 +288,21 @@ host 在 driver 模式是 JIT 的；在产物模式是 AOT 的。两条路共用
 | 2026-10-28 | 内存模型 | UVM | 已有桥接即为 UVM；以后分配器钩子去掉拷贝 |
 | 2026-10-28 | 探测信号 | 设备存在 + 显存余量 | 最基础、无需 NVML；争用曲线时再升级 |
 | 2026-10-28 | 间接调用形态 | 带类型的间接 `llvm.call` | 签名天然一致，运行时不解释参数 |
+| 2026-10-28 | op id 的存放 | 写在内嵌 IR 的 outline 函数上 | 产物里的 CPU 实现与 driver 的重编号必须一致 |
+| 2026-10-28 | outline 的幂等性 | 父函数带 `skeleton.op_id` 时跳过 | 产物内嵌的是已 outline 的模块，否则会套娃 |
+| 2026-10-28 | 产物怎么链接 | 外部 clang + `-no-pie` | 目标机默认重定位模型不能按 PIE 链接 |
+| 2026-10-28 | GPU 单元的形状 | wrapper（原名）+ 标记 GPU 的 impl | 直接复用 `skeleton-target-lower` 的 UVM 桥接与 lowering |
+| 2026-10-28 | 编译缓存的实现位置 | 运行时表 + provider 回调 | 运行时管策略，driver 管编译，产物没有 provider |
 
-## 15. 已知风险
+## 15. 观察到的问题
+
+- **CPU reduce 路径也有间歇性错误**：2026-10-28 在远端重复运行
+  `cpp-reduce-sum.mlir` 20 次，2 次输出 `[-3.07e+38]` 而非 `[10]`（约 10%）。
+  该用例只走 CPU 路径，与本次运行时改动无关；症状与此前 GPU 的 20% 垃圾输出同类
+  （读到未初始化/未就绪的内存）。在信任任何放置实验的数据之前必须先查清。
+  单次 `llvm-lit` 运行时通常通过，所以这条只能靠重复运行暴露。
+
+## 16. 已知风险
 
 - **跨模块 ABI 一致性**：host 与 op 单元分别 bufferize，memref 类型必须逐位一致；
   注册时校验签名，不一致直接报错。
@@ -289,3 +313,5 @@ host 在 driver 模式是 JIT 的；在产物模式是 AOT 的。两条路共用
 - **GPU 每 op 一个模块**：kernel 名冲突、常量 global、cubin 加载时机都要在实现里确认。
 - **无 GPU 机器**：driver 不能链接 libcuda；必须 `dlopen`，失败即视为不可用。
 - **旧 pass 删除时的迁移**：先让新路径覆盖同样用例，再删，保持树可构建。
+- **并发构建会损坏远程静态库**：一次只跑一个 `remote.sh`；中断后若
+  `libLLVMAsmPrinter.a` 之类的归档损坏，删除该归档再重建。
