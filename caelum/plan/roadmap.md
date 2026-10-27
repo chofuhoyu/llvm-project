@@ -1,6 +1,6 @@
 # Caelum 计划
 
-> v4 · 2026-10-28
+> v5 · 2026-10-28
 >
 > 这份文档记录方向、决定与接下来要做的事。没写进来的部分都还没定。
 > 运行时的设计细节在 `caelum/doc/runtime.md`。
@@ -68,9 +68,11 @@
 
 ### 3.2 运行时
 
-**第一版在实现中**（`caelum/doc/runtime.md`）。放置决策目前仍由编译期选定
-（`skeleton-preference-partition` + `skeleton-target-lower`）；§2.5 定的 driver、
-op 级按需编译、产物三件事落地后，这两个 pass 及其测试删除。
+**第一版可用**（`caelum/doc/runtime.md`）。`mlir-skeleton-driver` 按 op 决策、
+按需从该 op 的 skeleton IR 重编译、在自己的进程里执行；`--emit` 产出只带 CPU 实现
+与内嵌 IR 的独立可执行文件，driver 可读回其 IR 并为 GPU 重编译。远端验证：
+单元 13/13、集成 16/16、CIR 9/9。旧 `preference-partition` 已无人使用；
+`target-lower` 仅作为 GPU 单元的 lowering 工具保留。
 
 ### 3.3 GPU 执行
 
@@ -104,10 +106,10 @@ op 级按需编译、产物三件事落地后，这两个 pass 及其测试删�
 ## 5. 接下来
 
 1. **删除半自动路径**（见 §2.1）。成本低，先清场。
-2. **实现最简运行时**（见 §2.5、`caelum/doc/runtime.md`）。形态已定，按里程碑推进：
-   M1 运行时 ABI + `skeleton-outline`；M2 driver 跑通 CPU 闭环（按需编译 + 决策日志）；
-   M3 生成产物（纯 CPU 自运行）；M4 driver 读产物 IR、重编 GPU 实现并在远端验证；
-   M5 删除旧 pass 与其测试、迁移 e2e。旧路径在新路径覆盖同样用例之前保持可用。
+2. **运行时第一版**（见 §2.5、`caelum/doc/runtime.md`）。M1–M4 已完成并在远端验证；
+   M5 待做：删除 `preference-partition` / `finalize-memref-to-gpu` 及其测试，
+   把 CPU/GPU e2e 的 RUN 行迁到 driver，再决定 `target-lower` 的去留
+   （它目前只作为 GPU 单元的 lowering 工具被 driver 复用）。
 3. **建远程构建与测试通道**（见 §4）。把日常构建与测试挪到远端；产出是那个 skill。
 4. **修 GPU 正确性**（见 §3.3）。UVM 改写已完成（2026-10-27）；原 20% 失败在
    远端没有复现（旧路径 100/100，UVM 100/100），继续积累更大负载与并发下的样本。
@@ -133,3 +135,4 @@ op 级按需编译、产物三件事落地后，这两个 pass 及其测试删�
 | v2 | 2026-10-23 | 记录开发机跑不了 UVM、远端性能更好，构建与测试整体放到远程（含权限问题） |
 | v3 | 2026-10-27 | GPU 桥接改为 UVM；记录远端 100 次重复与大缓冲验证结果 |
 | v4 | 2026-10-28 | 定下运行时形态（§2.5）：driver 入口、op 级决策、运行期重编译、产物只带 CPU；旧 pass 待新路径覆盖后删除 |
+| v5 | 2026-10-28 | 运行时第一版可用（M1–M4）：driver、按需编译、产物、GPU 重编译，远端全部测试通过；M5 清理待做 |

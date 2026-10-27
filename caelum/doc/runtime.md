@@ -258,9 +258,15 @@ host 在 driver 模式是 JIT 的；在产物模式是 AOT 的。两条路共用
 - M2 完成：driver 读入、切分、host 降级 + JIT、按需编译 CPU 实现、决策日志。
 - M3 完成：`--emit` 产物（AOT CPU 实现 + 内嵌 IR + 运行时 + 生成 `main`），
   产物可直接运行。
-- M4 进行中：driver 读产物 IR 并重编 GPU 实现；GPU 单元走
+- M4 完成：driver 读产物 IR、按需重编 GPU 实现；GPU 单元走
   wrapper + `skeleton-target-lower` 的 UVM 桥接 + NVVM 管线。
-- M5 未开始。
+- M5 未开始。旧的 `preference-partition` 已无人使用；`target-lower` 仍被 GPU
+  单元的 lowering 复用（它不再做放置决策，只做“把一个单元降成 GPU 代码”）。
+
+2026-10-28 远端验证：单元测试 13/13、集成测试 16/16、CIR 9/9 全部通过。
+集成测试里新增：`driver-matmul`（driver 跑 CPU 闭环）、`driver-artifact`
+（产物自运行 + driver 读产物 IR）、`driver-matmul-gpu`（GPU 重编译 + 产物三种用法）、
+`driver-adaptive`（同一算子在同一进程内先 GPU 后 CPU）。
 
 ## 13. 已否决的方案
 
@@ -293,6 +299,8 @@ host 在 driver 模式是 JIT 的；在产物模式是 AOT 的。两条路共用
 | 2026-10-28 | 产物怎么链接 | 外部 clang + `-no-pie` | 目标机默认重定位模型不能按 PIE 链接 |
 | 2026-10-28 | GPU 单元的形状 | wrapper（原名）+ 标记 GPU 的 impl | 直接复用 `skeleton-target-lower` 的 UVM 桥接与 lowering |
 | 2026-10-28 | 编译缓存的实现位置 | 运行时表 + provider 回调 | 运行时管策略，driver 管编译，产物没有 provider |
+| 2026-10-28 | GPU 单元的编译复用 | 保留 `skeleton-target-lower` 作为 lowering 工具 | 它不再做放置决策，只负责桥接与按目标降级；删掉它要先把逻辑搬进 driver |
+| 2026-10-28 | 并行 loop 到 GPU 的映射 | `func.func(...)` 嵌套调度 | 这两个是函数级 pass，模块级调度会被拒绝 |
 
 ## 15. 观察到的问题
 
