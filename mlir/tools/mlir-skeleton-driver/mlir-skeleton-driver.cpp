@@ -598,12 +598,17 @@ LogicalResult writeAndLink(ModuleOp module, StringRef output,
     file.write(object.data(), object.size());
   }
 
-  SmallVector<StringRef, 8> args{linker, objectPath, runtimeArchive, "-o",
+  llvm::ErrorOr<std::string> program = llvm::sys::findProgramByName(linker);
+  if (!program) {
+    llvm::errs() << "cannot find linker '" << linker << "': "
+                 << program.getError().message() << "\n";
+    return failure();
+  }
+  SmallVector<StringRef, 8> args{*program, objectPath, runtimeArchive, "-o",
                                  output, "-ldl", "-lstdc++", "-lm"};
   for (const std::string &extra : linkArgs)
     args.push_back(extra);
-  std::string program = linker.str();
-  int status = llvm::sys::ExecuteAndWait(program, args);
+  int status = llvm::sys::ExecuteAndWait(*program, args);
   llvm::sys::fs::remove(objectPath);
   if (status != 0) {
     llvm::errs() << "linking the artifact failed (status " << status << ")\n";
