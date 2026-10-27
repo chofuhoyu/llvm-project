@@ -5,8 +5,8 @@
 // Ids follow module walk order: the matmul is 0, the map is 1.
 
 // CHECK-LABEL: func.func @host
-// CHECK: func.call @__skeleton_op_0
-// CHECK: func.call @__skeleton_op_1
+// CHECK: call @__skeleton_op_0
+// CHECK: call @__skeleton_op_1
 // CHECK-LABEL: func.func private @__skeleton_op_0(
 // CHECK-SAME: -> tensor<2x2xf32> attributes {
 // CHECK-SAME: skeleton.bytes = {{[0-9]+}} : i64

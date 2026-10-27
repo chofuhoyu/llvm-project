@@ -605,7 +605,7 @@ LogicalResult writeAndLink(ModuleOp module, StringRef output,
     return failure();
   }
   SmallVector<StringRef, 8> args{*program, objectPath, runtimeArchive, "-o",
-                                 output, "-ldl", "-lstdc++", "-lm"};
+                                 output, "-no-pie", "-ldl", "-lstdc++", "-lm"};
   for (const std::string &extra : linkArgs)
     args.push_back(extra);
   int status = llvm::sys::ExecuteAndWait(*program, args);
