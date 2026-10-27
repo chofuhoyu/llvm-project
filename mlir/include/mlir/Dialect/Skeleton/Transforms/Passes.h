@@ -22,6 +22,8 @@ std::unique_ptr<Pass> createSkeletonPreferencePartitionPass();
 std::unique_ptr<Pass> createSkeletonTargetLowerPass();
 std::unique_ptr<Pass> createSkeletonFinalizeMemRefToGpuPass();
 std::unique_ptr<Pass> createSkeletonPatternMergePass();
+std::unique_ptr<Pass> createSkeletonOutlinePass();
+std::unique_ptr<Pass> createSkeletonLowerDispatchPass();
 
 // Registration
 

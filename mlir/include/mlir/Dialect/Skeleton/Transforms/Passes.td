@@ -95,4 +95,37 @@ def SkeletonPatternMerge : Pass<"skeleton-pattern-merge"> {
   ];
 }
 
+def SkeletonOutline : Pass<"skeleton-outline"> {
+  let summary = "Outline skeleton operators into op unit functions";
+  let description = [{
+    Turns every operator unit into its own function so that the runtime can
+    decide where it runs and recompile it on demand. An operator unit is a
+    skeleton operator (map, reduce, vector.add) or a linalg operator carrying
+    a skeleton.preference attribute.
+
+    Each function keeps the operator in its skeleton form and records
+    skeleton.op_id, skeleton.preference and skeleton.bytes, so the driver can
+    re-enter compilation from skeleton IR for that operator alone.
+  }];
+  let dependentDialects = [
+    "mlir::func::FuncDialect",
+    "mlir::linalg::LinalgDialect",
+    "mlir::skeleton::SkeletonDialect"
+  ];
+}
+
+def SkeletonLowerDispatch : Pass<"skeleton-lower-dispatch"> {
+  let summary = "Lower op unit calls to runtime resolves";
+  let description = [{
+    Runs on a module already lowered to the LLVM dialect. Every direct call to
+    an outlined op unit becomes a skeleton_rt_resolve call followed by an
+    indirect call with the operator's own signature, so the runtime can hand
+    back the implementation chosen for this invocation.
+  }];
+  let dependentDialects = [
+    "mlir::LLVM::LLVMDialect",
+    "mlir::func::FuncDialect"
+  ];
+}
+
 #endif // MLIR_DIALECT_SKELETON_PASSES

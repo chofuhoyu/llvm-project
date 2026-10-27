@@ -4,6 +4,8 @@ add_mlir_dialect_library(MLIRSkeletonTransforms
   SkeletonPatternMerge.cpp
   SkeletonTargetLower.cpp
   SkeletonFinalizeMemRefToGpu.cpp
+  SkeletonOutline.cpp
+  SkeletonLowerDispatch.cpp
 
   DEPENDS
   MLIRSkeletonPassIncGen
