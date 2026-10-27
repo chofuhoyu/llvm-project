@@ -20,7 +20,8 @@ func.func @main() {
 }
 
 // A and B are read-only globals, so only C (a writable host buffer) is copied
-// back; all three UVM allocations are deallocated.
+// back. All three UVM allocations are deallocated: the read-only ones right
+// after the call, C after its copy-back.
 // CHECK-LABEL: func.func @main
 // CHECK: gpu.alloc {{.*}}host_shared
 // CHECK-NEXT: memref.copy
@@ -29,7 +30,8 @@ func.func @main() {
 // CHECK: gpu.alloc {{.*}}host_shared
 // CHECK-NEXT: memref.copy
 // CHECK: call @gpu_matmul
+// CHECK-COUNT-2: gpu.dealloc
 // CHECK: memref.copy
-// CHECK-COUNT-3: gpu.dealloc
+// CHECK: gpu.dealloc
 // CHECK-NOT: gpu.memcpy
 // CHECK-NOT: gpu.wait
