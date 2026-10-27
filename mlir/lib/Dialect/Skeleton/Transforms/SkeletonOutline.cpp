@@ -70,7 +70,7 @@ struct SkeletonOutlinePass
   using SkeletonOutlineBase::SkeletonOutlineBase;
 
   void runOnOperation() override {
-    ModuleOp module = getOperation();
+    ModuleOp module = cast<ModuleOp>(getOperation());
     MLIRContext *ctx = &getContext();
     OpBuilder builder(ctx);
 

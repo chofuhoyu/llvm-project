@@ -42,7 +42,7 @@ struct SkeletonLowerDispatchPass
   using SkeletonLowerDispatchBase::SkeletonLowerDispatchBase;
 
   void runOnOperation() override {
-    ModuleOp module = getOperation();
+    ModuleOp module = cast<ModuleOp>(getOperation());
     MLIRContext *ctx = &getContext();
 
     LLVM::LLVMFuncOp resolveDecl =
@@ -114,6 +114,8 @@ struct SkeletonLowerDispatchPass
     SmallVector<LLVM::LLVMFuncOp> deadUnits;
     module.walk([&](LLVM::LLVMFuncOp func) {
       if (!func.getSymName().starts_with(kOpUnitPrefix))
+        return;
+      if (!func.isExternal())
         return;
       auto uses = SymbolTable::getSymbolUses(func, module);
       if (uses && uses->empty())
