@@ -19,6 +19,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
@@ -58,16 +59,16 @@ struct SkeletonLowerDispatchPass
 
     SmallVector<LLVM::CallOp> calls;
     module.walk([&](LLVM::CallOp call) {
-      std::optional<FlatSymbolRefAttr> callee = call.getCallee();
+      std::optional<StringRef> callee = call.getCallee();
       if (!callee)
         return;
-      if (!callee->getValue().starts_with(kOpUnitPrefix))
+      if (!callee->starts_with(kOpUnitPrefix))
         return;
       calls.push_back(call);
     });
 
     for (LLVM::CallOp call : calls) {
-      StringRef calleeName = call.getCallee()->getValue();
+      StringRef calleeName = *call.getCallee();
       StringRef idText = calleeName.drop_front(kOpUnitPrefix.size());
       int64_t opId = 0;
       if (idText.getAsInteger(10, opId)) {
