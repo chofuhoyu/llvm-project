@@ -288,12 +288,13 @@ host-only 程序也是合法输入，driver 会跳过单元表直接执行。
   作为 driver 编译单个 GPU 单元时的 lowering 工具，不再做放置决策。
 
 2026-10-28 远端验证：单元测试 13/13、集成测试 16/16、CIR 9/9 全部通过。
-2026-10-31 审查修复后：单元测试 12/12、集成测试 19/19、CIR 9/9 全部通过。
+2026-10-31 审查修复后：单元测试 12/12、集成测试 20/20、CIR 9/9 全部通过。
 集成测试里新增：`driver-matmul`（driver 跑 CPU 闭环）、`driver-artifact`
 （产物自运行 + driver 读产物 IR）、`driver-matmul-gpu`（GPU 重编译 + 产物三种用法）、
 `driver-adaptive`（同一算子在同一进程内 GPU → CPU → GPU）、`driver-body`
 （body-region 算子的完整 runtime 路径）、`driver-host-only`（没有 op 单元的 host 程序）、
-`driver-multi-unit-gpu`（同一进程内两个 GPU 单元）。
+`driver-multi-unit-gpu`（同一进程内两个 GPU 单元）、`driver-error`（无法编译的单元干净终止，
+而不是空指针调用）。
 单元测试新增 `skeleton-outline-invalid.mlir`（多结果拒绝）；`skeleton-to-linalg.mlir`
 覆盖 body region 与嵌套 skeleton 算子的诊断。
 

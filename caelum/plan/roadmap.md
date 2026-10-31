@@ -71,7 +71,7 @@
 **第一版可用**（`caelum/doc/runtime.md`）。`mlir-skeleton-driver` 按 op 决策、
 按需从该 op 的 skeleton IR 重编译、在自己的进程里执行；`--emit` 产出只带 CPU 实现
 与内嵌 IR 的独立可执行文件，driver 可读回其 IR 并为 GPU 重编译。远端验证：
-单元 12/12、集成 19/19、CIR 9/9。2026-10-31 的审查修复补齐了按设备保活的 JIT 引擎、
+单元 12/12、集成 20/20、CIR 9/9。2026-10-31 的审查修复补齐了按设备保活的 JIT 引擎、
 resolve 失败终止、body-region 算子、编译失败负缓存、GPU 显存探测、跨模块 ABI 校验、
 产物 O2 与 bytecode 内嵌 IR。编译期选择的两个 pass
 （`preference-partition`、`finalize-memref-to-gpu`）已删除；全部 e2e 已迁到 driver；
@@ -139,4 +139,4 @@ resolve 失败终止、body-region 算子、编译失败负缓存、GPU 显存�
 | v4 | 2026-10-28 | 定下运行时形态（§2.5）：driver 入口、op 级决策、运行期重编译、产物只带 CPU；旧 pass 待新路径覆盖后删除 |
 | v5 | 2026-10-28 | 运行时第一版可用（M1–M4）：driver、按需编译、产物、GPU 重编译，远端全部测试通过；M5 清理待做 |
 | v6 | 2026-10-28 | M5 完成：旧 pass 删除、e2e 全迁 driver；修掉 CPU reduce 的零初始化缺陷（远端 100 次 0 失败） |
-| v7 | 2026-10-31 | 代码审查修复：每设备 JIT 引擎保活、resolve 失败终止、body-region lowering、编译失败负缓存、显存探测与放置回退、跨模块 ABI 校验、模块属性/global 随单元切分、产物 O2 + bytecode、多结果/空单元/entry 约束、文档与测试同步（单元 12/12、集成 19/19、CIR 9/9） |
+| v7 | 2026-10-31 | 代码审查修复：每设备 JIT 引擎保活、resolve 失败终止、body-region lowering、编译失败负缓存、显存探测与放置回退、跨模块 ABI 校验、模块属性/global 随单元切分、产物 O2 + bytecode、多结果/空单元/entry 约束、文档与测试同步（单元 12/12、集成 20/20、CIR 9/9） |
