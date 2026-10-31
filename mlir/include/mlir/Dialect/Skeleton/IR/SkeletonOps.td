@@ -89,6 +89,8 @@ def Skeleton_ReduceOp : Op<Skeleton_Dialect, "reduce"> {
     Exactly one of `pure_fn` or `body` must be present.
 
     The pure function must be a binary associative operation: `(T, T) -> T`.
+    Its arguments are `(accumulator, element)`, and a body region receives the
+    same order. (linalg.reduce's combiner uses the reverse order internally.)
 
     The result type is derived from the `outs` operand (destination-passing,
     like linalg.map), so the assembly omits `-> type($result)`.

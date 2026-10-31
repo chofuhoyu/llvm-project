@@ -14,9 +14,12 @@ include "mlir/Pass/PassBase.td"
 def SkeletonToLinalg : Pass<"skeleton-to-linalg"> {
   let summary = "Convert Skeleton ops to Linalg ops";
   let description = [{
-    Converts skeleton.custom_matmul operations to linalg.matmul operations.
-    The skeleton.preference attribute is preserved as a discardable attribute
-    on the resulting linalg op.
+    Converts skeleton.map to linalg.generic, skeleton.reduce to linalg.reduce
+    and skeleton.vector.add to linalg.add. Map and reduce operators may carry
+    either a pure_fn or a body region; a body may contain scalar arithmetic,
+    but nested skeleton operators are rejected. The skeleton.preference
+    attribute is preserved as a discardable attribute on the resulting linalg
+    op.
   }];
   let dependentDialects = [
     "mlir::linalg::LinalgDialect",
@@ -74,7 +77,9 @@ def SkeletonOutline : Pass<"skeleton-outline"> {
 
     Each function keeps the operator in its skeleton form and records
     skeleton.op_id, skeleton.preference and skeleton.bytes, so the driver can
-    re-enter compilation from skeleton IR for that operator alone.
+    re-enter compilation from skeleton IR for that operator alone. Operators
+    with more than one result are rejected: the runtime dispatch and the GPU
+    bridge handle a single result.
   }];
   let dependentDialects = [
     "mlir::func::FuncDialect",

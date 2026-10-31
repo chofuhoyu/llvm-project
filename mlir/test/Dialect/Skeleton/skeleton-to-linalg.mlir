@@ -201,3 +201,60 @@ func.func @test_map_declared(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>, %arg2: 
     outs(%arg2 : tensor<8xf32>)
   return %0 : tensor<8xf32>
 }
+
+// -----
+
+// Test: skeleton.map with a body region → linalg.generic
+
+func.func @test_map_body(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>) -> tensor<8xf32> {
+  %0 = skeleton.map ins(%arg0 : tensor<8xf32>) outs(%arg1 : tensor<8xf32>)
+      (%e: f32, %i: f32) {
+    %x = arith.addf %e, %i : f32
+    skeleton.yield %x : f32
+  }
+  return %0 : tensor<8xf32>
+}
+
+// CHECK-LABEL: func @test_map_body
+// CHECK: linalg.generic
+// CHECK: arith.addf
+// CHECK: linalg.yield
+// CHECK-NOT: skeleton.map
+// CHECK-NOT: skeleton.yield
+
+// -----
+
+// Test: skeleton.reduce with a body region → linalg.reduce
+
+func.func @test_reduce_body(%arg0: tensor<8xf32>, %arg1: tensor<f32>) -> tensor<f32> {
+  %0 = skeleton.reduce ins(%arg0 : tensor<8xf32>) outs(%arg1 : tensor<f32>)
+      (%acc: f32, %e: f32) {
+    %x = arith.addf %acc, %e : f32
+    skeleton.yield %x : f32
+  }
+  return %0 : tensor<f32>
+}
+
+// CHECK-LABEL: func @test_reduce_body
+// CHECK: linalg.reduce
+// CHECK: arith.addf
+// CHECK: linalg.yield
+// CHECK-NOT: skeleton.reduce
+// CHECK-NOT: skeleton.yield
+
+// -----
+
+// Test: nested skeleton operators in a body region are rejected.
+
+func.func @test_nested_body(%arg0: tensor<8xf32>, %arg1: tensor<8xf32>) -> tensor<8xf32> {
+  // expected-error@+1 {{nested skeleton operators in a body region are not supported}}
+  %0 = skeleton.map ins(%arg0 : tensor<8xf32>) outs(%arg1 : tensor<8xf32>)
+      (%e: f32, %i: f32) {
+    %inner = skeleton.map ins(%arg0 : tensor<8xf32>) outs(%arg1 : tensor<8xf32>)
+        (%e2: f32, %i2: f32) {
+      skeleton.yield %i2 : f32
+    }
+    skeleton.yield %i : f32
+  }
+  return %0 : tensor<8xf32>
+}

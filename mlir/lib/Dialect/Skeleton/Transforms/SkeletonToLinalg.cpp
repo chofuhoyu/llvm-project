@@ -28,35 +28,57 @@ namespace skeleton {
 
 namespace {
 
-// ConvertMapOp (pure_fn, no region) → linalg.generic
+/// Clone a skeleton op's body region into a linalg region and map its block
+/// arguments to \p blockArgs. The map caller passes the linalg.generic order,
+/// which is already the skeleton order (inputs followed by init); the reduce
+/// caller swaps because linalg.reduce uses (element, accumulator). The
+/// terminator becomes linalg.yield.
+static void cloneSkeletonBody(Region &body, OpBuilder &builder, Location loc,
+                              ValueRange blockArgs) {
+  Block &entry = body.front();
+  IRMapping mapper;
+  for (unsigned i = 0; i < blockArgs.size(); ++i)
+    mapper.map(entry.getArgument(i), blockArgs[i]);
+  for (Operation &op : entry.without_terminator())
+    builder.clone(op, mapper);
+  auto yield = cast<YieldOp>(entry.getTerminator());
+  Value value = mapper.lookupOrDefault(yield.getValue());
+  linalg::YieldOp::create(builder, loc, value);
+}
+
+// ConvertMapOp (pure_fn or body region) → linalg.generic
 
 struct ConvertMapOp : public OpRewritePattern<MapOp> {
   using OpRewritePattern<MapOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(MapOp op,
                                 PatternRewriter &rewriter) const override {
-    // Only handle the case with pure_fn and no body region.
-    if (!op.getPureFnAttr() || !op.getBody().empty())
+    bool hasPureFn = op.getPureFnAttr() != nullptr;
+    bool hasBody = !op.getBody().empty();
+    if (hasPureFn == hasBody)
       return failure();
 
-    auto module = op->getParentOfType<ModuleOp>();
-    if (!module)
-      return failure();
+    func::FuncOp pureFn;
+    if (hasPureFn) {
+      auto module = op->getParentOfType<ModuleOp>();
+      if (!module)
+        return failure();
 
-    auto fn = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
-        op, op.getPureFnAttr());
-    if (!fn)
-      return failure();
+      pureFn = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
+          op, op.getPureFnAttr());
+      if (!pureFn)
+        return failure();
 
-    // linalg regions must be a single straight-line block: reject pure_fn
-    // bodies we cannot represent.
-    if (fn.isDeclaration())
-      return op.emitOpError("pure_fn '")
-             << fn.getName() << "' must be defined to lower to linalg";
-    if (!fn.getBody().hasOneBlock())
-      return op.emitOpError("pure_fn '")
-             << fn.getName()
-             << "' must have a single-block body to lower to linalg";
+      // linalg regions must be a single straight-line block: reject pure_fn
+      // bodies we cannot represent.
+      if (pureFn.isDeclaration())
+        return op.emitOpError("pure_fn '")
+               << pureFn.getName() << "' must be defined to lower to linalg";
+      if (!pureFn.getBody().hasOneBlock())
+        return op.emitOpError("pure_fn '")
+               << pureFn.getName()
+               << "' must have a single-block body to lower to linalg";
+    }
 
     // Compute indexing maps and iterator types from the result tensor.
     auto resultType = cast<RankedTensorType>(op.getResult().getType());
@@ -84,15 +106,19 @@ struct ConvertMapOp : public OpRewritePattern<MapOp> {
         /*doc=*/"",
         /*libraryCall=*/"",
         [&](OpBuilder &bodyBuilder, Location loc, ValueRange blockArgs) {
+          if (hasBody) {
+            cloneSkeletonBody(op.getBody(), bodyBuilder, loc, blockArgs);
+            return;
+          }
           // The pure_fn body is single-block (checked above). Map blockArgs
           // to pure_fn parameters and clone the body.
           IRMapping mapper;
           for (unsigned i = 0; i < blockArgs.size() - 1; ++i)
-            mapper.map(fn.getArgument(i), blockArgs[i]);
-          for (auto &bodyOp : fn.getBody().front().without_terminator())
+            mapper.map(pureFn.getArgument(i), blockArgs[i]);
+          for (auto &bodyOp : pureFn.getBody().front().without_terminator())
             bodyBuilder.clone(bodyOp, mapper);
-          auto retOp = cast<func::ReturnOp>(
-              fn.getBody().front().getTerminator());
+          auto retOp =
+              cast<func::ReturnOp>(pureFn.getBody().front().getTerminator());
           Value mappedRet = mapper.lookupOrDefault(retOp.getOperand(0));
           linalg::YieldOp::create(bodyBuilder, loc, mappedRet);
         });
@@ -106,34 +132,39 @@ struct ConvertMapOp : public OpRewritePattern<MapOp> {
   }
 };
 
-// ConvertReduceOp (pure_fn, no region) → linalg.reduce
+// ConvertReduceOp (pure_fn or body region) → linalg.reduce
 
 struct ConvertReduceOp : public OpRewritePattern<ReduceOp> {
   using OpRewritePattern<ReduceOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(ReduceOp op,
                                 PatternRewriter &rewriter) const override {
-    if (!op.getPureFnAttr() || !op.getBody().empty())
+    bool hasPureFn = op.getPureFnAttr() != nullptr;
+    bool hasBody = !op.getBody().empty();
+    if (hasPureFn == hasBody)
       return failure();
 
-    auto module = op->getParentOfType<ModuleOp>();
-    if (!module)
-      return failure();
+    func::FuncOp pureFn;
+    if (hasPureFn) {
+      auto module = op->getParentOfType<ModuleOp>();
+      if (!module)
+        return failure();
 
-    auto fn = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
-        op, op.getPureFnAttr());
-    if (!fn)
-      return failure();
+      pureFn = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
+          op, op.getPureFnAttr());
+      if (!pureFn)
+        return failure();
 
-    // linalg regions must be a single straight-line block: reject pure_fn
-    // bodies we cannot represent.
-    if (fn.isDeclaration())
-      return op.emitOpError("pure_fn '")
-             << fn.getName() << "' must be defined to lower to linalg";
-    if (!fn.getBody().hasOneBlock())
-      return op.emitOpError("pure_fn '")
-             << fn.getName()
-             << "' must have a single-block body to lower to linalg";
+      // linalg regions must be a single straight-line block: reject pure_fn
+      // bodies we cannot represent.
+      if (pureFn.isDeclaration())
+        return op.emitOpError("pure_fn '")
+               << pureFn.getName() << "' must be defined to lower to linalg";
+      if (!pureFn.getBody().hasOneBlock())
+        return op.emitOpError("pure_fn '")
+               << pureFn.getName()
+               << "' must have a single-block body to lower to linalg";
+    }
 
     auto inputType = cast<RankedTensorType>(op.getInput().getType());
 
@@ -146,15 +177,23 @@ struct ConvertReduceOp : public OpRewritePattern<ReduceOp> {
         /*dimensions=*/
         llvm::to_vector(llvm::seq<int64_t>(0, inputType.getRank())),
         [&](OpBuilder &bodyBuilder, Location loc, ValueRange blockArgs) {
-          // The pure_fn body is single-block (checked above).
-          // blockArgs: [accumulator, element]
+          if (hasBody) {
+            // skeleton.reduce body arguments are (accumulator, element);
+            // linalg.reduce combiner arguments are (element, accumulator).
+            ValueRange reduceArgs = {blockArgs[1], blockArgs[0]};
+            cloneSkeletonBody(op.getBody(), bodyBuilder, loc, reduceArgs);
+            return;
+          }
+          // The pure_fn body is single-block (checked above). Its first
+          // argument is the accumulator and its second is the element, which
+          // is the reverse of the linalg.reduce combiner order.
           IRMapping mapper;
-          mapper.map(fn.getArgument(0), blockArgs[0]);
-          mapper.map(fn.getArgument(1), blockArgs[1]);
-          for (auto &bodyOp : fn.getBody().front().without_terminator())
+          mapper.map(pureFn.getArgument(0), blockArgs[1]);
+          mapper.map(pureFn.getArgument(1), blockArgs[0]);
+          for (auto &bodyOp : pureFn.getBody().front().without_terminator())
             bodyBuilder.clone(bodyOp, mapper);
-          auto retOp = cast<func::ReturnOp>(
-              fn.getBody().front().getTerminator());
+          auto retOp =
+              cast<func::ReturnOp>(pureFn.getBody().front().getTerminator());
           Value mappedRet = mapper.lookupOrDefault(retOp.getOperand(0));
           linalg::YieldOp::create(bodyBuilder, loc, mappedRet);
         });
@@ -195,6 +234,30 @@ public:
   using impl::SkeletonToLinalgBase<SkeletonToLinalgPass>::SkeletonToLinalgBase;
 
   void runOnOperation() override {
+    // A body region may contain scalar arithmetic, but a nested skeleton
+    // operator is a separate computation graph that cannot be lowered inside
+    // an element-wise linalg body. Reject it here, where the diagnostic points
+    // at the outer operator, instead of leaving an unlowerable op behind.
+    WalkResult check = getOperation()->walk([](Operation *op) {
+      if (!isa<MapOp, ReduceOp>(op) || op->getRegion(0).empty())
+        return WalkResult::advance();
+      WalkResult nested = op->getRegion(0).walk([](Operation *inner) {
+        if (isa<MapOp, ReduceOp, VectorAddOp>(inner))
+          return WalkResult::interrupt();
+        return WalkResult::advance();
+      });
+      if (nested.wasInterrupted()) {
+        op->emitError(
+            "nested skeleton operators in a body region are not supported");
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+    if (check.wasInterrupted()) {
+      signalPassFailure();
+      return;
+    }
+
     RewritePatternSet patterns(&getContext());
     patterns.add<ConvertMapOp, ConvertReduceOp, ConvertVectorAddOp>(
         &getContext());
