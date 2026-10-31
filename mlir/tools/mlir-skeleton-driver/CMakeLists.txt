@@ -1,6 +1,7 @@
 set(LLVM_LINK_COMPONENTS
   Core
   Object
+  Passes
   Support
   nativecodegen
   native

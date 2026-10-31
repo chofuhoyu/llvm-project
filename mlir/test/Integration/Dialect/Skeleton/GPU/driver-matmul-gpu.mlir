@@ -17,7 +17,7 @@
 
 // TRACE: [skeleton-rt] op=0 declare pref=GPU
 // TRACE: [skeleton-rt] op=0 compile device=GPU
-// TRACE: [skeleton-rt] op=0 pref=GPU probe=GPU choose=GPU
+// TRACE: [skeleton-rt] op=0 pref=GPU probe=GPU{{.*}}choose=GPU
 
 // A = [[1, 2], [3, 4]]   (2x2)
 // B = [[5, 6], [7, 8]]   (2x2)

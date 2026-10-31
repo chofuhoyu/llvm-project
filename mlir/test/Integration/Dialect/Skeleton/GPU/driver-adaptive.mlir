@@ -4,17 +4,20 @@
 // RUN: mlir-skeleton-driver %s -entry main \
 // RUN:   --shared-libs=%mlir_cuda_runtime,%mlir_runner_utils,%mlir_c_runner_utils | FileCheck %s
 
-// The same operator runs twice in one process. The first call takes the GPU
-// because the preference is available; the second sees the GPU marked
-// unavailable and falls back to the CPU. Both decisions happen at run time,
-// and the result stays correct.
+// The same operator runs three times in one process. The first call takes the
+// GPU because the preference is available; the second sees the GPU marked
+// unavailable and falls back to the CPU; the third sees it available again and
+// reuses the GPU implementation. Both the decision and the earlier JIT engine
+// must survive the round trip.
 
 // TRACE: [skeleton-rt] op=0 declare pref=GPU
 // TRACE: [skeleton-rt] op=0 compile device=GPU
-// TRACE: [skeleton-rt] op=0 pref=GPU probe=GPU choose=GPU
+// TRACE: [skeleton-rt] op=0 pref=GPU probe=GPU{{.*}}choose=GPU
 // TRACE: [skeleton-rt] device=GPU available=0 (forced)
 // TRACE: [skeleton-rt] op=0 compile device=CPU
 // TRACE: [skeleton-rt] op=0 pref=GPU probe=CPU choose=CPU
+// TRACE: [skeleton-rt] device=GPU available=1 (forced)
+// TRACE: [skeleton-rt] op=0 pref=GPU probe=GPU{{.*}}choose=GPU
 
 func.func private @skeleton_rt_set_device_available(i32, i32)
 
@@ -38,12 +41,15 @@ func.func @main() {
   %C = arith.constant dense<0.0> : tensor<2x2xf32>
   %gpu = arith.constant 1 : i32
   %no = arith.constant 0 : i32
+  %yes = arith.constant 1 : i32
 
   %first = call @host(%A, %B, %C) : (tensor<2x2xf32>, tensor<2x2xf32>, tensor<2x2xf32>) -> tensor<2x2xf32>
   call @skeleton_rt_set_device_available(%gpu, %no) : (i32, i32) -> ()
   %second = call @host(%A, %B, %C) : (tensor<2x2xf32>, tensor<2x2xf32>, tensor<2x2xf32>) -> tensor<2x2xf32>
+  call @skeleton_rt_set_device_available(%gpu, %yes) : (i32, i32) -> ()
+  %third = call @host(%A, %B, %C) : (tensor<2x2xf32>, tensor<2x2xf32>, tensor<2x2xf32>) -> tensor<2x2xf32>
 
-  %unranked = tensor.cast %second : tensor<2x2xf32> to tensor<*xf32>
+  %unranked = tensor.cast %third : tensor<2x2xf32> to tensor<*xf32>
   call @printMemrefF32(%unranked) : (tensor<*xf32>) -> ()
 
   // CHECK: Unranked Memref

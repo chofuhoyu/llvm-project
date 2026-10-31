@@ -17,6 +17,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -27,6 +28,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllExtensions.h"
 #include "mlir/InitAllPasses.h"
@@ -36,23 +38,30 @@
 #include "mlir/Target/LLVMIR/Dialect/All.h"
 #include "mlir/Target/LLVMIR/Export.h"
 
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/StringMap.h"
+#include "llvm/Analysis/CGSCCPassManager.h"
+#include "llvm/Analysis/LoopAnalysisManager.h"
 #include "llvm/ExecutionEngine/JITSymbol.h"
+#include "llvm/ExecutionEngine/Orc/Core.h"
+#include "llvm/ExecutionEngine/Orc/Mangling.h"
 #include "llvm/IR/LegacyPassManager.h"
+#include "llvm/IR/PassManager.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Object/ObjectFile.h"
+#include "llvm/Passes/OptimizationLevel.h"
+#include "llvm/Passes/PassBuilder.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Program.h"
-#include "llvm/TargetParser/Host.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
-#include "llvm/ExecutionEngine/Orc/Core.h"
-#include "llvm/ExecutionEngine/Orc/Mangling.h"
-#include "llvm/Support/CommandLine.h"
-#include "llvm/Support/InitLLVM.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/TargetParser/Host.h"
 
 #include <functional>
 #include <memory>
@@ -120,8 +129,14 @@ struct UnitInfo {
   /// Skeleton-level module holding the operator function. Kept as text so a
   /// compile always starts from the original IR.
   std::string ir;
-  std::unique_ptr<ExecutionEngine> engine;
+  /// One JIT engine per device. Engines are never replaced: a function pointer
+  /// handed to the runtime must stay valid for the life of the unit, even
+  /// after the same unit is compiled for another device.
+  llvm::DenseMap<int32_t, std::unique_ptr<ExecutionEngine>> engines;
   llvm::DenseMap<int32_t, void *> impls;
+  /// Devices whose compilation already failed. Retrying on every operator
+  /// invocation would repeat a full parse/lower/JIT cycle and spam errors.
+  llvm::DenseSet<int32_t> failed;
 };
 
 struct DriverState {
@@ -129,6 +144,10 @@ struct DriverState {
   std::vector<std::unique_ptr<UnitInfo>> units;
   llvm::DenseMap<int64_t, UnitInfo *> byId;
   std::unique_ptr<ExecutionEngine> hostEngine;
+  /// Lowered signatures of the host's op unit declarations, captured before
+  /// skeleton-lower-dispatch erases them. A lazily compiled unit must match
+  /// the signature the host already calls it with.
+  llvm::StringMap<LLVM::LLVMFunctionType> hostSignatures;
 
   /// Backing storage for ExecutionEngineOptions::sharedLibPaths, which keeps
   /// an ArrayRef into this vector.
@@ -168,8 +187,13 @@ void collectSymbolRefs(Operation *op, SmallVectorImpl<FlatSymbolRefAttr> &refs) 
 //===----------------------------------------------------------------------===//
 
 /// Lower a module to the LLVM dialect. Host modules additionally get their
-/// operator calls rewritten into runtime resolves.
-LogicalResult lowerToLLVM(ModuleOp module, MLIRContext *context, bool isHost) {
+/// operator calls rewritten into runtime resolves. When \p hostSignatures is
+/// provided, the lowered type of every outlined operator declaration is
+/// recorded before the dispatch pass erases the declarations, so a lazily
+/// compiled unit can be checked against the ABI the host already calls it with.
+LogicalResult
+lowerToLLVM(ModuleOp module, MLIRContext *context, bool isHost,
+            llvm::StringMap<LLVM::LLVMFunctionType> *hostSignatures = nullptr) {
   PassManager pm(context);
 
   pm.addPass(skeleton::createSkeletonToLinalgPass());
@@ -187,10 +211,21 @@ LogicalResult lowerToLLVM(ModuleOp module, MLIRContext *context, bool isHost) {
           pm)))
     return failure();
 
-  if (isHost)
-    pm.addPass(skeleton::createSkeletonLowerDispatchPass());
+  if (failed(pm.run(module)))
+    return failure();
 
-  return pm.run(module);
+  if (!isHost)
+    return success();
+
+  if (hostSignatures) {
+    for (LLVM::LLVMFuncOp func : module.getOps<LLVM::LLVMFuncOp>())
+      if (func.getSymName().starts_with("__skeleton_op_"))
+        (*hostSignatures)[func.getSymName()] = func.getFunctionType();
+  }
+
+  PassManager dispatchPm(context);
+  dispatchPm.addPass(skeleton::createSkeletonLowerDispatchPass());
+  return dispatchPm.run(module);
 }
 
 //===----------------------------------------------------------------------===//
@@ -292,46 +327,74 @@ void *compileUnit(UnitInfo &unit, int32_t device) {
   if (void *existing = unit.impls.lookup(device))
     return existing;
 
+  // A failed compilation is not retried: the runtime resolves this operator on
+  // every call, so retrying would repeat a full parse/lower/JIT cycle and spam
+  // diagnostics. The runtime falls back to another device when one exists.
+  if (unit.failed.contains(device))
+    return nullptr;
+
+  auto fail = [&](StringRef message) -> void * {
+    llvm::errs() << "[skeleton-driver] op=" << unit.id << ": " << message
+                 << "\n";
+    unit.failed.insert(device);
+    return nullptr;
+  };
+
   OwningOpRef<ModuleOp> module =
       parseSourceString<ModuleOp>(unit.ir, state.context);
-  if (!module) {
-    llvm::errs() << "[skeleton-driver] op=" << unit.id
-                 << ": cannot re-parse its skeleton IR\n";
-    return nullptr;
-  }
+  if (!module)
+    return fail("cannot re-parse its skeleton IR");
 
   if (device == SKELETON_DEVICE_GPU) {
     if (failed(lowerGpuUnit(*module, unit)))
-      return nullptr;
+      return fail("cannot lower the unit for the GPU");
   } else if (device == SKELETON_DEVICE_CPU) {
     if (failed(lowerToLLVM(*module, state.context, /*isHost=*/false)))
-      return nullptr;
+      return fail("cannot lower the unit for the CPU");
   } else {
-    llvm::errs() << "[skeleton-driver] op=" << unit.id
-                 << ": unknown device " << device << "\n";
+    return fail(("unknown device " + Twine(device)).str());
+  }
+
+  // The host already calls this symbol with a fixed ABI. Bufferization and
+  // lowering happen separately for the host and the unit, so verify that the
+  // lazily compiled function has exactly the signature the host expects.
+  auto unitFunc = module->lookupSymbol<LLVM::LLVMFuncOp>(unit.symbol);
+  if (!unitFunc)
+    return fail("the lowered module has no unit function");
+  auto hostSignature = state.hostSignatures.find(unit.symbol);
+  if (hostSignature == state.hostSignatures.end())
+    return fail("the host has no signature for this unit");
+  if (unitFunc.getFunctionType() != hostSignature->second) {
+    llvm::errs() << "[skeleton-driver] op=" << unit.id << ": ABI mismatch for '"
+                 << unit.symbol << "'\n  host: ";
+    hostSignature->second.print(llvm::errs());
+    llvm::errs() << "\n  unit: ";
+    unitFunc.getFunctionType().print(llvm::errs());
+    llvm::errs() << "\n";
+    unit.failed.insert(device);
     return nullptr;
   }
 
   auto engineOrErr = ExecutionEngine::create(
-      *module, engineOptions(state, /*withSharedLibs=*/device != SKELETON_DEVICE_CPU));
+      *module, engineOptions(state, /*withSharedLibs=*/true));
   if (!engineOrErr) {
-    llvm::errs() << "[skeleton-driver] op=" << unit.id
-                 << ": JIT failed: " << llvm::toString(engineOrErr.takeError())
-                 << "\n";
-    return nullptr;
+    std::string message =
+        "JIT failed: " + llvm::toString(engineOrErr.takeError());
+    return fail(message);
   }
   std::unique_ptr<ExecutionEngine> engine = std::move(*engineOrErr);
   engine->initialize();
 
   auto symbol = engine->lookup(unit.symbol);
   if (!symbol) {
-    llvm::errs() << "[skeleton-driver] op=" << unit.id
-                 << ": lookup failed: " << llvm::toString(symbol.takeError())
-                 << "\n";
-    return nullptr;
+    std::string message =
+        "lookup failed: " + llvm::toString(symbol.takeError());
+    return fail(message);
   }
 
-  unit.engine = std::move(engine);
+  // Keep every device's engine alive: the runtime may still hold a pointer
+  // into an engine compiled for another device.
+  unit.engines[device] = std::move(engine);
   unit.impls[device] = *symbol;
   return *symbol;
 }
@@ -350,22 +413,29 @@ void *provideImplementation(int64_t opId, int32_t device) {
 
 /// Move every outlined operator function into its own module and leave a
 /// declaration in the host module. References from the operator (pure
-/// functions) are cloned along with it so the unit module is self-contained.
+/// functions and globals) are cloned along with it so the unit module is
+/// self-contained.
 LogicalResult splitUnits(ModuleOp module, DriverState &state) {
   SmallVector<func::FuncOp> unitFunctions;
   for (func::FuncOp func : module.getOps<func::FuncOp>())
     if (func->hasAttr("skeleton.op_id"))
       unitFunctions.push_back(func);
 
-  if (unitFunctions.empty()) {
-    llvm::errs() << "[skeleton-driver] no operator units found\n";
-    return failure();
-  }
+  // A program without operator units is still a valid host program. Leave the
+  // unit table empty and let the host run on its own.
+  if (unitFunctions.empty())
+    return success();
 
   MLIRContext *context = module.getContext();
   for (func::FuncOp unitFunc : unitFunctions) {
+    auto idAttr = unitFunc->getAttrOfType<IntegerAttr>("skeleton.op_id");
+    if (!idAttr) {
+      llvm::errs() << "[skeleton-driver] op unit '" << unitFunc.getSymName()
+                   << "' has no integer skeleton.op_id\n";
+      return failure();
+    }
     auto info = std::make_unique<UnitInfo>();
-    info->id = unitFunc->getAttrOfType<IntegerAttr>("skeleton.op_id").getInt();
+    info->id = idAttr.getInt();
     info->preference = deviceFromPreference(unitFunc);
     if (auto bytes = unitFunc->getAttrOfType<IntegerAttr>("skeleton.bytes"))
       info->bytes = bytes.getInt();
@@ -375,6 +445,9 @@ LogicalResult splitUnits(ModuleOp module, DriverState &state) {
     collectSymbolRefs(unitFunc, refs);
 
     ModuleOp unitModule = ModuleOp::create(unitFunc.getLoc());
+    // Module-level attributes (data layout specifications and similar) affect
+    // bufferization and lowering; the unit must see the same ones as the host.
+    unitModule->setAttrs(module->getAttrs());
     {
       OpBuilder builder(context);
       builder.setInsertionPointToStart(unitModule.getBody());
@@ -385,14 +458,21 @@ LogicalResult splitUnits(ModuleOp module, DriverState &state) {
           [&](FlatSymbolRefAttr ref) {
             if (!cloned.insert(ref.getValue()).second)
               return;
-            auto callee = module.lookupSymbol<func::FuncOp>(ref);
-            if (!callee)
+            Operation *refOp =
+                SymbolTable::lookupSymbolIn(module, ref.getValue());
+            if (!refOp)
               return;
-            SmallVector<FlatSymbolRefAttr> nested;
-            collectSymbolRefs(callee, nested);
-            builder.clone(*callee);
-            for (FlatSymbolRefAttr inner : nested)
-              cloneReference(inner);
+            if (auto callee = dyn_cast<func::FuncOp>(refOp)) {
+              SmallVector<FlatSymbolRefAttr> nested;
+              collectSymbolRefs(callee, nested);
+              builder.clone(*callee);
+              for (FlatSymbolRefAttr inner : nested)
+                cloneReference(inner);
+            } else {
+              // Globals (memref.global, llvm.mlir.global, ...) are referenced
+              // by name from the unit, so they must travel with it.
+              builder.clone(*refOp);
+            }
           };
       for (FlatSymbolRefAttr ref : refs)
         cloneReference(ref);
@@ -421,6 +501,20 @@ LogicalResult splitUnits(ModuleOp module, DriverState &state) {
 //===----------------------------------------------------------------------===//
 
 FailureOr<int> runDriver(ModuleOp module, DriverState &state) {
+  // The runtime only supports a C-style entry point: no arguments and no
+  // result. Check it before outlining so the diagnostic points at the input.
+  auto entry = module.lookupSymbol<func::FuncOp>(entryPoint);
+  if (!entry) {
+    llvm::errs() << "entry function '" << entryPoint << "' not found\n";
+    return failure();
+  }
+  FunctionType entryType = entry.getFunctionType();
+  if (entryType.getNumInputs() != 0 || entryType.getNumResults() != 0) {
+    llvm::errs() << "entry function '" << entryPoint
+                 << "' must take no arguments and return void\n";
+    return failure();
+  }
+
   {
     PassManager pm(state.context);
     pm.addPass(skeleton::createSkeletonOutlinePass());
@@ -431,7 +525,8 @@ FailureOr<int> runDriver(ModuleOp module, DriverState &state) {
   if (failed(splitUnits(module, state)))
     return failure();
 
-  if (failed(lowerToLLVM(module, state.context, /*isHost=*/true)))
+  if (failed(lowerToLLVM(module, state.context, /*isHost=*/true,
+                         &state.hostSignatures)))
     return failure();
 
   if (dumpHostIR) {
@@ -450,13 +545,16 @@ FailureOr<int> runDriver(ModuleOp module, DriverState &state) {
   registerRuntimeSymbols(*state.hostEngine);
   state.hostEngine->initialize();
 
-  skeleton_rt_set_trace(traceDecisions ? 1 : 0);
+  // Only force tracing on when the flag is given. Calling set_trace(0) here
+  // would mark the environment variable as already read and hide
+  // SKELETON_TRACE=1 in the driver.
+  if (traceDecisions)
+    skeleton_rt_set_trace(1);
   skeleton_rt_set_provider(&provideImplementation);
   for (auto &unit : state.units)
     skeleton_rt_declare(unit->id, unit->preference, unit->bytes);
 
-  void *empty = nullptr;
-  void *entryArgs[] = {&empty};
+  SmallVector<void *> entryArgs;
   if (llvm::Error error =
           state.hostEngine->invokePacked(entryPoint, entryArgs)) {
     llvm::errs() << "execution failed: " << llvm::toString(std::move(error))
@@ -489,7 +587,8 @@ struct UnitMeta {
 std::optional<std::string> captureSkeletonIR(ModuleOp module) {
   std::string text;
   llvm::raw_string_ostream stream(text);
-  module.print(stream);
+  if (failed(writeBytecodeToFile(module, stream)))
+    return std::nullopt;
   stream.flush();
   if (text.empty())
     return std::nullopt;
@@ -519,7 +618,6 @@ LogicalResult addProgramInit(OpBuilder &builder, ModuleOp module,
   MLIRContext *ctx = builder.getContext();
   auto i64Ty = builder.getI64Type();
   auto i32Ty = builder.getI32Type();
-  auto ptrTy = LLVM::LLVMPointerType::get(ctx);
   auto voidTy = LLVM::LLVMVoidType::get(ctx);
 
   builder.setInsertionPointToEnd(module.getBody());
@@ -593,8 +691,10 @@ void addSkeletonIR(OpBuilder &builder, ModuleOp module, StringRef ir,
                      StringAttr::get(ctx, ".skeleton.ir"))};
 
   builder.setInsertionPointToEnd(module.getBody());
+  // External linkage keeps the section alive through the optimization
+  // pipeline; an internal, unreferenced global would be removed by GlobalDCE.
   LLVM::GlobalOp::create(builder, loc, arrayTy, /*isConstant=*/true,
-                         LLVM::Linkage::Internal, "skeleton.ir",
+                         LLVM::Linkage::External, "skeleton.ir",
                          builder.getStringAttr(ir), /*alignment=*/1,
                          /*addrSpace=*/0, /*dsoLocal=*/false,
                          LLVM::ThreadLocalMode::NotThreadLocal,
@@ -633,6 +733,25 @@ LogicalResult writeAndLink(ModuleOp module, StringRef output,
   llvmModule->setDataLayout(machine->createDataLayout());
   llvmModule->setTargetTriple(targetTriple);
 
+  // The JIT host compiles at the default optimization level; run the same
+  // standard pipeline here so an artifact's AOT code is not left unoptimized.
+  {
+    llvm::LoopAnalysisManager loopAnalyses;
+    llvm::FunctionAnalysisManager functionAnalyses;
+    llvm::CGSCCAnalysisManager cgsccAnalyses;
+    llvm::ModuleAnalysisManager moduleAnalyses;
+    llvm::PassBuilder passBuilder(machine.get());
+    passBuilder.registerModuleAnalyses(moduleAnalyses);
+    passBuilder.registerCGSCCAnalyses(cgsccAnalyses);
+    passBuilder.registerFunctionAnalyses(functionAnalyses);
+    passBuilder.registerLoopAnalyses(loopAnalyses);
+    passBuilder.crossRegisterProxies(loopAnalyses, functionAnalyses,
+                                     cgsccAnalyses, moduleAnalyses);
+    llvm::ModulePassManager modulePipeline =
+        passBuilder.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::O2);
+    modulePipeline.run(*llvmModule, moduleAnalyses);
+  }
+
   llvm::SmallVector<char, 0> object;
   llvm::raw_svector_ostream objectStream(object);
   llvm::legacy::PassManager passManager;
@@ -661,6 +780,7 @@ LogicalResult writeAndLink(ModuleOp module, StringRef output,
   if (!program) {
     llvm::errs() << "cannot find linker '" << linker << "': "
                  << program.getError().message() << "\n";
+    llvm::sys::fs::remove(objectPath);
     return failure();
   }
   SmallVector<StringRef, 8> args{*program, objectPath, runtimeArchive, "-o",
@@ -696,17 +816,19 @@ LogicalResult emitArtifact(ModuleOp module, DriverState &state,
   for (func::FuncOp func : module.getOps<func::FuncOp>()) {
     if (!func->hasAttr("skeleton.op_id"))
       continue;
+    auto idAttr = func->getAttrOfType<IntegerAttr>("skeleton.op_id");
+    if (!idAttr) {
+      llvm::errs() << "op unit '" << func.getSymName()
+                   << "' has no integer skeleton.op_id\n";
+      return failure();
+    }
     UnitMeta unit;
-    unit.id = func->getAttrOfType<IntegerAttr>("skeleton.op_id").getInt();
+    unit.id = idAttr.getInt();
     unit.preference = deviceFromPreference(func);
     if (auto bytes = func->getAttrOfType<IntegerAttr>("skeleton.bytes"))
       unit.bytes = bytes.getInt();
     unit.symbol = func.getSymName().str();
     units.push_back(std::move(unit));
-  }
-  if (units.empty()) {
-    llvm::errs() << "no operator units to emit\n";
-    return failure();
   }
 
   std::optional<std::string> skeletonIR = captureSkeletonIR(module);
@@ -723,7 +845,23 @@ LogicalResult emitArtifact(ModuleOp module, DriverState &state,
     llvm::errs() << "artifact entry must take no arguments and return void\n";
     return failure();
   }
+  if (SymbolTable::lookupSymbolIn(module, "__skeleton_entry")) {
+    llvm::errs() << "artifact already has a '__skeleton_entry' symbol\n";
+    return failure();
+  }
+  if (failed(SymbolTable::replaceAllSymbolUses(
+          entry, StringAttr::get(context, "__skeleton_entry"), module))) {
+    llvm::errs() << "cannot rewrite uses of entry function '" << entryPoint
+                 << "'\n";
+    return failure();
+  }
   entry.setName("__skeleton_entry");
+
+  if (SymbolTable::lookupSymbolIn(module, "main")) {
+    llvm::errs() << "artifact already has a 'main' symbol; choose a "
+                    "different entry function\n";
+    return failure();
+  }
 
   if (failed(lowerToLLVM(module, context, /*isHost=*/true)))
     return failure();
