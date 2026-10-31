@@ -176,6 +176,17 @@ tool_dirs = [config.mlir_tools_dir, config.llvm_tools_dir, config.lit_tools_dir]
 for dirs in tool_dirs:
     llvm_config.with_environment("PATH", dirs, append_path=True)
 
+# The Skeleton runtime driver is only built with MLIR_ENABLE_EXECUTION_ENGINE.
+# Test files that need it carry this feature so that a build without the
+# execution engine skips them instead of failing on an unresolved substitution.
+skeleton_driver_names = ("mlir-skeleton-driver", "mlir-skeleton-driver.exe")
+if any(
+    os.path.exists(os.path.join(directory, name))
+    for directory in tool_dirs
+    for name in skeleton_driver_names
+):
+    config.available_features.add("mlir-skeleton-driver")
+
 tools = [
     "llvm-strings",
     "mlir-tblgen",
@@ -195,7 +206,7 @@ tools = [
     "mlir-capi-transform-interpreter-test",
     "mlir-capi-translation-test",
     "mlir-runner",
-    "mlir-skeleton-driver",
+    ToolSubst("mlir-skeleton-driver", unresolved="ignore"),
     add_runtime("mlir_runner_utils"),
     add_runtime("mlir_c_runner_utils"),
     add_runtime("mlir_async_runtime"),

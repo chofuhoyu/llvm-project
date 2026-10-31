@@ -1,3 +1,4 @@
+// REQUIRES: mlir-skeleton-driver
 // RUN: mlir-skeleton-driver %s -entry main --shared-libs=%mlir_c_runner_utils,%mlir_runner_utils | FileCheck %s
 
 // RUN: mlir-skeleton-driver %s -entry main --trace --shared-libs=%mlir_c_runner_utils,%mlir_runner_utils 2>&1 >/dev/null | FileCheck %s --check-prefix=TRACE

@@ -1,3 +1,4 @@
+// REQUIRES: mlir-skeleton-driver
 // RUN: mlir-skeleton-driver %s -entry main --emit %t.prog \
 // RUN:   --runtime-lib=%mlir_lib_dir/libMLIRSkeletonRuntime.a \
 // RUN:   --link-arg=-L%mlir_lib_dir --link-arg=-Wl,-rpath,%mlir_lib_dir \

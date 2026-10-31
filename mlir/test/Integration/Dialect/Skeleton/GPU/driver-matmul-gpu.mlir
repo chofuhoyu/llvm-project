@@ -1,3 +1,4 @@
+// REQUIRES: mlir-skeleton-driver
 // RUN: mlir-skeleton-driver %s -entry main \
 // RUN:   --shared-libs=%mlir_cuda_runtime,%mlir_runner_utils,%mlir_c_runner_utils | FileCheck %s
 

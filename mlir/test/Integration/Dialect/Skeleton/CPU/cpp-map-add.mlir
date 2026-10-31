@@ -1,3 +1,4 @@
+// REQUIRES: mlir-skeleton-driver
 // End-to-end run of the manual path: the operators (pure fn my_add + host
 // wrapper vec_add calling skeleton_map) are defined in real C++ and compiled
 // through clang(-fclangir) -> cir-opt(-cir-call-to-skeleton); a hand-written
