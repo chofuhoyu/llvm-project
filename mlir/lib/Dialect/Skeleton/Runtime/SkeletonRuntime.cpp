@@ -256,7 +256,7 @@ void *skeleton_rt_resolve(int64_t opId) {
   if (!entry) {
     std::fprintf(stderr, "[skeleton-rt] error: op=%lld was never declared\n",
                  static_cast<long long>(opId));
-    std::abort();
+    std::exit(1);
   }
 
   ++entry->resolves;
@@ -331,7 +331,7 @@ void *skeleton_rt_resolve(int64_t opId) {
   std::fprintf(stderr,
                "[skeleton-rt] error: no implementation for op=%lld (pref=%s)\n",
                static_cast<long long>(opId), deviceName(entry->preference));
-  std::abort();
+  std::exit(1);
 }
 
 void skeleton_rt_set_device_available(int32_t device, int32_t available) {

@@ -60,9 +60,9 @@ SKELETON_RT_EXPORT void skeleton_rt_register(int64_t opId, int32_t device,
                                              void *impl);
 
 /// Resolve the implementation to call for `opId`. This is the hot path: it
-/// must stay O(1) apart from the (cached) device probe. Aborts the process
-/// with a diagnostic when no device can run the operator; the result is never
-/// NULL, so callers can call it directly.
+/// must stay O(1) apart from the (cached) device probe. Prints a diagnostic
+/// and exits with status 1 when no device can run the operator; the result is
+/// never NULL, so callers can call it directly.
 SKELETON_RT_EXPORT void *skeleton_rt_resolve(int64_t opId);
 
 /// Probe a device. Returns non-zero when the device can execute code. Results
