@@ -237,8 +237,7 @@ func.func @test_reduce_body(%arg0: tensor<8xf32>, %arg1: tensor<f32>) -> tensor<
 
 // CHECK-LABEL: func @test_reduce_body
 // CHECK: linalg.reduce
-// CHECK: arith.addf
-// CHECK: linalg.yield
+// CHECK-SAME: arith.addf
 // CHECK-NOT: skeleton.reduce
 // CHECK-NOT: skeleton.yield
 

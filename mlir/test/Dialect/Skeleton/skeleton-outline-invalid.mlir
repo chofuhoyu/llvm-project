@@ -17,5 +17,5 @@ func.func @multi_result(%a: tensor<4xf32>, %b: tensor<4xf32>,
     ^bb0(%x: f32, %y: f32, %o1: f32, %o2: f32):
       linalg.yield %x, %y : f32, f32
   } -> (tensor<4xf32>, tensor<4xf32>)
-  return %r#0, %r#1
+  return %r#0, %r#1 : tensor<4xf32>, tensor<4xf32>
 }
