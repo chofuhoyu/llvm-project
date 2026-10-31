@@ -134,7 +134,7 @@ void skeleton_rt_declare(int64_t op_id, int32_t preference, int64_t bytes);
 /* 注册某设备的实现；重复注册覆盖（重编译后替换）。 */
 void skeleton_rt_register(int64_t op_id, int32_t device, void *impl);
 
-/* 解析点：O(1) 决策 + 返回 impl 指针；无法执行时打印原因并终止进程。 */
+/* 解析点：O(1) 决策 + 返回 impl 指针；无法执行时打印原因并以状态 1 退出。 */
 void *skeleton_rt_resolve(int64_t op_id);
 
 /* 设备探测（带刷新间隔缓存）。返回 0 表示不可用。 */
@@ -148,7 +148,7 @@ void skeleton_rt_dump_stats(void);
 约定：
 
 - `resolve` 每次调用都做一次决策，但不一定重新探测（见 §8）。`resolve` 不做空指针返回：
-  没有可用实现时打印 op/preference 和原因后 `abort()`。host 侧生成的代码因此可以直接调用
+  没有可用实现时打印 op/preference 和原因后以状态 1 退出。host 侧生成的代码因此可以直接调用
   返回值，不会在编译失败时执行到空函数指针。
 - `bytes` 是算子 operands 的静态字节数下界（动态 shape 时为 0）；运行时用它和 GPU 的空闲
   显存比较，放不下就回退 CPU。它不是峰值工作集，也不传给 provider。
@@ -337,7 +337,7 @@ host-only 程序也是合法输入，driver 会跳过单元表直接执行。
 | 2026-10-28 | reduce 的初值 | 元素类型零值 | 入口点没有初值参数，`tensor.empty` 会把结果变成分配器行为 |
 | 2026-10-31 | 每个单元几个 JIT 引擎 | 每个 `(op, device)` 一个，全部保活 | host 可能还持有另一个设备的函数指针；销毁引擎会让它悬空 |
 | 2026-10-31 | 编译失败怎么办 | 按 `(op, device)` 缓存失败，不重试 | 每次 resolve 都重跑 parse/lower/JIT 代价太大 |
-| 2026-10-31 | resolve 无实现 | 打印原因并 abort | 生成代码直接调用返回值；返回 NULL 会变成空指针调用 |
+| 2026-10-31 | resolve 无实现 | 打印原因并退出 | 生成代码直接调用返回值；返回 NULL 会变成空指针调用 |
 | 2026-10-31 | 显存放不下 | 回退 CPU | `bytes` 下界已超过空闲显存时，GPU 分配必然失败 |
 | 2026-10-31 | body region | 降到 linalg.generic / linalg.reduce；嵌套 skeleton 图拒绝 | 方言支持 body，runtime 不能把它留给 bufferization 才报错 |
 | 2026-10-31 | 跨模块 ABI | JIT 前比较 lower 后的 `LLVMFunctionType` | host 与单元分别 bufferize，不能只靠约定 |
@@ -360,7 +360,7 @@ host-only 程序也是合法输入，driver 会跳过单元表直接执行。
   `driver-adaptive` 的 GPU → CPU → GPU 路径会 SIGSEGV。改为每个 `(op, device)` 一个引擎
   并全部保活。
 - **resolve 失败返回 NULL**（2026-10-31 修复）：编译失败时生成代码调用空指针。
-  `resolve` 现在打印原因并 `abort()`。
+  `resolve` 现在打印原因并以状态 1 退出。
 - **body region 算子无法编译**（2026-10-31 修复）：`skeleton-to-linalg` 只处理 `pure_fn`，
   body 形式会走到 bufferization 才报 `op was not bufferized`。现在支持标量 body，
   并对嵌套 skeleton 图给出明确诊断。
