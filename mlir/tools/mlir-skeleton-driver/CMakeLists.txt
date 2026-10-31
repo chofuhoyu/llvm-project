@@ -15,6 +15,7 @@ add_mlir_tool(mlir-skeleton-driver
 llvm_update_compile_flags(mlir-skeleton-driver)
 mlir_target_link_libraries(mlir-skeleton-driver PRIVATE
   MLIRAnalysis
+  MLIRBytecodeWriter
   MLIRIR
   MLIRParser
   MLIRRegisterAllDialects
