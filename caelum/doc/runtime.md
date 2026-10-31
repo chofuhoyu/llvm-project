@@ -399,3 +399,6 @@ host-only 程序也是合法输入，driver 会跳过单元表直接执行。
   Linux/libstdc++ 验证；换平台要重新确认链接参数和 C++ 运行库。
 - **body region 的嵌套图**：`skeleton.map/reduce` 的 body 只支持标量算术，嵌套 skeleton
   算子会被 `skeleton-to-linalg` 拒绝；真正的嵌套计算图还没实现。
+- **reduce 的初值**：C++/CIR 入口没有初值参数，自动路径把累加器初始化为元素类型的零值；
+  这对 sum/add 正确，但 min/max/product 的 identity 不是零。需要这些算子的用户必须走手写
+  `skeleton.reduce` 并给 `outs` 一个正确的初值；头文件 `SkeletonOps.h` 已注明这一点。
