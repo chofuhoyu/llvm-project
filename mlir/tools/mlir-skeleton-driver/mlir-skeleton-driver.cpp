@@ -367,10 +367,8 @@ void *compileUnit(UnitInfo &unit, int32_t device) {
   if (unitFunc.getFunctionType() != hostSignature->second) {
     llvm::errs() << "[skeleton-driver] op=" << unit.id << ": ABI mismatch for '"
                  << unit.symbol << "'\n  host: ";
-    hostSignature->second.print(llvm::errs());
-    llvm::errs() << "\n  unit: ";
-    unitFunc.getFunctionType().print(llvm::errs());
-    llvm::errs() << "\n";
+    llvm::errs() << hostSignature->second << "\n  unit: "
+                 << unitFunc.getFunctionType() << "\n";
     unit.failed.insert(device);
     return nullptr;
   }
