@@ -27,7 +27,9 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/SymbolTable.h"
+
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
 
@@ -43,7 +45,14 @@ namespace {
 /// shape. Returns 0 when the size is not known at compile time.
 int64_t computeOpBytes(Operation *op) {
   int64_t total = 0;
+  SmallVector<Value> seen;
   for (Value operand : op->getOperands()) {
+    // Repeated operands (e.g. the same tensor used as two inputs) describe one
+    // allocation, so count each value once. The result is an advisory lower
+    // bound, not the operator's peak working set.
+    if (llvm::is_contained(seen, operand))
+      continue;
+    seen.push_back(operand);
     auto shaped = dyn_cast<ShapedType>(operand.getType());
     if (!shaped)
       continue;
@@ -52,7 +61,8 @@ int64_t computeOpBytes(Operation *op) {
     Type elementType = shaped.getElementType();
     if (!elementType.isIntOrFloat())
       return 0;
-    total += (elementType.getIntOrFloatBitWidth() / 8) * shaped.getNumElements();
+    total += ((elementType.getIntOrFloatBitWidth() + 7) / 8) *
+             shaped.getNumElements();
   }
   return total;
 }
@@ -103,6 +113,18 @@ struct SkeletonOutlinePass
     if (units.empty())
       return;
 
+    // The host dispatch rewrites one result at a time and the GPU bridge has a
+    // single output memref; reject multi-result units before creating calls
+    // that the rest of the pipeline cannot handle.
+    for (Operation *op : units) {
+      if (op->getNumResults() > 1) {
+        op->emitError(
+            "operator units with more than one result are not supported");
+        signalPassFailure();
+        return;
+      }
+    }
+
     for (auto [index, op] : llvm::enumerate(units)) {
       int64_t opId = static_cast<int64_t>(index);
       Location loc = op->getLoc();
@@ -113,6 +135,12 @@ struct SkeletonOutlinePass
 
       auto funcType = FunctionType::get(ctx, operandTypes, resultTypes);
       std::string name = "__skeleton_op_" + Twine(opId).str();
+      if (SymbolTable::lookupSymbolIn(module, name)) {
+        op->emitError("cannot outline operator: function '")
+            << name << "' already exists";
+        signalPassFailure();
+        return;
+      }
 
       builder.setInsertionPointToEnd(module.getBody());
       auto outlined = func::FuncOp::create(builder, loc, name, funcType);

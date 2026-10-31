@@ -104,10 +104,20 @@ struct SkeletonTargetLowerPass
       };
       SmallVector<GPUBridgeEntry> bridgeWorklist;
 
+      bool multiResult = false;
       module.walk([&](func::CallOp call) {
+        if (multiResult)
+          return;
         auto callee = call.getCallee();
         if (!gpuTargetNames.contains(callee))
           return;
+        if (call->getNumResults() > 1) {
+          call.emitError("cannot bridge an operator with more than one result "
+                         "to the GPU");
+          signalPassFailure();
+          multiResult = true;
+          return;
+        }
         for (unsigned i = 0; i < call.getNumOperands(); ++i) {
           Value operand = call.getOperand(i);
           auto memrefType = dyn_cast<MemRefType>(operand.getType());
@@ -116,6 +126,8 @@ struct SkeletonTargetLowerPass
           bridgeWorklist.push_back({call, i, operand, memrefType});
         }
       });
+      if (multiResult)
+        return;
 
       OpBuilder builder(&getContext());
 
@@ -206,16 +218,13 @@ struct SkeletonTargetLowerPass
                                  /*asyncDependencies=*/ValueRange{}, gpuMemref);
         }
 
-        // TODO: Single-output assumption: only the last copied-back host
-        // memref replaces call.getResult(0) (hard-coded index 0), and the
-        // read-only check above treats every memref.get_global as
-        // immutable. Calls with several writable memrefs, multiple
-        // results, or written globals silently lose the other copy-backs.
-        // A GPU-target call may also return void (or a non-memref value):
-        // there is then no result to redirect at the host memref, but the
-        // copy-backs above still refresh the writable operands.
-        // Replace call result (UVM memref, now dealloc'd) with the
-        // host memref that received the copy-back.
+        // The pipeline accepts a single result (skeleton-outline rejects more)
+        // and linalg puts the destination last, so the last writable operand
+        // is the one whose copy-back becomes the call result. A void result
+        // still refreshes the writable operands through the copy-backs above.
+        // Read-only memref.get_global operands are assumed immutable.
+        // Replace the call result (UVM memref, now dealloc'd) with the host
+        // memref that received the copy-back.
         if (outputHostMemref && call->getNumResults() > 0 &&
             isa<MemRefType>(call.getResult(0).getType())) {
           auto retType = cast<MemRefType>(call.getResult(0).getType());
