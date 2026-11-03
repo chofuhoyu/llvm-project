@@ -76,6 +76,12 @@ SKELETON_RT_EXPORT int32_t skeleton_rt_probe(int32_t device);
 SKELETON_RT_EXPORT void skeleton_rt_set_device_available(int32_t device,
                                                          int32_t available);
 
+/// Override the free-memory reading of `device` with `bytes`, or -1 to use the
+/// driver's reading again. Used by tests to make the placement decision see a
+/// device that is too small, without allocating the memory it describes.
+SKELETON_RT_EXPORT void skeleton_rt_set_free_bytes(int32_t device,
+                                                   int64_t bytes);
+
 /// Install the provider that compiles cache misses.
 SKELETON_RT_EXPORT void skeleton_rt_set_provider(skeleton_rt_provider_fn fn);
 

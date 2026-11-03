@@ -9,13 +9,13 @@
 
 // TRACE: [skeleton-rt] op=0 declare pref=CPU
 // TRACE: [skeleton-rt] op=0 compile device=CPU
-// TRACE: [skeleton-rt] op=0 pref=CPU probe=CPU choose=CPU
+// TRACE: [skeleton-rt] op=0 pref=CPU probe=CPU free=- choose=CPU reason=-
 
 // The runtime honours SKELETON_TRACE even though the driver did not pass
 // --trace; the driver must not force tracing off.
 // ENV: [skeleton-rt] op=0 declare pref=CPU
 // ENV: [skeleton-rt] op=0 compile device=CPU
-// ENV: [skeleton-rt] op=0 pref=CPU probe=CPU choose=CPU
+// ENV: [skeleton-rt] op=0 pref=CPU probe=CPU free=- choose=CPU reason=-
 
 // A = [[1, 2], [3, 4]]   (2x2)
 // B = [[5, 6], [7, 8]]   (2x2)

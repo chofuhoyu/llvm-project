@@ -310,6 +310,8 @@ void registerRuntimeSymbols(ExecutionEngine &engine) {
     add("skeleton_rt_probe", reinterpret_cast<void *>(&skeleton_rt_probe));
     add("skeleton_rt_set_device_available",
         reinterpret_cast<void *>(&skeleton_rt_set_device_available));
+    add("skeleton_rt_set_free_bytes",
+        reinterpret_cast<void *>(&skeleton_rt_set_free_bytes));
     add("skeleton_rt_set_provider",
         reinterpret_cast<void *>(&skeleton_rt_set_provider));
     add("skeleton_rt_set_trace",

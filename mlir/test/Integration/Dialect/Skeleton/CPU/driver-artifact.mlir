@@ -16,7 +16,7 @@
 
 // TRACE: [skeleton-rt] op=0 declare pref=CPU
 // TRACE: [skeleton-rt] op=0 compile device=CPU
-// TRACE: [skeleton-rt] op=0 pref=CPU probe=CPU choose=CPU
+// TRACE: [skeleton-rt] op=0 pref=CPU probe=CPU free=- choose=CPU reason=-
 
 func.func @main() {
   %A = arith.constant dense<[[1.0, 2.0], [3.0, 4.0]]> : tensor<2x2xf32>

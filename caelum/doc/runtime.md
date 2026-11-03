@@ -141,9 +141,16 @@ void *skeleton_rt_resolve(int64_t op_id);
 /* 设备探测（带刷新间隔缓存）。返回 0 表示不可用。 */
 int32_t skeleton_rt_probe(int32_t device);
 
+/* 安装编译回调：缓存未命中时由运行时调用；driver 装，产物不装。 */
+void skeleton_rt_set_provider(skeleton_rt_provider_fn fn);
+
 /* 诊断与实验 */
 void skeleton_rt_set_trace(int32_t enable);
 void skeleton_rt_dump_stats(void);
+
+/* 测试用：强制设备可用性与空闲显存，绕过真实探测。 */
+void skeleton_rt_set_device_available(int32_t device, int32_t available);
+void skeleton_rt_set_free_bytes(int32_t device, int64_t bytes);
 ```
 
 约定：
@@ -210,10 +217,16 @@ host-only 程序也是合法输入，driver 会跳过单元表直接执行。
   `SKELETON_PROBE_REFRESH_MS` 可调）。`resolve` 本身是 O(1) 查表，绝不在每次调用上做驱动 API。
 - **策略（v1）**：preference 对应设备可用且放得下 operands 时用 preference，否则 CPU；
   两边都不可用时直接终止（不静默产出错误结果）。
-- **日志**：`--trace` 或 `SKELETON_TRACE=1`，每行一次决策：
-  `op=<id> pref=<GPU> probe=<GPU> free=1024MB choose=<CPU> reason=<gpu-unavailable>`
-  外加编译事件：`op=<id> compile device=<CPU> impl=<ptr>`。driver 只有显式给 `--trace`
-  时才调用 `set_trace(1)`，所以环境变量在 driver 模式下也生效。
+- **日志**：`--trace` 或 `SKELETON_TRACE=1`，每次 `resolve` 恰好一行决策：
+  `op=<id> pref=<设备> probe=<设备> free=<n>MB choose=<设备> reason=<原因>`。
+  `probe` 与 `free` 描述被探测的偏好设备（没有显存读数时 `free=-`），`choose` 是最终落点，
+  `reason` 说明为什么没用偏好设备，用了就是 `-`；取值为 `device-unavailable`、
+  `insufficient-memory`、`no-implementation`。另有一行编译事件：
+  `op=<id> compile device=<CPU> impl=<ptr>`。driver 只有显式给 `--trace` 时才调用
+  `set_trace(1)`，所以环境变量在 driver 模式下也生效。
+- **测试钩子**：`set_device_available` 与 `set_free_bytes` 强制探测结果，让「设备不可用」和
+  「显存放不下」两条回退分支不依赖真实硬件就能测（见 `driver-adaptive`、
+  `driver-memory-fallback`）。两者都会让该设备的下一次探测绕过驱动 API。
 
 ## 9. 缓存与重编译
 
@@ -295,7 +308,8 @@ host-only 程序也是合法输入，driver 会跳过单元表直接执行。
 `driver-adaptive`（同一算子在同一进程内 GPU → CPU → GPU）、`driver-body`
 （body-region 算子的完整 runtime 路径）、`driver-host-only`（没有 op 单元的 host 程序）、
 `driver-multi-unit-gpu`（同一进程内两个 GPU 单元）、`driver-error`（无法编译的单元干净终止，
-而不是空指针调用）、`driver-multi-result`（偏好 CPU 的多结果单元）。
+而不是空指针调用）、`driver-multi-result`（偏好 CPU 的多结果单元）、
+`driver-memory-fallback`（显存放不下时回退 CPU）。
 单元测试新增 `skeleton-outline-invalid.mlir`（偏好 GPU 的多结果拒绝）；`skeleton-to-linalg.mlir`
 覆盖 body region 与嵌套 skeleton 算子的诊断。
 
@@ -398,6 +412,9 @@ host-only 程序也是合法输入，driver 会跳过单元表直接执行。
 - **旧 pass 删除时的迁移**：先让新路径覆盖同样用例，再删，保持树可构建。
 - **并发构建会损坏远程静态库**：一次只跑一个 `remote.sh`；中断后若
   `libLLVMAsmPrinter.a` 之类的归档损坏，删除该归档再重建。
+- **不可恢复的失败**：`resolve` 在没有可用实现时直接 `exit(1)`，运行时库不提供「返回错误、
+  由调用方决定」的路径。产物需要这一条（生成的 host 代码直接调用返回值），代价是它不能作为
+  普通库嵌进需要恢复的宿主。
 - **线程安全**：运行时用进程级全局表，v1 不支持多线程同时 resolve；需要时再加锁。
 - **平台**：产物链接固定用外部 `clang` + `-no-pie -ldl -lstdc++ -lm`，目前只针对
   Linux/libstdc++ 验证；换平台要重新确认链接参数和 C++ 运行库。

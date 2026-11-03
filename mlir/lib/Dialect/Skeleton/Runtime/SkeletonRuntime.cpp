@@ -59,6 +59,7 @@ struct RuntimeState {
 
   /// -1 means "not forced": fall back to the real probe.
   int32_t forcedAvailable[kDeviceCount] = {-1, -1};
+  int64_t forcedFree[kDeviceCount] = {-1, -1};
 
   int64_t probeRefreshMs = 10;
   bool probeRefreshEnvRead = false;
@@ -188,13 +189,12 @@ void skeleton_rt_declare(int64_t opId, int32_t preference, int64_t bytes) {
     s.ops.resize(static_cast<size_t>(opId) + 1);
   OpEntry &entry = s.ops[static_cast<size_t>(opId)];
   entry.declared = true;
-  entry.preference =
-      (preference >= 0 && preference < kDeviceCount) ? preference
-                                                     : SKELETON_DEVICE_CPU;
+  entry.preference = (preference >= 0 && preference < kDeviceCount)
+                         ? preference
+                         : SKELETON_DEVICE_CPU;
   entry.bytes = bytes;
   if (traceEnabled())
-    std::fprintf(stderr,
-                 "[skeleton-rt] op=%lld declare pref=%s bytes=%lld\n",
+    std::fprintf(stderr, "[skeleton-rt] op=%lld declare pref=%s bytes=%lld\n",
                  static_cast<long long>(opId), deviceName(entry.preference),
                  static_cast<long long>(bytes));
 }
@@ -218,9 +218,9 @@ int32_t skeleton_rt_probe(int32_t device) {
   RuntimeState &s = state();
 
   if (s.forcedAvailable[device] >= 0) {
-    // A forced availability carries no real memory reading, so skip the
-    // memory check for this probe.
-    s.probeFree[device] = -1;
+    // A forced availability has no real memory reading behind it; only a
+    // forced free-byte count gives the placement decision a number.
+    s.probeFree[device] = s.forcedFree[device];
     return s.forcedAvailable[device];
   }
 
@@ -229,8 +229,11 @@ int32_t skeleton_rt_probe(int32_t device) {
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                        now - s.probeStamp[device])
                        .count();
-    if (elapsed < probeRefreshMs())
+    if (elapsed < probeRefreshMs()) {
+      if (s.forcedFree[device] >= 0)
+        s.probeFree[device] = s.forcedFree[device];
       return s.probeResult[device];
+    }
   }
 
   int32_t result = 0;
@@ -245,7 +248,8 @@ int32_t skeleton_rt_probe(int32_t device) {
 
   s.probeValid[device] = true;
   s.probeResult[device] = result;
-  s.probeFree[device] = freeBytes;
+  s.probeFree[device] =
+      s.forcedFree[device] >= 0 ? s.forcedFree[device] : freeBytes;
   s.probeStamp[device] = now;
   return result;
 }
@@ -261,13 +265,20 @@ void *skeleton_rt_resolve(int64_t opId) {
 
   ++entry->resolves;
 
+  const int32_t preference = entry->preference;
   int32_t candidates[2];
   unsigned numCandidates = 0;
-  candidates[numCandidates++] = entry->preference;
-  if (entry->preference != SKELETON_DEVICE_CPU)
+  candidates[numCandidates++] = preference;
+  if (preference != SKELETON_DEVICE_CPU)
     candidates[numCandidates++] = SKELETON_DEVICE_CPU;
 
-  const char *reason = "no-implementation";
+  // The decision is reported once, after the loop: `probe` and `free` describe
+  // the preferred device, `choose` is where the operator ended up, and
+  // `reason` says why it is not the preference ("-" when it is).
+  const char *reason = "-";
+  int32_t chosen = -1;
+  void *impl = nullptr;
+
   for (unsigned i = 0; i < numCandidates; ++i) {
     int32_t device = candidates[i];
     if (!skeleton_rt_probe(device)) {
@@ -280,58 +291,50 @@ void *skeleton_rt_resolve(int64_t opId) {
     if (device == SKELETON_DEVICE_GPU && entry->bytes > 0 &&
         s.probeFree[device] >= 0 && s.probeFree[device] < entry->bytes) {
       reason = "insufficient-memory";
-      if (traceEnabled())
-        std::fprintf(
-            stderr,
-            "[skeleton-rt] op=%lld pref=%s probe=GPU free=%lldMB "
-            "need=%lldMB reason=insufficient-memory\n",
-            static_cast<long long>(opId), deviceName(entry->preference),
-            static_cast<long long>(s.probeFree[device] / (1024 * 1024)),
-            static_cast<long long>(entry->bytes / (1024 * 1024)));
       continue;
     }
     if (!entry->impls[device] && s.provider) {
-      void *impl = s.provider(opId, device);
-      if (impl) {
-        entry->impls[device] = impl;
+      void *compiled = s.provider(opId, device);
+      if (compiled) {
+        entry->impls[device] = compiled;
         ++entry->compiles[device];
         if (traceEnabled())
-          std::fprintf(stderr,
-                       "[skeleton-rt] op=%lld compile device=%s impl=%p\n",
-                       static_cast<long long>(opId), deviceName(device), impl);
+          std::fprintf(
+              stderr, "[skeleton-rt] op=%lld compile device=%s impl=%p\n",
+              static_cast<long long>(opId), deviceName(device), compiled);
       }
     }
     if (entry->impls[device]) {
-      if (traceEnabled()) {
-        if (device == SKELETON_DEVICE_GPU && s.probeFree[device] >= 0)
-          std::fprintf(
-              stderr,
-              "[skeleton-rt] op=%lld pref=%s probe=%s free=%lldMB "
-              "choose=%s\n",
-              static_cast<long long>(opId), deviceName(entry->preference),
-              deviceName(device),
-              static_cast<long long>(s.probeFree[device] / (1024 * 1024)),
-              deviceName(device));
-        else
-          std::fprintf(
-              stderr, "[skeleton-rt] op=%lld pref=%s probe=%s choose=%s\n",
-              static_cast<long long>(opId), deviceName(entry->preference),
-              deviceName(device), deviceName(device));
-      }
-      return entry->impls[device];
+      chosen = device;
+      impl = entry->impls[device];
+      break;
     }
     reason = "no-implementation";
   }
 
-  if (traceEnabled())
+  if (traceEnabled()) {
+    int64_t freeBytes =
+        preference == SKELETON_DEVICE_GPU ? s.probeFree[preference] : -1;
+    char freeText[32] = "-";
+    if (freeBytes >= 0)
+      std::snprintf(freeText, sizeof(freeText), "%lldMB",
+                    static_cast<long long>(freeBytes / (1024 * 1024)));
     std::fprintf(stderr,
-                 "[skeleton-rt] op=%lld pref=%s choose=none reason=%s\n",
-                 static_cast<long long>(opId), deviceName(entry->preference),
-                 reason);
-  std::fprintf(stderr,
-               "[skeleton-rt] error: no implementation for op=%lld (pref=%s)\n",
-               static_cast<long long>(opId), deviceName(entry->preference));
-  std::exit(1);
+                 "[skeleton-rt] op=%lld pref=%s probe=%s free=%s choose=%s "
+                 "reason=%s\n",
+                 static_cast<long long>(opId), deviceName(preference),
+                 deviceName(preference), freeText,
+                 chosen < 0 ? "none" : deviceName(chosen), reason);
+  }
+
+  if (!impl) {
+    std::fprintf(
+        stderr,
+        "[skeleton-rt] error: no implementation for op=%lld (pref=%s)\n",
+        static_cast<long long>(opId), deviceName(preference));
+    std::exit(1);
+  }
+  return impl;
 }
 
 void skeleton_rt_set_device_available(int32_t device, int32_t available) {
@@ -343,6 +346,17 @@ void skeleton_rt_set_device_available(int32_t device, int32_t available) {
   if (traceEnabled())
     std::fprintf(stderr, "[skeleton-rt] device=%s available=%d (forced)\n",
                  deviceName(device), available ? 1 : 0);
+}
+
+void skeleton_rt_set_free_bytes(int32_t device, int64_t bytes) {
+  if (device < 0 || device >= kDeviceCount)
+    return;
+  RuntimeState &s = state();
+  s.forcedFree[device] = bytes;
+  s.probeValid[device] = false;
+  if (traceEnabled())
+    std::fprintf(stderr, "[skeleton-rt] device=%s free_bytes=%lld (forced)\n",
+                 deviceName(device), static_cast<long long>(bytes));
 }
 
 void skeleton_rt_set_provider(skeleton_rt_provider_fn fn) {
