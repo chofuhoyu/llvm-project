@@ -1,4 +1,5 @@
 // REQUIRES: mlir-skeleton-driver
+// REQUIRES: clang-cir
 // End-to-end run of the semi-automatic path: a single annotated element-wise
 // for loop is compiled through clang(-fclangir) -> cir-opt(-cir-loop-to-
 // skeleton), which turns it into a pure func.func + a host func.func carrying a

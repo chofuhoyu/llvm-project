@@ -1,4 +1,5 @@
 // REQUIRES: mlir-skeleton-driver
+// REQUIRES: clang-cir
 // End-to-end run of the manual path with a compile-time extent: the operators
 // (pure fn my_add + host wrapper vec_add) are defined in real C++ and compiled
 // through clang(-fclangir) -> cir-opt(-cir-call-to-skeleton). The host's

@@ -1,4 +1,5 @@
 // REQUIRES: mlir-skeleton-driver
+// REQUIRES: clang-cir
 // End-to-end run of the manual path where the two inputs have different
 // lengths: the operators are the plain-pointer ones from cpp-map-add.cpp, whose
 // memrefs are dynamically shaped, so nothing in the type says how long the

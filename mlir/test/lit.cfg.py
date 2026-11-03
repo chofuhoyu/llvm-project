@@ -187,6 +187,17 @@ if any(
 ):
     config.available_features.add("mlir-skeleton-driver")
 
+# The Skeleton C++ end-to-end tests compile with clang -fclangir and then run
+# cir-opt. Neither exists unless the clang in the build enables CIR, so gate
+# them on the tool being present instead of failing on the command.
+cir_opt_names = ("cir-opt", "cir-opt.exe")
+if any(
+    os.path.exists(os.path.join(directory, name))
+    for directory in tool_dirs
+    for name in cir_opt_names
+):
+    config.available_features.add("clang-cir")
+
 tools = [
     "llvm-strings",
     "mlir-tblgen",

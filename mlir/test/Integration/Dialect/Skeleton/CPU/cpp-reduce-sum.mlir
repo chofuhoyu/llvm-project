@@ -1,4 +1,5 @@
 // REQUIRES: mlir-skeleton-driver
+// REQUIRES: clang-cir
 // End-to-end run of the manual path for skeleton.reduce: the pure fn my_sum
 // and the host wrapper sum_all are defined in real C++ and compiled through
 // clang(-fclangir) -> cir-opt(-cir-call-to-skeleton); a hand-written MLIR

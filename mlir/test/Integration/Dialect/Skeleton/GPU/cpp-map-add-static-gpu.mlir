@@ -1,4 +1,5 @@
 // REQUIRES: mlir-skeleton-driver
+// REQUIRES: clang-cir
 // End-to-end run of the manual path with a compile-time extent, lowering to
 // the GPU: the operators are defined in real C++ (cpp-map-add-static.cpp, whose
 // host carries the "GPU" preference) and compiled through clang(-fclangir) ->
