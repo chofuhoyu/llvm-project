@@ -76,11 +76,6 @@ struct SkeletonLowerDispatchPass
         signalPassFailure();
         return;
       }
-      if (call.getNumResults() > 1) {
-        call.emitError("op units with more than one result are not supported");
-        signalPassFailure();
-        return;
-      }
 
       OpBuilder builder(call);
       Location loc = call.getLoc();
