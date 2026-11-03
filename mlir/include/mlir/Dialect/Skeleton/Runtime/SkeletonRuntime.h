@@ -40,8 +40,14 @@ enum SkeletonDevice {
 
 /// Called by the runtime when the cache has no implementation for `opId` on
 /// `device`. It returns the compiled implementation, or NULL when compiling
-/// that (op, device) pair is not possible. The provider is owned by the
-/// driver; artifacts have none.
+/// that (op, device) pair is not possible. Returning the pointer is the only
+/// way a provider installs an implementation; `skeleton_rt_register` is for
+/// start-up registration and for swapping one in place.
+///
+/// The runtime keeps no negative cache: a NULL answer is asked again on the
+/// next resolve. A provider that can fail has to remember the failure itself,
+/// otherwise every operator call repeats the work. The provider is owned by
+/// the driver; artifacts have none.
 typedef void *(*skeleton_rt_provider_fn)(int64_t opId, int32_t device);
 
 /// Declare an operator unit. `preference` is the placement preference that
@@ -55,7 +61,8 @@ SKELETON_RT_EXPORT void skeleton_rt_declare(int64_t opId, int32_t preference,
 
 /// Register the implementation of `opId` for `device`. Registering again
 /// replaces the previous implementation, which is how a recompiled variant
-/// takes over.
+/// takes over. An artifact calls this at start-up for the implementations
+/// linked into it; a provider returns its implementation instead.
 SKELETON_RT_EXPORT void skeleton_rt_register(int64_t opId, int32_t device,
                                              void *impl);
 

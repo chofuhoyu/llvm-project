@@ -164,6 +164,9 @@ void skeleton_rt_set_free_bytes(int32_t device, int64_t bytes);
   不做 `void**` 参数打包——CPU 与 GPU impl 的签名本来就一样，打包只会让运行时去解释参数。
 - impl 无返回值也要支持（GPU 目标函数可能返回 void，见 `b5a2a03`）。结果通过 out buffer。
 - 运行时状态不是线程安全的：host 程序不能在多个线程里同时 resolve 算子。
+- provider 只通过**返回值**安装实现；`skeleton_rt_register` 用于产物启动时登记已经链接进去的
+  实现，以及原地替换实现。运行时不做负缓存：provider 返回 NULL 后，下一次 `resolve` 会再问
+  一次，所以失败的记忆必须留在 provider 里（driver 用 `(op, device)` 失败表实现）。
 
 可替换点：以后要支持别的设备，只增 device 枚举值与 impl 注册，ABI 不变。
 
@@ -186,7 +189,7 @@ void skeleton_rt_set_free_bytes(int32_t device, int64_t bytes);
      `gpu-lower-to-nvvm-pipeline` → host 侧 LLVM lower。
 4. 校验单元函数 lower 后的 `LLVMFunctionType` 与 host 里对应声明完全一致，不一致直接报错
    （见 §16）；
-5. JIT 出函数指针，`skeleton_rt_register(op_id, device, fn)`。
+5. 返回函数指针，运行时把它记入表（`skeleton_rt_register` 只用于产物启动时登记已链接的实现）。
 
 每个 `(op, device)` 的 `ExecutionEngine` 都保活：host 可能还持有另一个设备的函数指针。
 编译失败按 `(op, device)` 缓存，后续调用不再重试（运行时回退到另一个设备）。
@@ -360,6 +363,7 @@ host-only 程序也是合法输入，driver 会跳过单元表直接执行。
 | 2026-10-31 | 内嵌 IR 的存活 | 用 MLIR bytecode + external linkage | O2 的 GlobalDCE 会删掉无引用的 internal global |
 | 2026-10-31 | 多结果算子 | outline 阶段拒绝 | dispatch 和 GPU 桥接只处理一个结果，晚报错会静默丢结果 |
 | 2026-11-03 | 多结果的适用范围 | 只在 preference 是 GPU 时拒绝 | CPU 单元的候选设备只有 CPU，GPU 桥接才是真正的限制 |
+| 2026-11-03 | provider 与 register 的分工 | provider 通过返回值安装，register 只用于启动与替换 | 两条安装路径只能有一条契约，否则 provider 的行为取决于实现细节 |
 
 ## 15. 修掉的问题
 
@@ -415,6 +419,9 @@ host-only 程序也是合法输入，driver 会跳过单元表直接执行。
 - **不可恢复的失败**：`resolve` 在没有可用实现时直接 `exit(1)`，运行时库不提供「返回错误、
   由调用方决定」的路径。产物需要这一条（生成的 host 代码直接调用返回值），代价是它不能作为
   普通库嵌进需要恢复的宿主。
+- **热插拔与换卡**：设备按类别（CPU / GPU）寻址，不区分具体实例；实现按 `(算子, 类别)`
+  缓存且永不失效，编译失败也永久缓存。运行期插上或拔掉设备、换一张卡、多卡都不支持——
+  要支持需要设备实例标识、缓存失效接口和重试策略；v1 接受这个代价。
 - **线程安全**：运行时用进程级全局表，v1 不支持多线程同时 resolve；需要时再加锁。
 - **平台**：产物链接固定用外部 `clang` + `-no-pie -ldl -lstdc++ -lm`，目前只针对
   Linux/libstdc++ 验证；换平台要重新确认链接参数和 C++ 运行库。
