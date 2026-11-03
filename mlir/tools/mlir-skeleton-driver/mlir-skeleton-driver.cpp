@@ -70,9 +70,7 @@
 
 using namespace mlir;
 
-//===----------------------------------------------------------------------===//
 // Options
-//===----------------------------------------------------------------------===//
 
 static llvm::cl::opt<std::string> inputFilename(llvm::cl::Positional,
                                                 llvm::cl::desc("<input file>"),
@@ -117,9 +115,7 @@ static llvm::cl::opt<bool>
                llvm::cl::desc("Print the lowered host module before execution"),
                llvm::cl::init(false));
 
-//===----------------------------------------------------------------------===//
 // Operator units
-//===----------------------------------------------------------------------===//
 
 namespace {
 
@@ -185,9 +181,7 @@ void collectSymbolRefs(Operation *op,
   });
 }
 
-//===----------------------------------------------------------------------===//
 // Lowering
-//===----------------------------------------------------------------------===//
 
 /// Lower a module to the LLVM dialect. Host modules additionally get their
 /// operator calls rewritten into runtime resolves. When \p hostSignatures is
@@ -231,9 +225,7 @@ lowerToLLVM(ModuleOp module, MLIRContext *context, bool isHost,
   return dispatchPm.run(module);
 }
 
-//===----------------------------------------------------------------------===//
 // GPU operator units
-//===----------------------------------------------------------------------===//
 
 /// Turn the op unit module into the shape skeleton-target-lower expects: an
 /// implementation marked as a GPU target plus a wrapper with the original
@@ -286,9 +278,7 @@ LogicalResult lowerGpuUnit(ModuleOp module, const UnitInfo &unit) {
   return pm.run(module);
 }
 
-//===----------------------------------------------------------------------===//
 // JIT
-//===----------------------------------------------------------------------===//
 
 ExecutionEngineOptions engineOptions(DriverState &state, bool withSharedLibs) {
   ExecutionEngineOptions options;
@@ -410,9 +400,7 @@ void *provideImplementation(int64_t opId, int32_t device) {
   return compileUnit(*it->second, device);
 }
 
-//===----------------------------------------------------------------------===//
 // Splitting
-//===----------------------------------------------------------------------===//
 
 /// Move every outlined operator function into its own module and leave a
 /// declaration in the host module. References from the operator (pure
@@ -514,9 +502,7 @@ LogicalResult splitUnits(ModuleOp module, DriverState &state) {
   return success();
 }
 
-//===----------------------------------------------------------------------===//
 // Execution
-//===----------------------------------------------------------------------===//
 
 FailureOr<int> runDriver(ModuleOp module, DriverState &state) {
   // The runtime only supports a C-style entry point: no arguments and no
@@ -587,9 +573,7 @@ FailureOr<int> runDriver(ModuleOp module, DriverState &state) {
 
 } // namespace
 
-//===----------------------------------------------------------------------===//
 // Artifact emission
-//===----------------------------------------------------------------------===//
 
 namespace {
 
@@ -899,9 +883,7 @@ LogicalResult emitArtifact(ModuleOp module, DriverState &state,
   return writeAndLink(module, output, state.runtimeArchive, state.linker);
 }
 
-//===----------------------------------------------------------------------===//
 // Main
-//===----------------------------------------------------------------------===//
 
 /// Load either a skeleton-level MLIR file or an emitted artifact. An artifact
 /// carries its skeleton IR in the .skeleton.ir section.
