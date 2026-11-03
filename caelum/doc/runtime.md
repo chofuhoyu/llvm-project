@@ -400,6 +400,10 @@ host-only 程序也是合法输入，driver 会跳过单元表直接执行。
   单元（见 §14）。
 - **entry 签名未检查、trace 日志与文档不一致**（2026-10-31 修复）：driver 与 `--emit`
   都要求 `() -> ()`；日志增加 `free=` 字段，文档同步。
+- **嵌套图被切成互不引用的单元**（2026-11-03 修复）：outline 把算子 body 里的嵌套算子
+  也当成独立单元，结果产生一个没人调用的单元，外层单元的克隆则拿到被掏空的声明，JIT 报
+  `Symbols not found`。现在收集时不下钻，嵌套图留在同一个单元里，由 `skeleton-to-linalg`
+  报「nested skeleton operators in a body region are not supported」。
 
 ## 16. 已知风险
 
