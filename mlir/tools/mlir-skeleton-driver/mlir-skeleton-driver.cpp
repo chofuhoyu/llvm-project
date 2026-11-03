@@ -1,5 +1,7 @@
-//===- mlir-skeleton-driver.cpp - runtime operator placement driver -------===//
-//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 // Entry point of the Skeleton runtime. It owns the compilation pipeline from
 // skeleton IR down, places every operator at run time and executes the
 // program in this process.
@@ -14,8 +16,6 @@
 //   5. when the runtime resolves an operator it has no implementation for, it
 //      calls back into this driver, which compiles the operator from its
 //      skeleton IR for the chosen device and hands the pointer back.
-//
-//===----------------------------------------------------------------------===//
 
 #include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
@@ -87,13 +87,15 @@ static llvm::cl::list<std::string>
                llvm::cl::desc("Shared libraries to resolve symbols from"),
                llvm::cl::ZeroOrMore, llvm::cl::CommaSeparated);
 
-static llvm::cl::opt<bool> traceDecisions(
-    "trace", llvm::cl::desc("Trace placement decisions and compiles"),
-    llvm::cl::init(false));
+static llvm::cl::opt<bool>
+    traceDecisions("trace",
+                   llvm::cl::desc("Trace placement decisions and compiles"),
+                   llvm::cl::init(false));
 
-static llvm::cl::opt<std::string> emitPath(
-    "emit", llvm::cl::desc("Emit a standalone program artifact at this path"),
-    llvm::cl::init(""));
+static llvm::cl::opt<std::string>
+    emitPath("emit",
+             llvm::cl::desc("Emit a standalone program artifact at this path"),
+             llvm::cl::init(""));
 
 static llvm::cl::opt<std::string> runtimeLib(
     "runtime-lib",
@@ -105,14 +107,15 @@ static llvm::cl::list<std::string> linkArgs(
     llvm::cl::desc("Extra argument passed to the linker when emitting"),
     llvm::cl::ZeroOrMore);
 
-static llvm::cl::opt<std::string> linkerPath(
-    "linker", llvm::cl::desc("Linker driver used to produce an artifact"),
-    llvm::cl::init("clang"));
+static llvm::cl::opt<std::string>
+    linkerPath("linker",
+               llvm::cl::desc("Linker driver used to produce an artifact"),
+               llvm::cl::init("clang"));
 
-static llvm::cl::opt<bool> dumpHostIR(
-    "dump-host-ir",
-    llvm::cl::desc("Print the lowered host module before execution"),
-    llvm::cl::init(false));
+static llvm::cl::opt<bool>
+    dumpHostIR("dump-host-ir",
+               llvm::cl::desc("Print the lowered host module before execution"),
+               llvm::cl::init(false));
 
 //===----------------------------------------------------------------------===//
 // Operator units
@@ -171,14 +174,14 @@ int32_t deviceFromPreference(Operation *op) {
 }
 
 /// Collect every flat symbol referenced from `op` or anything nested in it.
-void collectSymbolRefs(Operation *op, SmallVectorImpl<FlatSymbolRefAttr> &refs) {
+void collectSymbolRefs(Operation *op,
+                       SmallVectorImpl<FlatSymbolRefAttr> &refs) {
   op->walk([&](Operation *inner) {
     for (NamedAttribute attr : inner->getAttrs())
-      attr.getValue().walk(
-          [&](Attribute value) {
-            if (auto ref = dyn_cast<FlatSymbolRefAttr>(value))
-              refs.push_back(ref);
-          });
+      attr.getValue().walk([&](Attribute value) {
+        if (auto ref = dyn_cast<FlatSymbolRefAttr>(value))
+          refs.push_back(ref);
+      });
   });
 }
 
@@ -252,14 +255,14 @@ LogicalResult prepareGpuUnit(ModuleOp module, const UnitInfo &unit) {
 
   OpBuilder builder(context);
   builder.setInsertionPoint(impl);
-  auto wrapper = func::FuncOp::create(builder, impl.getLoc(), unit.symbol,
-                                      signature);
+  auto wrapper =
+      func::FuncOp::create(builder, impl.getLoc(), unit.symbol, signature);
   wrapper.setPrivate();
   Block *block = wrapper.addEntryBlock();
   builder.setInsertionPointToStart(block);
-  auto call = func::CallOp::create(builder, impl.getLoc(), impl.getSymName(),
-                                   signature.getResults(),
-                                   block->getArguments());
+  auto call =
+      func::CallOp::create(builder, impl.getLoc(), impl.getSymName(),
+                           signature.getResults(), block->getArguments());
   func::ReturnOp::create(builder, impl.getLoc(), call.getResults());
   return success();
 }
@@ -369,8 +372,8 @@ void *compileUnit(UnitInfo &unit, int32_t device) {
   if (unitFunc.getFunctionType() != hostSignature->second) {
     llvm::errs() << "[skeleton-driver] op=" << unit.id << ": ABI mismatch for '"
                  << unit.symbol << "'\n  host: ";
-    llvm::errs() << hostSignature->second << "\n  unit: "
-                 << unitFunc.getFunctionType() << "\n";
+    llvm::errs() << hostSignature->second
+                 << "\n  unit: " << unitFunc.getFunctionType() << "\n";
     unit.failed.insert(device);
     return nullptr;
   }
@@ -584,7 +587,6 @@ FailureOr<int> runDriver(ModuleOp module, DriverState &state) {
 
 } // namespace
 
-
 //===----------------------------------------------------------------------===//
 // Artifact emission
 //===----------------------------------------------------------------------===//
@@ -636,9 +638,8 @@ LogicalResult addProgramInit(OpBuilder &builder, ModuleOp module,
   auto voidTy = LLVM::LLVMVoidType::get(ctx);
 
   builder.setInsertionPointToEnd(module.getBody());
-  auto init = LLVM::LLVMFuncOp::create(
-      builder, loc, "skeleton_program_init",
-      LLVM::LLVMFunctionType::get(voidTy, {}));
+  auto init = LLVM::LLVMFuncOp::create(builder, loc, "skeleton_program_init",
+                                       LLVM::LLVMFunctionType::get(voidTy, {}));
   Block *block = init.addEntryBlock(builder);
   builder.setInsertionPointToStart(block);
 
@@ -659,9 +660,8 @@ LogicalResult addProgramInit(OpBuilder &builder, ModuleOp module,
                    << "' disappeared before emission\n";
       return failure();
     }
-    Value cpu = LLVM::ConstantOp::create(builder, loc, i32Ty,
-                                         builder.getI32IntegerAttr(
-                                             SKELETON_DEVICE_CPU));
+    Value cpu = LLVM::ConstantOp::create(
+        builder, loc, i32Ty, builder.getI32IntegerAttr(SKELETON_DEVICE_CPU));
     Value address = LLVM::AddressOfOp::create(builder, loc, impl);
     LLVM::CallOp::create(builder, loc, TypeRange{},
                          FlatSymbolRefAttr::get(ctx, "skeleton_rt_register"),
@@ -701,9 +701,8 @@ void addSkeletonIR(OpBuilder &builder, ModuleOp module, StringRef ir,
   auto i8Ty = builder.getI8Type();
   auto arrayTy = LLVM::LLVMArrayType::get(i8Ty, ir.size());
 
-  SmallVector<NamedAttribute> attrs{
-      NamedAttribute(StringAttr::get(ctx, "section"),
-                     StringAttr::get(ctx, ".skeleton.ir"))};
+  SmallVector<NamedAttribute> attrs{NamedAttribute(
+      StringAttr::get(ctx, "section"), StringAttr::get(ctx, ".skeleton.ir"))};
 
   builder.setInsertionPointToEnd(module.getBody());
   // External linkage keeps the section alive through the optimization
@@ -779,9 +778,8 @@ LogicalResult writeAndLink(ModuleOp module, StringRef output,
 
   llvm::SmallString<128> objectPath;
   int fd = -1;
-  if (std::error_code ec =
-          llvm::sys::fs::createTemporaryFile("skeleton-artifact", "o", fd,
-                                             objectPath)) {
+  if (std::error_code ec = llvm::sys::fs::createTemporaryFile(
+          "skeleton-artifact", "o", fd, objectPath)) {
     llvm::errs() << "cannot create a temporary object file: " << ec.message()
                  << "\n";
     return failure();
@@ -793,13 +791,14 @@ LogicalResult writeAndLink(ModuleOp module, StringRef output,
 
   llvm::ErrorOr<std::string> program = llvm::sys::findProgramByName(linker);
   if (!program) {
-    llvm::errs() << "cannot find linker '" << linker << "': "
-                 << program.getError().message() << "\n";
+    llvm::errs() << "cannot find linker '" << linker
+                 << "': " << program.getError().message() << "\n";
     llvm::sys::fs::remove(objectPath);
     return failure();
   }
-  SmallVector<StringRef, 8> args{*program, objectPath, runtimeArchive, "-o",
-                                 output, "-no-pie", "-ldl", "-lstdc++", "-lm"};
+  SmallVector<StringRef, 8> args{*program, objectPath, runtimeArchive,
+                                 "-o",     output,     "-no-pie",
+                                 "-ldl",   "-lstdc++", "-lm"};
   for (const std::string &extra : linkArgs)
     args.push_back(extra);
   int status = llvm::sys::ExecuteAndWait(*program, args);
@@ -913,7 +912,8 @@ static OwningOpRef<ModuleOp> loadProgram(StringRef path, MLIRContext *context) {
     return {};
   }
   StringRef data = (*bufferOrErr)->getBuffer();
-  if (!data.starts_with("\x7f" "ELF"))
+  if (!data.starts_with("\x7f"
+                        "ELF"))
     return parseSourceFile<ModuleOp>(path, context);
 
   auto objectOrErr = llvm::object::ObjectFile::createObjectFile(path);

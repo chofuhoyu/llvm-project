@@ -1,5 +1,7 @@
-//===----------------------------------------------------------------------===//
-//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 // Minimal runtime ABI for Skeleton operator placement.
 //
 // This header is plain C and must not depend on MLIR: the same library is
@@ -12,8 +14,6 @@
 // decides which registered implementation to call, asking the provider (the
 // driver) to compile one when the cache has no implementation for the chosen
 // device.
-//
-//===----------------------------------------------------------------------===//
 
 #ifndef MLIR_DIALECT_SKELETON_RUNTIME_SKELETONRUNTIME_H
 #define MLIR_DIALECT_SKELETON_RUNTIME_SKELETONRUNTIME_H

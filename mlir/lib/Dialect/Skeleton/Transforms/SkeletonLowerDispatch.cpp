@@ -1,5 +1,7 @@
-//===----------------------------------------------------------------------===//
-//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 // Rewrite calls to outlined op units into runtime resolves plus indirect calls.
 //
 // After the module is lowered to the LLVM dialect, a call to
@@ -16,8 +18,6 @@
 // arguments. The op unit declaration is erased when nothing else refers to it
 // (in the driver it lives in a separate module; in an artifact the start-up
 // registration still takes its address).
-//
-//===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -80,23 +80,21 @@ struct SkeletonLowerDispatchPass
       OpBuilder builder(call);
       Location loc = call.getLoc();
 
-      Value idValue =
-          LLVM::ConstantOp::create(builder, loc, builder.getI64Type(),
-                                   builder.getI64IntegerAttr(opId));
-      Value impl = LLVM::CallOp::create(
-                       builder, loc,
-                       TypeRange{LLVM::LLVMPointerType::get(ctx)},
-                       FlatSymbolRefAttr::get(ctx, kResolveName),
-                       ValueRange{idValue})
-                       .getResult();
+      Value idValue = LLVM::ConstantOp::create(
+          builder, loc, builder.getI64Type(), builder.getI64IntegerAttr(opId));
+      Value impl =
+          LLVM::CallOp::create(
+              builder, loc, TypeRange{LLVM::LLVMPointerType::get(ctx)},
+              FlatSymbolRefAttr::get(ctx, kResolveName), ValueRange{idValue})
+              .getResult();
 
       SmallVector<Value> operands;
       operands.push_back(impl);
       llvm::append_range(operands, call.getArgOperands());
 
-      auto indirect = LLVM::CallOp::create(
-          builder, loc, call.getResultTypes(), operands,
-          call->getDiscardableAttrDictionary().getValue());
+      auto indirect =
+          LLVM::CallOp::create(builder, loc, call.getResultTypes(), operands,
+                               call->getDiscardableAttrDictionary().getValue());
       indirect.getProperties().operandSegmentSizes = {
           static_cast<int32_t>(operands.size()), 0};
       indirect.getProperties().op_bundle_sizes =

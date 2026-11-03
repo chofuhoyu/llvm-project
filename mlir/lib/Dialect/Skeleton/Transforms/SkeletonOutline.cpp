@@ -1,5 +1,7 @@
-//===----------------------------------------------------------------------===//
-//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 // Outline skeleton operators into separately compilable op units.
 //
 // Each op unit becomes
@@ -15,8 +17,6 @@
 // way in the artifact build and when the driver re-reads the embedded IR, and
 // the ids are stored on the function so nothing depends on reproducing the
 // walk.
-//
-//===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"

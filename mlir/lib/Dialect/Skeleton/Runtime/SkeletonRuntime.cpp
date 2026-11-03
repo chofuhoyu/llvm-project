@@ -1,5 +1,7 @@
-//===----------------------------------------------------------------------===//
-//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 // Implementation of the minimal Skeleton runtime ABI.
 //
 // The runtime owns three things: the operator table, the device probe cache,
@@ -7,8 +9,6 @@
 // no implementation for the chosen device it asks the installed provider,
 // which is the driver. Artifacts have no provider, so they can only run the
 // implementations that were linked into them.
-//
-//===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Skeleton/Runtime/SkeletonRuntime.h"
 
