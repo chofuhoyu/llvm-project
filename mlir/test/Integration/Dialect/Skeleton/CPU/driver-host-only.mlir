@@ -1,9 +1,15 @@
 // REQUIRES: mlir-skeleton-driver
 // RUN: mlir-skeleton-driver %s -entry main \
 // RUN:   --shared-libs=%mlir_c_runner_utils,%mlir_runner_utils | FileCheck %s
+// RUN: mlir-skeleton-driver %s -entry main --emit %t.prog \
+// RUN:   --runtime-lib=%mlir_lib_dir/libMLIRSkeletonRuntime.a \
+// RUN:   --link-arg=-L%mlir_lib_dir --link-arg=-Wl,-rpath,%mlir_lib_dir \
+// RUN:   --link-arg=-lmlir_runner_utils --link-arg=-lmlir_c_runner_utils
+// RUN: %t.prog | FileCheck %s
 
 // A program with no operator units is still a valid host program: the driver
-// must not require the operator table to be non-empty.
+// must not require the operator table to be non-empty, and --emit must produce
+// a working artifact whose registration table stays empty.
 
 func.func private @printMemrefF32(memref<*xf32>)
 
