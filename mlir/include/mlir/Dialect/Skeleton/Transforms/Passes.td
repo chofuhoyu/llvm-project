@@ -77,9 +77,9 @@ def SkeletonOutline : Pass<"skeleton-outline"> {
 
     Each function keeps the operator in its skeleton form and records
     skeleton.op_id, skeleton.preference and skeleton.bytes, so the driver can
-    re-enter compilation from skeleton IR for that operator alone. Operators
-    with more than one result are rejected: the runtime dispatch and the GPU
-    bridge handle a single result.
+    re-enter compilation from skeleton IR for that operator alone. An operator
+    that can be compiled for the GPU must have a single result: the GPU bridge
+    gives it one output memref.
   }];
   let dependentDialects = [
     "mlir::func::FuncDialect",
