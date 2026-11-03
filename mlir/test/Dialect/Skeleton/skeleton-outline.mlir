@@ -1,17 +1,20 @@
 // RUN: mlir-opt %s -skeleton-outline | FileCheck %s
 
 #map = affine_map<(d0, d1) -> (d0, d1)>
+#map1d = affine_map<(d0) -> (d0)>
 
 // Both operator units become private functions that keep the operator in its
 // skeleton form, carry the placement metadata, and are called from the host.
 // Ids follow module walk order: the matmul is 0, the map is 1, the two-result
-// generic is 2.
+// generic is 2, the unit without results is 3.
 
 // CHECK-LABEL: func.func @host
 // CHECK: call @__skeleton_op_0
 // CHECK: call @__skeleton_op_1
 // CHECK-LABEL: func.func @host_multi
 // CHECK: call @__skeleton_op_2
+// CHECK-LABEL: func.func @host_void
+// CHECK: call @__skeleton_op_3
 // CHECK-LABEL: func.func private @__skeleton_op_0(
 // CHECK-SAME: -> tensor<2x2xf32> attributes {
 // CHECK-SAME: skeleton.bytes = {{[0-9]+}} : i64
@@ -28,6 +31,12 @@
 // CHECK-LABEL: func.func private @__skeleton_op_2(
 // CHECK-SAME: -> (tensor<2x2xf32>, tensor<2x2xf32>) attributes {
 // CHECK-SAME: skeleton.op_id = 2 : i64
+// CHECK-SAME: skeleton.preference = #skeleton.preference<"CPU">
+// CHECK: linalg.generic
+// CHECK: return
+// CHECK-LABEL: func.func private @__skeleton_op_3(
+// CHECK-SAME: attributes {
+// CHECK-SAME: skeleton.op_id = 3 : i64
 // CHECK-SAME: skeleton.preference = #skeleton.preference<"CPU">
 // CHECK: linalg.generic
 // CHECK: return
@@ -65,4 +74,19 @@ func.func @host_multi(%a: tensor<2x2xf32>, %c: tensor<2x2xf32>,
       linalg.yield %y, %x : f32, f32
   } -> (tensor<2x2xf32>, tensor<2x2xf32>)
   return %r#0, %r#1 : tensor<2x2xf32>, tensor<2x2xf32>
+}
+
+// A unit may have no results: the operator writes through its memref outs.
+func.func @host_void(%a: memref<4xf32>, %b: memref<4xf32>) {
+  linalg.generic {
+      indexing_maps = [#map1d, #map1d],
+      iterator_types = ["parallel"],
+      skeleton.preference = #skeleton.preference<"CPU">}
+    ins(%a : memref<4xf32>)
+    outs(%b : memref<4xf32>) {
+    ^bb0(%x: f32, %o: f32):
+      %y = arith.addf %x, %x : f32
+      linalg.yield %y : f32
+  }
+  return
 }
