@@ -109,20 +109,22 @@ struct SkeletonOutlinePass
     MLIRContext *ctx = &getContext();
     OpBuilder builder(ctx);
 
-    // Collect in walk order; the id is the position in this list. Do not
-    // descend into a unit: an operator nested in another unit's region would
+    // Collect in pre-order; the id is the position in this list. Not descending
+    // into a unit matters: an operator nested in another unit's region would
     // become a unit of its own that nothing calls, while the outer unit would
     // reference a function whose body was moved away. Keep such a graph in one
     // unit and let skeleton-to-linalg reject it.
     SmallVector<Operation *> units;
-    module.walk([&](Operation *op) -> WalkResult {
-      if (op->hasAttr("skeleton.op_id"))
-        return WalkResult::advance();
-      if (!isOpUnit(op))
-        return WalkResult::advance();
-      units.push_back(op);
-      return WalkResult::skip();
-    });
+    module.walk(
+        [&](Operation *op) -> WalkResult {
+          if (op->hasAttr("skeleton.op_id"))
+            return WalkResult::advance();
+          if (!isOpUnit(op))
+            return WalkResult::advance();
+          units.push_back(op);
+          return WalkResult::skip();
+        },
+        WalkOrder::PreOrder);
     if (units.empty())
       return;
 
