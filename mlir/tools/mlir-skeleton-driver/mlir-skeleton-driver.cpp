@@ -454,28 +454,37 @@ LogicalResult splitUnits(ModuleOp module, DriverState &state) {
       builder.clone(*unitFunc);
 
       llvm::DenseSet<StringRef> cloned;
-      std::function<void(FlatSymbolRefAttr)> cloneReference =
-          [&](FlatSymbolRefAttr ref) {
-            if (!cloned.insert(ref.getValue()).second)
-              return;
-            Operation *refOp =
-                SymbolTable::lookupSymbolIn(module, ref.getValue());
-            if (!refOp)
-              return;
-            if (auto callee = dyn_cast<func::FuncOp>(refOp)) {
-              SmallVector<FlatSymbolRefAttr> nested;
-              collectSymbolRefs(callee, nested);
-              builder.clone(*callee);
-              for (FlatSymbolRefAttr inner : nested)
-                cloneReference(inner);
-            } else {
-              // Globals (memref.global, llvm.mlir.global, ...) are referenced
-              // by name from the unit, so they must travel with it.
-              builder.clone(*refOp);
-            }
-          };
+      std::function<LogicalResult(FlatSymbolRefAttr)> cloneReference =
+          [&](FlatSymbolRefAttr ref) -> LogicalResult {
+        if (!cloned.insert(ref.getValue()).second)
+          return success();
+        Operation *refOp = SymbolTable::lookupSymbolIn(module, ref.getValue());
+        if (!refOp)
+          return success();
+        if (auto callee = dyn_cast<func::FuncOp>(refOp)) {
+          // The callee's body lives in that unit's own module, so cloning it
+          // here would copy an empty declaration and the unit would fail to
+          // link at JIT time.
+          if (callee->hasAttr("skeleton.op_id"))
+            return unitFunc.emitError()
+                   << "operator unit '" << unitFunc.getSymName()
+                   << "' calls operator unit '" << callee.getSymName() << "'";
+          SmallVector<FlatSymbolRefAttr> nested;
+          collectSymbolRefs(callee, nested);
+          builder.clone(*callee);
+          for (FlatSymbolRefAttr inner : nested)
+            if (failed(cloneReference(inner)))
+              return failure();
+        } else {
+          // Globals (memref.global, llvm.mlir.global, ...) are referenced
+          // by name from the unit, so they must travel with it.
+          builder.clone(*refOp);
+        }
+        return success();
+      };
       for (FlatSymbolRefAttr ref : refs)
-        cloneReference(ref);
+        if (failed(cloneReference(ref)))
+          return failure();
     }
 
     std::string text;
@@ -490,6 +499,12 @@ LogicalResult splitUnits(ModuleOp module, DriverState &state) {
     unitFunc.getBody().dropAllReferences();
     unitFunc.getBody().getBlocks().clear();
 
+    if (state.byId.count(info->id)) {
+      unitFunc.emitError() << "operator unit '" << unitFunc.getSymName()
+                           << "' has a duplicate skeleton.op_id (" << info->id
+                           << ")";
+      return failure();
+    }
     state.byId[info->id] = info.get();
     state.units.push_back(std::move(info));
   }
