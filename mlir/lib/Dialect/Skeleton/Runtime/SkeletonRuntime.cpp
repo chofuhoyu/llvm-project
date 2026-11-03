@@ -17,7 +17,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <deque>
+#include <vector>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -50,10 +50,8 @@ struct OpEntry {
 };
 
 struct RuntimeState {
-  /// Indexed by operator id. A deque rather than a vector: resolve keeps a
-  /// reference to one entry while it calls into the provider, and a provider
-  /// may declare more operators, which grows the table.
-  std::deque<OpEntry> ops;
+  /// Indexed by operator id.
+  std::vector<OpEntry> ops;
   skeleton_rt_provider_fn provider = nullptr;
 
   bool trace = false;
@@ -297,6 +295,9 @@ void *skeleton_rt_resolve(int64_t opId) {
     }
     if (!entry->impls[device] && s.provider) {
       void *compiled = s.provider(opId, device);
+      // A provider may declare or register operators, which can grow the table
+      // and move every entry; look this one up again before writing to it.
+      entry = &s.ops[static_cast<size_t>(opId)];
       if (compiled) {
         entry->impls[device] = compiled;
         ++entry->compiles[device];
