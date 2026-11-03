@@ -70,12 +70,12 @@
 
 **第一版可用**（`caelum/doc/runtime.md`）。`mlir-skeleton-driver` 按 op 决策、
 按需从该 op 的 skeleton IR 重编译、在自己的进程里执行；`--emit` 产出只带 CPU 实现
-与内嵌 IR 的独立可执行文件，driver 可读回其 IR 并为 GPU 重编译。远端验证：
-单元 12/12、集成 20/20、CIR 9/9。2026-10-31 的审查修复补齐了按设备保活的 JIT 引擎、
-resolve 失败终止、body-region 算子、编译失败负缓存、GPU 显存探测、跨模块 ABI 校验、
-产物 O2 与 bytecode 内嵌 IR。编译期选择的两个 pass
-（`preference-partition`、`finalize-memref-to-gpu`）已删除；全部 e2e 已迁到 driver；
-`target-lower` 仅作为“把一个单元降成 GPU 代码”的工具保留。
+与内嵌 IR 的独立可执行文件，driver 可读回其 IR 并为 GPU 重编译。远端验证全部通过
+（用例个数以 `remote.sh` 的过滤规则为准）。2026-10-31 与 2026-11-03 的审查修复补齐了
+按设备保活的 JIT 引擎、resolve 失败终止、body-region 算子、编译失败负缓存、GPU 显存探测、
+跨模块 ABI 校验、产物 O2 与 bytecode 内嵌 IR、算子表指针失效、嵌套图与单元间调用。
+编译期选择的两个 pass（`preference-partition`、`finalize-memref-to-gpu`）已删除；
+全部 e2e 已迁到 driver；`target-lower` 仅作为“把一个单元降成 GPU 代码”的工具保留。
 
 ### 3.3 GPU 执行
 

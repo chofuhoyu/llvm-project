@@ -304,19 +304,24 @@ host-only 程序也是合法输入，driver 会跳过单元表直接执行。
   CPU/GPU 全部 e2e 已迁到 driver（输入与期望输出不变）；`target-lower` 保留，
   作为 driver 编译单个 GPU 单元时的 lowering 工具，不再做放置决策。
 
-2026-10-28 远端验证：单元测试 13/13、集成测试 16/16、CIR 9/9 全部通过。
-2026-10-31 审查修复后：单元测试 12/12、集成测试 20/20、CIR 9/9 全部通过。
-集成测试里新增：`driver-matmul`（driver 跑 CPU 闭环）、`driver-artifact`
-（产物自运行 + driver 读产物 IR）、`driver-matmul-gpu`（GPU 重编译 + 产物三种用法）、
-`driver-adaptive`（同一算子在同一进程内 GPU → CPU → GPU）、`driver-body`
-（body-region 算子的完整 runtime 路径）、`driver-host-only`（没有 op 单元的 host 程序）、
-`driver-multi-unit-gpu`（同一进程内两个 GPU 单元）、`driver-error`（无法编译的单元干净终止，
-而不是空指针调用）、`driver-multi-result`（偏好 CPU 的多结果单元）、
-`driver-memory-fallback`（显存放不下时回退 CPU）。
-单元测试新增 `skeleton-outline-invalid.mlir`（偏好 GPU 的多结果拒绝）；`skeleton-to-linalg.mlir`
-覆盖 body region 与嵌套 skeleton 算子的诊断。
+远端验证（2026-10-28、2026-10-31、2026-11-03）：单元、集成、CIR 三组全绿。用例个数
+以 `remote.sh` 的过滤规则为准，不在本文记录。
 
-2026-10-31 审查修复的内容见 §14 末尾的决策记录和 §15。
+集成测试：`driver-matmul`（driver 跑 CPU 闭环）、`driver-artifact`（产物自运行 + driver
+读产物 IR）、`driver-matmul-gpu`（GPU 重编译 + 产物三种用法）、`driver-adaptive`（同一
+算子在同一进程内 GPU → CPU → GPU）、`driver-body`（body-region 算子的完整 runtime 路径）、
+`driver-host-only`（没有 op 单元的 host 程序，driver 与产物两条路径）、`driver-multi-unit-gpu`
+（同一进程内两个 GPU 单元）、`driver-error`（无法编译的单元干净终止，而不是空指针调用）、
+`driver-multi-result`（偏好 CPU 的多结果单元）、`driver-memory-fallback`（显存放不下时回退
+CPU）、`driver-nested`（嵌套图被 `skeleton-to-linalg` 拒绝）、`driver-unit-call` 与
+`driver-duplicate-id`（单元互调、重复 id 被拒绝）。
+
+单元测试：`skeleton-outline`（id、属性、没有偏好的 linalg 留在 host、零结果单元）、
+`skeleton-outline-invalid`（偏好 GPU 的多结果拒绝）、`skeleton-outline-nested`（嵌套算子
+留在外层单元）、`skeleton-lower-dispatch`（resolve + 间接调用、声明清理）；
+`skeleton-to-linalg` 覆盖 body region 与嵌套 skeleton 算子的诊断。
+
+2026-10-31 与 2026-11-03 审查修复的内容见 §14 的决策记录和 §15。
 
 ## 13. 已否决的方案
 
@@ -364,6 +369,7 @@ host-only 程序也是合法输入，driver 会跳过单元表直接执行。
 | 2026-10-31 | 多结果算子 | outline 阶段拒绝 | dispatch 和 GPU 桥接只处理一个结果，晚报错会静默丢结果 |
 | 2026-11-03 | 多结果的适用范围 | 只在 preference 是 GPU 时拒绝 | CPU 单元的候选设备只有 CPU，GPU 桥接才是真正的限制 |
 | 2026-11-03 | provider 与 register 的分工 | provider 通过返回值安装，register 只用于启动与替换 | 两条安装路径只能有一条契约，否则 provider 的行为取决于实现细节 |
+| 2026-11-03 | 嵌套图 | outline 不下钻，整图留在一个单元里 | 单元之间没有调用机制；切开只会得到一个没人调用的单元和一个空声明 |
 
 ## 15. 修掉的问题
 
