@@ -119,7 +119,8 @@ driver 读 IR 用 LLVM 的 object 库按 section 名取内容，不 dlopen、不
 - 输出模块里同时有 host 和 outline 出来的函数，driver 再把它们切成
   “host 模块 + 每个 op 一个模块”。
 
-多结果算子在这一步直接报错：host 的 dispatch 和 GPU 桥接都只处理一个结果。
+偏好 GPU 的多结果算子在这一步直接报错：GPU 桥接给每个算子一个输出 memref。偏好 CPU 的
+单元可以有多结果——它在运行期的候选设备只有 CPU，不会被编译成 GPU 代码。
 
 ## 5. 运行时 ABI
 
@@ -294,8 +295,8 @@ host-only 程序也是合法输入，driver 会跳过单元表直接执行。
 `driver-adaptive`（同一算子在同一进程内 GPU → CPU → GPU）、`driver-body`
 （body-region 算子的完整 runtime 路径）、`driver-host-only`（没有 op 单元的 host 程序）、
 `driver-multi-unit-gpu`（同一进程内两个 GPU 单元）、`driver-error`（无法编译的单元干净终止，
-而不是空指针调用）。
-单元测试新增 `skeleton-outline-invalid.mlir`（多结果拒绝）；`skeleton-to-linalg.mlir`
+而不是空指针调用）、`driver-multi-result`（偏好 CPU 的多结果单元）。
+单元测试新增 `skeleton-outline-invalid.mlir`（偏好 GPU 的多结果拒绝）；`skeleton-to-linalg.mlir`
 覆盖 body region 与嵌套 skeleton 算子的诊断。
 
 2026-10-31 审查修复的内容见 §14 末尾的决策记录和 §15。
@@ -344,6 +345,7 @@ host-only 程序也是合法输入，driver 会跳过单元表直接执行。
 | 2026-10-31 | 产物优化级别 | 与 JIT 一致跑 O2 | 否则 `./prog` 和 `driver prog` 的性能对比混入优化差异 |
 | 2026-10-31 | 内嵌 IR 的存活 | 用 MLIR bytecode + external linkage | O2 的 GlobalDCE 会删掉无引用的 internal global |
 | 2026-10-31 | 多结果算子 | outline 阶段拒绝 | dispatch 和 GPU 桥接只处理一个结果，晚报错会静默丢结果 |
+| 2026-11-03 | 多结果的适用范围 | 只在 preference 是 GPU 时拒绝 | CPU 单元的候选设备只有 CPU，GPU 桥接才是真正的限制 |
 
 ## 15. 修掉的问题
 
@@ -375,8 +377,9 @@ host-only 程序也是合法输入，driver 会跳过单元表直接执行。
 - **跨模块 ABI 没有校验**（2026-10-31 修复）：JIT 前比较单元与 host 声明 lower 后的
   `LLVMFunctionType`，不一致直接报错。
 - **没有 op 单元的程序跑不了**（2026-10-31 修复）：`splitUnits` 和 `--emit` 都允许空单元表。
-- **多结果算子在 GPU 路径静默丢结果**（2026-10-31 修复）：outline 阶段拒绝多结果单元，
-  GPU 桥接也加了防御性检查。
+- **多结果算子在 GPU 路径静默丢结果**（2026-10-31 修复）：outline 阶段拒绝偏好 GPU 的
+  多结果单元，GPU 桥接也加了防御性检查。2026-11-03 进一步把拒绝范围收窄到偏好 GPU 的
+  单元（见 §14）。
 - **entry 签名未检查、trace 日志与文档不一致**（2026-10-31 修复）：driver 与 `--emit`
   都要求 `() -> ()`；日志增加 `free=` 字段，文档同步。
 

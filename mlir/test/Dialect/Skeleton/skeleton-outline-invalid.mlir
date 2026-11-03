@@ -2,16 +2,17 @@
 
 #map = affine_map<(d0) -> (d0)>
 
-// The host dispatch and the GPU bridge handle one result per operator unit.
+// The GPU bridge gives an operator one output memref, so a unit that asks for
+// the GPU must have a single result. A CPU-preferred unit may have several.
 
 func.func @multi_result(%a: tensor<4xf32>, %b: tensor<4xf32>,
                         %c: tensor<4xf32>, %d: tensor<4xf32>)
     -> (tensor<4xf32>, tensor<4xf32>) {
-  // expected-error@+1 {{operator units with more than one result are not supported}}
+  // expected-error@+1 {{operator units with more than one result cannot be compiled for the GPU}}
   %r:2 = linalg.generic {
       indexing_maps = [#map, #map, #map, #map],
       iterator_types = ["parallel"],
-      skeleton.preference = #skeleton.preference<"CPU">}
+      skeleton.preference = #skeleton.preference<"GPU">}
     ins(%a, %b : tensor<4xf32>, tensor<4xf32>)
     outs(%c, %d : tensor<4xf32>, tensor<4xf32>) {
     ^bb0(%x: f32, %y: f32, %o1: f32, %o2: f32):

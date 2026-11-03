@@ -79,6 +79,13 @@ Attribute getPreference(Operation *op) {
   return op->getDiscardableAttr("skeleton.preference");
 }
 
+/// Whether the operator asks to run on the GPU. A missing or unrecognized
+/// preference means the CPU, matching the runtime's mapping.
+bool prefersGpu(Operation *op) {
+  auto preference = dyn_cast_or_null<PreferenceAttr>(getPreference(op));
+  return preference && preference.getValue() == "GPU";
+}
+
 bool isOpUnit(Operation *op) {
   // Already-outlined modules (the IR embedded in an artifact) keep their
   // operators inside functions carrying skeleton.op_id; outlining them again
@@ -113,16 +120,17 @@ struct SkeletonOutlinePass
     if (units.empty())
       return;
 
-    // The host dispatch rewrites one result at a time and the GPU bridge has a
-    // single output memref; reject multi-result units before creating calls
-    // that the rest of the pipeline cannot handle.
+    // The GPU bridge gives an operator one output memref, so a unit that can be
+    // compiled for the GPU must have a single result. A unit that prefers the
+    // CPU is never compiled for the GPU: resolve tries the preferred device and
+    // then the CPU, and stops there.
     for (Operation *op : units) {
-      if (op->getNumResults() > 1) {
-        op->emitError(
-            "operator units with more than one result are not supported");
-        signalPassFailure();
-        return;
-      }
+      if (op->getNumResults() <= 1 || !prefersGpu(op))
+        continue;
+      op->emitError("operator units with more than one result cannot be "
+                    "compiled for the GPU");
+      signalPassFailure();
+      return;
     }
 
     for (auto [index, op] : llvm::enumerate(units)) {
