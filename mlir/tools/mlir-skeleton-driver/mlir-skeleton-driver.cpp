@@ -820,6 +820,14 @@ LogicalResult emitArtifact(ModuleOp module, DriverState &state,
                            StringRef output) {
   MLIRContext *context = state.context;
 
+  // Fail here rather than inside the linker, where a wrong path shows up as a
+  // missing symbol.
+  if (!llvm::sys::fs::exists(state.runtimeArchive)) {
+    llvm::errs() << "--runtime-lib '" << state.runtimeArchive
+                 << "' does not exist\n";
+    return failure();
+  }
+
   {
     PassManager pm(context);
     pm.addPass(skeleton::createSkeletonOutlinePass());

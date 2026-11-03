@@ -6,6 +6,8 @@
 // RUN:   --link-arg=-L%mlir_lib_dir --link-arg=-Wl,-rpath,%mlir_lib_dir \
 // RUN:   --link-arg=-lmlir_runner_utils --link-arg=-lmlir_c_runner_utils
 // RUN: %t.prog | FileCheck %s
+// RUN: not mlir-skeleton-driver %s -entry main --emit %t.bad.prog \
+// RUN:   --runtime-lib=%t.no-such-archive.a 2>&1 | FileCheck %s --check-prefix=NOLIB
 
 // A program with no operator units is still a valid host program: the driver
 // must not require the operator table to be non-empty, and --emit must produce
@@ -27,3 +29,5 @@ func.func @main() {
 // CHECK: Unranked Memref
 // CHECK-SAME: rank = 1
 // CHECK: [42]
+
+// NOLIB: --runtime-lib '{{.*}}no-such-archive.a' does not exist
