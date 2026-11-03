@@ -115,16 +115,14 @@ struct SkeletonOutlinePass
     // reference a function whose body was moved away. Keep such a graph in one
     // unit and let skeleton-to-linalg reject it.
     SmallVector<Operation *> units;
-    module.walk(
-        [&](Operation *op) -> WalkResult {
-          if (op->hasAttr("skeleton.op_id"))
-            return WalkResult::advance();
-          if (!isOpUnit(op))
-            return WalkResult::advance();
-          units.push_back(op);
-          return WalkResult::skip();
-        },
-        WalkOrder::PreOrder);
+    module.walk<WalkOrder::PreOrder>([&](Operation *op) -> WalkResult {
+      if (op->hasAttr("skeleton.op_id"))
+        return WalkResult::advance();
+      if (!isOpUnit(op))
+        return WalkResult::advance();
+      units.push_back(op);
+      return WalkResult::skip();
+    });
     if (units.empty())
       return;
 
