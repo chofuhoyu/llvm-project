@@ -6,7 +6,8 @@
 // Both operator units become private functions that keep the operator in its
 // skeleton form, carry the placement metadata, and are called from the host.
 // Ids follow module walk order: the matmul is 0, the map is 1, the two-result
-// generic is 2, the unit without results is 3.
+// generic is 2, the unit without results is 3. A linalg operator without a
+// preference is not a unit and keeps its place in the host.
 
 // CHECK-LABEL: func.func @host
 // CHECK: call @__skeleton_op_0
@@ -15,6 +16,9 @@
 // CHECK: call @__skeleton_op_2
 // CHECK-LABEL: func.func @host_void
 // CHECK: call @__skeleton_op_3
+// CHECK-LABEL: func.func @host_linalg
+// CHECK: linalg.matmul
+// CHECK: return
 // CHECK-LABEL: func.func private @__skeleton_op_0(
 // CHECK-SAME: -> tensor<2x2xf32> attributes {
 // CHECK-SAME: skeleton.bytes = {{[0-9]+}} : i64
@@ -40,6 +44,7 @@
 // CHECK-SAME: skeleton.preference = #skeleton.preference<"CPU">
 // CHECK: linalg.generic
 // CHECK: return
+// CHECK-NOT: __skeleton_op_4
 
 func.func @my_add(%a: f32, %b: f32) -> f32 {
   %r = arith.addf %a, %b : f32
@@ -89,4 +94,13 @@ func.func @host_void(%a: memref<4xf32>, %b: memref<4xf32>) {
       linalg.yield %y : f32
   }
   return
+}
+
+// A linalg operator without a preference is part of the host: only skeleton
+// operators and linalg operators carrying skeleton.preference become units.
+func.func @host_linalg(%a: tensor<2x2xf32>, %b: tensor<2x2xf32>,
+                       %c: tensor<2x2xf32>) -> tensor<2x2xf32> {
+  %0 = linalg.matmul ins(%a, %b : tensor<2x2xf32>, tensor<2x2xf32>)
+      outs(%c : tensor<2x2xf32>) -> tensor<2x2xf32>
+  return %0 : tensor<2x2xf32>
 }
