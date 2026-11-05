@@ -91,10 +91,6 @@ int main(int argc, char **argv) {
   });
 
   ::mlir::registerPass([]() -> std::unique_ptr<::mlir::Pass> {
-    return mlir::createCIRLoopToSkeletonPass();
-  });
-
-  ::mlir::registerPass([]() -> std::unique_ptr<::mlir::Pass> {
     return mlir::createCIRCallToSkeletonPass();
   });
 

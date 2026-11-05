@@ -9,8 +9,7 @@
 // Single place that owns the meaning of the skeleton annotations read off CIR
 // ops: the "skeleton.pure" mark on pure functions, the "skeleton.op" operator
 // name on skeleton helper declarations, and the "skeleton.region" mark that
-// hands a scope — a host function (manual path) or an annotated loop
-// (semi-automatic path) — to the skeleton compiler, carrying the execution
+// hands a host function to the skeleton compiler, carrying the execution
 // preference. Callers get typed enums back, not raw strings and guessed
 // argument positions. Parsing and validation stay here; the magic strings
 // never leave this module.
@@ -59,9 +58,8 @@ mlir::FailureOr<SkeletonPreference>
 getSkeletonPreference(mlir::Operation *op);
 
 /// True when `op` carries the "skeleton.region" annotation. The annotation
-/// marks the scope — a host function (manual path) or an annotated loop
-/// (semi-automatic path) — that is handed to the skeleton compiler; the
-/// operator is inferred from how the scope is used, not named here.
+/// marks the host function that is handed to the skeleton compiler; the
+/// operator is inferred from how the function is used, not named here.
 bool hasSkeletonRegionAnnotation(mlir::Operation *op);
 
 } // namespace cir

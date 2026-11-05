@@ -87,21 +87,6 @@ mlir::LogicalResult CIRGenFunction::emitCompoundStmtWithoutScope(
   return result;
 }
 
-/// Convert AnnotateAttr AST attributes to cir::AnnotationAttr and attach
-/// them to a loop operation's "annotations" attribute.
-static void attachLoopAnnotations(mlir::Operation *loopOp,
-                                   llvm::ArrayRef<const Attr *> attrs,
-                                   CIRGenModule &cgm) {
-  llvm::SmallVector<mlir::Attribute> annotations;
-  for (const Attr *a : attrs) {
-    if (const auto *aa = llvm::dyn_cast<AnnotateAttr>(a))
-      annotations.push_back(cgm.emitAnnotateAttr(aa));
-  }
-  if (!annotations.empty())
-    loopOp->setAttr("annotations",
-                    mlir::ArrayAttr::get(&cgm.getMLIRContext(), annotations));
-}
-
 mlir::LogicalResult
 CIRGenFunction::emitAttributedStmt(const AttributedStmt &s) {
 
@@ -226,11 +211,11 @@ mlir::LogicalResult CIRGenFunction::emitStmt(const Stmt *s,
   case Stmt::SwitchStmtClass:
     return emitSwitchStmt(cast<SwitchStmt>(*s));
   case Stmt::ForStmtClass:
-    return emitForStmt(cast<ForStmt>(*s), attr);
+    return emitForStmt(cast<ForStmt>(*s));
   case Stmt::WhileStmtClass:
-    return emitWhileStmt(cast<WhileStmt>(*s), attr);
+    return emitWhileStmt(cast<WhileStmt>(*s));
   case Stmt::DoStmtClass:
-    return emitDoStmt(cast<DoStmt>(*s), attr);
+    return emitDoStmt(cast<DoStmt>(*s));
   case Stmt::CXXTryStmtClass:
     return emitCXXTryStmt(cast<CXXTryStmt>(*s));
   case Stmt::CXXForRangeStmtClass:
@@ -1024,8 +1009,7 @@ CIRGenFunction::emitCXXForRangeStmt(const CXXForRangeStmt &s,
   return mlir::success();
 }
 
-mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s,
-                                                ArrayRef<const Attr *> attrs) {
+mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
   cir::ForOp forOp;
 
   auto forStmtBuilder = [&]() -> mlir::LogicalResult {
@@ -1111,15 +1095,10 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s,
     return res;
 
   terminateStructuredRegionBody(forOp.getBody(), getLoc(s.getEndLoc()));
-
-  // Attach annotations from statement attributes.
-  attachLoopAnnotations(forOp, attrs, cgm);
-
   return mlir::success();
 }
 
-mlir::LogicalResult CIRGenFunction::emitDoStmt(const DoStmt &s,
-                                               ArrayRef<const Attr *> attrs) {
+mlir::LogicalResult CIRGenFunction::emitDoStmt(const DoStmt &s) {
   cir::DoWhileOp doWhileOp;
   auto doStmtBuilder = [&]() -> mlir::LogicalResult {
     mlir::LogicalResult loopRes = mlir::success();
@@ -1161,15 +1140,10 @@ mlir::LogicalResult CIRGenFunction::emitDoStmt(const DoStmt &s,
     return res;
 
   terminateStructuredRegionBody(doWhileOp.getBody(), getLoc(s.getEndLoc()));
-
-  // Attach annotations from statement attributes.
-  attachLoopAnnotations(doWhileOp, attrs, cgm);
-
   return mlir::success();
 }
 
-mlir::LogicalResult CIRGenFunction::emitWhileStmt(const WhileStmt &s,
-                                                  ArrayRef<const Attr *> attrs) {
+mlir::LogicalResult CIRGenFunction::emitWhileStmt(const WhileStmt &s) {
   cir::WhileOp whileOp;
   auto whileStmtBuilder = [&]() -> mlir::LogicalResult {
     mlir::LogicalResult loopRes = mlir::success();
@@ -1237,10 +1211,6 @@ mlir::LogicalResult CIRGenFunction::emitWhileStmt(const WhileStmt &s,
     return res;
 
   terminateStructuredRegionBody(whileOp.getBody(), getLoc(s.getEndLoc()));
-
-  // Attach annotations from statement attributes.
-  attachLoopAnnotations(whileOp, attrs, cgm);
-
   return mlir::success();
 }
 

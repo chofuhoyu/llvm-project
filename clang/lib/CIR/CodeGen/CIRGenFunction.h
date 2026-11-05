@@ -2042,8 +2042,7 @@ public:
   void emitDeleteCall(const FunctionDecl *deleteFD, mlir::Value ptr,
                       QualType deleteTy);
 
-  mlir::LogicalResult emitDoStmt(const clang::DoStmt &s,
-                                 llvm::ArrayRef<const clang::Attr *> attrs = {});
+  mlir::LogicalResult emitDoStmt(const clang::DoStmt &s);
 
   mlir::Value emitCXXTypeidExpr(const CXXTypeidExpr *e);
   mlir::Value emitDynamicCast(Address thisAddr, const CXXDynamicCastExpr *dce);
@@ -2105,8 +2104,7 @@ public:
   mlir::LogicalResult emitSimpleStmt(const clang::Stmt *s,
                                      bool useCurrentScope);
 
-  mlir::LogicalResult emitForStmt(const clang::ForStmt &s,
-                                  llvm::ArrayRef<const clang::Attr *> attrs = {});
+  mlir::LogicalResult emitForStmt(const clang::ForStmt &s);
 
   void emitForwardingCallToLambda(const CXXMethodDecl *lambdaCallOperator,
                                   CallArgList &callArgs);
@@ -2375,8 +2373,7 @@ public:
 
   void emitVariablyModifiedType(QualType ty);
 
-  mlir::LogicalResult emitWhileStmt(const clang::WhileStmt &s,
-                                    llvm::ArrayRef<const clang::Attr *> attrs = {});
+  mlir::LogicalResult emitWhileStmt(const clang::WhileStmt &s);
 
   std::optional<mlir::Value> emitRISCVBuiltinExpr(unsigned builtinID,
                                                   const CallExpr *expr);

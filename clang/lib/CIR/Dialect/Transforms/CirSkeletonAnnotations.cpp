@@ -20,8 +20,8 @@ namespace {
 // here: consumers refer to these annotations through the typed accessors
 // below. "skeleton.pure" marks pure functions, "skeleton.op" names the
 // operator of a skeleton helper declaration, and "skeleton.region" marks the
-// scope handed to the skeleton compiler — a host function (manual path) or an
-// annotated loop (semi-automatic path) — carrying the execution preference.
+// host function handed to the skeleton compiler, carrying the execution
+// preference.
 constexpr char kSkeletonPure[] = "skeleton.pure";
 constexpr char kSkeletonOp[] = "skeleton.op";
 constexpr char kSkeletonRegion[] = "skeleton.region";
