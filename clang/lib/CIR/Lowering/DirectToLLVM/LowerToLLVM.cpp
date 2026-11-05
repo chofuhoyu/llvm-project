@@ -5832,8 +5832,8 @@ void populateCIRToLLVMPasses(mlir::OpPassManager &pm, bool enableOpenMP,
   if (enableOpenMP)
     pm.addPass(mlir::omp::createMarkDeclareTargetPass());
   std::unique_ptr<mlir::Pass> convert = createConvertCIRToLLVMPass();
-  if (allowMixedModule)
-    convert->setOption("allow-mixed-module", true);
+  static_cast<ConvertCIRToLLVMPass *>(convert.get())->allowMixedModule =
+      allowMixedModule;
   pm.addPass(std::move(convert));
   if (enableOpenMP)
     pm.addPass(mlir::omp::createHostOpFilteringPass());
