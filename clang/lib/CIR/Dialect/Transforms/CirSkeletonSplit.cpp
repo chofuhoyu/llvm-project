@@ -280,7 +280,7 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
                                                    ValueRange{scalar}));
     }
     result = skeleton::MapOp::create(body, loc, ValueRange(ins), result,
-                                     pureFnAttr)
+                                     pureFnAttr, prefAttr)
                  .getResult();
   } else {
     // The reduction's initial accumulator is the identity broadcast over the
@@ -295,13 +295,14 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
                      : tensor::SplatOp::create(body, loc, dstTensorType,
                                                identity)
                            .getResult();
-    result = skeleton::ReduceOp::create(body, loc, inTensor, init, pureFnAttr)
+    result = skeleton::ReduceOp::create(body, loc, inTensor, init, pureFnAttr,
+                                        prefAttr)
                  .getResult();
   }
 
   bufferization::MaterializeInDestinationOp::create(
-      body, loc, result, dstMemref, /*restrict=*/UnitAttr(),
-      /*writable=*/UnitAttr::get(ctx));
+      body, loc, /*result=*/Type(), result, dstMemref, /*restrict=*/false,
+      /*writable=*/true);
   func::ReturnOp::create(body, loc, ValueRange{});
   return unit;
 }
