@@ -279,8 +279,13 @@ reduce 够不够」这个问题。实现之后答案是：够，但需要补广�
 算子做成静态的，要么就接受它跑不了 GPU；验收要求 CPU/GPU 各一次，所以选静态。
 
 **GPU 状态**：`GPU/cpp-map-add-static` 从 C++ 一路编到 GPU 并跑出期望值（单元里是
-`gpu.launch_func`，host 侧是 UVM 分配与拷贝）。softmax 这一版仍是 CPU-only：归约在 GPU 上
-要走 `linalg.reduce` → 并行 reduction，还没验证。
+`gpu.launch_func`，host 侧是 UVM 分配与拷贝）。
+
+softmax 的 GPU 版本（`GPU/cpp-softmax`）现在标成 `XFAIL`：逐元素的 `map` 单元能上设备，但
+**归约不行**。归约单元里是一个带 `scf.reduce` 组合器的 `scf.parallel`，而 GPU 尾端
+（`gpu-map-parallel-loops` + `convert-parallel-loops-to-gpu`）把这个循环当成「迭代之间互相
+独立」映射成 block/thread，于是组合器在线程之间跑，kernel 非法访存。设备上的归约需要自己的
+lowering（共享内存树形归约），这属于 roadmap §5.4 那条 GPU 线，不塞进这条线的验收。
 
 ## 6. 没做与遗留
 

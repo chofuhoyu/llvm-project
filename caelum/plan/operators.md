@@ -108,8 +108,10 @@
 - 数值期望：softmax 三行（递增、全等、双峰）与参考值逐位比对（`FileCheck`）。
 - CPU：通过。
 - GPU：`GPU/cpp-map-add-static` 通过——同一份 C++ 程序，单元被编成 `gpu.launch_func` 并
-  在设备上跑出期望值。softmax 这一版仍是 CPU-only：它的归约要走 `linalg.reduce` → 并行
-  reduction，还没验证；动态形状（span）仍被 `skeleton-target-lower` 拒绝，属于 roadmap §5.4。
+  在设备上跑出期望值。softmax 的 GPU 版本标成 `XFAIL`：逐元素单元能上设备，**归约不能**——
+  归约单元里的 `scf.reduce` 组合器被当成独立迭代映射到线程，kernel 非法访存，需要单独的
+  共享内存树形归约 lowering。动态形状（span）仍被 `skeleton-target-lower` 拒绝；两件都属于
+  roadmap §5.4。
 - 耗时：还没记录，见决策文档 §6。
 
 **§6 原本未定的两项**：CIR 覆盖到什么程度——现在是整个程序（`main`、控制流、标准库调用、
