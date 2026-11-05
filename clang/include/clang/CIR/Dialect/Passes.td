@@ -267,37 +267,21 @@ def CallConvLowering : Pass<"cir-call-conv-lowering", "mlir::ModuleOp"> {
   ];
 }
 
-def CIRLoopToSkeleton : Pass<"cir-loop-to-skeleton", "mlir::ModuleOp"> {
-  let summary = "Convert annotated CIR loops to Skeleton dialect operations";
+def CIRStripCIRAttrs : Pass<"cir-strip-cir-attrs", "mlir::ModuleOp"> {
+  let summary = "Drop CIR-source attributes from a module lowered to LLVM";
   let description = [{
-    Semi-automatic path: recognizes `cir.for` loops carrying the
-    `skeleton.region` annotation (written `__attribute__((annotate("skeleton.region",
-    "CPU")))` in C/C++) and rewrites them into Skeleton dialect operations. The
-    operator (map or reduce) is inferred from the loop shape, not named by the
-    annotation; the annotation's optional first string argument is the
-    execution preference ("CPU" or "GPU", default CPU).
+    The module coming out of `cir-to-llvm` is LLVM dialect, but its operations
+    still carry CIR-source metadata: the `cir.*` string attributes (target CPU
+    features and similar) and CIR dialect attributes such as
+    `func_info = #cir.cxx_ctor<...>`. Those mention the CIR dialect and its
+    types, so a tool that does not register CIR cannot parse the module.
 
-    For an element-wise loop (`C[i] = f(A[i], ...)`) the pass extracts the
-    loop body's scalar computation into a func.func pure function (an arith
-    body), rewrites the enclosing host cir.func into a func.func taking one
-    `memref<?xelt>` per input array and returning the output `tensor<?xelt>`,
-    and emits a `skeleton.map` referencing the extracted pure function.
-
-    Only a canonical ascending unit-stride `cir.for` with a straight-line
-    scalar body over array elements is supported; anything else is reported
-    and left untouched. While/do-while loops are not supported yet.
+    This pass drops those attributes and nothing else. It runs after the CIR ->
+    LLVM lowering, and is the last CIR step before the module is handed to a
+    consumer that only knows upstream MLIR dialects.
   }];
-  let constructor = "mlir::createCIRLoopToSkeletonPass()";
-  let dependentDialects = [
-    "cir::CIRDialect",
-    "mlir::skeleton::SkeletonDialect",
-    "mlir::func::FuncDialect",
-    "mlir::arith::ArithDialect",
-    "mlir::tensor::TensorDialect",
-    "mlir::memref::MemRefDialect",
-    "mlir::bufferization::BufferizationDialect",
-    "mlir::cf::ControlFlowDialect"
-  ];
+  let constructor = "mlir::createCIRStripCIRAttrsPass()";
+  let dependentDialects = ["cir::CIRDialect"];
 }
 
 def CIRCallToSkeleton : Pass<"cir-call-to-skeleton", "mlir::ModuleOp"> {

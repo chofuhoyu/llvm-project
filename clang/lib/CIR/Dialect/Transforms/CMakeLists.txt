@@ -14,12 +14,12 @@ add_clang_library(MLIRCIRTransforms
   GotoSolver.cpp
   IdiomRecognizer.cpp
   LibOpt.cpp
-  CirLoopToSkeleton.cpp
   CirCallToSkeleton.cpp
   CirCallAnalysis.cpp
   CirCallLowering.cpp
   CirSkeletonAnnotations.cpp
   CirFuncToArith.cpp
+  CirStripCIRAttrs.cpp
 
   DEPENDS
   MLIRCIRPassIncGen
