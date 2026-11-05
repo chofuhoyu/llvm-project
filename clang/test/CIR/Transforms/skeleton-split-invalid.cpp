@@ -78,3 +78,10 @@ float *bad_return(float (&a)[4], float (&out)[4]) {
 void not_annotated(float (&a)[4], float (&out)[4]) {
   skeleton_map(my_add, out, a, a);
 }
+
+// A pure function only exists inside the operator units that reference it, so
+// a host call to it would be left dangling after the split.
+// CHECK: error: host code may not call the pure function '_Z6my_addff'
+void calls_pure(float &out, float a) {
+  out = my_add(a, a);
+}

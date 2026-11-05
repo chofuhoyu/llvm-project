@@ -67,6 +67,29 @@ StringRef mathDialectOp(Operation *op) {
       .Default("");
 }
 
+/// The math dialect operation a C library math function maps to. `#include
+/// <cmath>` makes clang emit a plain call for `expf` instead of CIR's own
+/// `cir.exp`, so the name is what identifies the builtin here.
+StringRef mathDialectOpForName(StringRef name) {
+  return StringSwitch<StringRef>(name)
+      .Cases("expf", "exp", "math.exp")
+      .Cases("exp2f", "exp2", "math.exp2")
+      .Cases("logf", "log", "math.log")
+      .Cases("log2f", "log2", "math.log2")
+      .Cases("log10f", "log10", "math.log10")
+      .Cases("sqrtf", "sqrt", "math.sqrt")
+      .Cases("sinf", "sin", "math.sin")
+      .Cases("cosf", "cos", "math.cos")
+      .Cases("tanf", "tan", "math.tan")
+      .Cases("tanhf", "tanh", "math.tanh")
+      .Cases("fabsf", "fabs", "math.absf")
+      .Cases("floorf", "floor", "math.floor")
+      .Cases("ceilf", "ceil", "math.ceil")
+      .Cases("roundf", "round", "math.round")
+      .Cases("truncf", "trunc", "math.trunc")
+      .Default("");
+}
+
 } // namespace
 
 LogicalResult
@@ -572,6 +595,41 @@ LogicalResult populateArithFuncBody(cir::FuncOp cirFunc,
                     "only cast between arithmetic types";
         }
         valueMap[castOp.getResult()] = created;
+        continue;
+      }
+
+      // The address of a function: a direct call carries its callee as an
+      // attribute, so this value is dead. Anything that actually uses it is a
+      // function pointer, which a scalar body cannot carry.
+      if (isa<cir::GetGlobalOp>(op))
+        continue;
+
+      // A call to a C library math function. The unit lowering turns the math
+      // dialect op into the matching LLVM intrinsic.
+      if (auto call = dyn_cast<cir::CallOp>(op)) {
+        std::optional<StringRef> callee = call.getCallee();
+        if (!callee)
+          return call.emitError()
+                 << "cannot translate an indirect call in a pure function";
+        StringRef mathName = mathDialectOpForName(*callee);
+        Type resultTy = call.getNumResults() == 1
+                            ? converter.convertType(call.getResult(0).getType())
+                            : Type();
+        if (mathName.empty() || !resultTy)
+          return call.emitError()
+                 << "cannot call '" << *callee
+                 << "' in a pure function: only scalar arithmetic, "
+                    "comparisons, selects, arithmetic casts and the C library "
+                    "math functions are supported";
+        OperationState state(call.getLoc(), mathName);
+        for (Value arg : call.getOperands()) {
+          auto mapped = lookupValue(arg);
+          if (failed(mapped))
+            return failure();
+          state.addOperands(*mapped);
+        }
+        state.addTypes(resultTy);
+        valueMap[call.getResult(0)] = b.create(state)->getResult(0);
         continue;
       }
 

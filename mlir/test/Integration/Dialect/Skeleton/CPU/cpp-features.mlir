@@ -3,8 +3,7 @@
 //
 // The C++ feature matrix the front end has to keep working: `main`, control
 // flow, `std::vector`, `std::string`, `printf`, a global constant, a template,
-// recursion, a function pointer, and a pure-function call from the host,
-// around one skeleton operator.
+// recursion and a function pointer, around one skeleton operator.
 //
 // RUN: %skeletonxx %S/cpp-features.cpp -o %t.prog
 // RUN: %t.prog | FileCheck %s
@@ -19,5 +18,5 @@
 // CHECK-NEXT: twice(scale) = 6
 // CHECK-NEXT: fib(10) = 55
 // CHECK-NEXT: dynamic = 4.000000
-// CHECK-NEXT: pure from host = 42.000000
+// CHECK-NEXT: twice add = 84.000000
 // CHECK-NEXT: branches = 5

@@ -7,10 +7,9 @@
 // and `printf` -- and prints a value derived from each so that a wrong
 // lowering shows up as a wrong number rather than as a crash.
 //
-// A pure function is not part of the host program: it is cloned into the
-// operator's unit. Calling it from the host therefore compiles to an ordinary
-// call to the func.func the split created, which the CIR -> LLVM lowering then
-// turns into a direct call.
+// A pure function is not part of the host program: it exists only inside the
+// operator units that reference it, so the host calls an ordinary function
+// when it needs the same computation (`host_add` below).
 
 #include "mlir/Dialect/Skeleton/SkeletonOps.h"
 
@@ -69,7 +68,7 @@ int main() {
   printf("twice(scale) = %d\n", twice(kScale));
   printf("fib(10) = %d\n", fib(10));
   printf("dynamic = %f\n", apply(host_add, 1.5f, 2.5f));
-  printf("pure from host = %f\n", my_add(20.0f, 22.0f));
+  printf("twice add = %f\n", twice(host_add(20.0f, 22.0f)));
 
   int branches = 0;
   for (int i = 0; i < 10; ++i)
