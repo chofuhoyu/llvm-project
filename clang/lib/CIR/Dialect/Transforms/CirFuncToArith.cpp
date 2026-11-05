@@ -72,21 +72,36 @@ StringRef mathDialectOp(Operation *op) {
 /// `cir.exp`, so the name is what identifies the builtin here.
 StringRef mathDialectOpForName(StringRef name) {
   return StringSwitch<StringRef>(name)
-      .Cases("expf", "exp", "math.exp")
-      .Cases("exp2f", "exp2", "math.exp2")
-      .Cases("logf", "log", "math.log")
-      .Cases("log2f", "log2", "math.log2")
-      .Cases("log10f", "log10", "math.log10")
-      .Cases("sqrtf", "sqrt", "math.sqrt")
-      .Cases("sinf", "sin", "math.sin")
-      .Cases("cosf", "cos", "math.cos")
-      .Cases("tanf", "tan", "math.tan")
-      .Cases("tanhf", "tanh", "math.tanh")
-      .Cases("fabsf", "fabs", "math.absf")
-      .Cases("floorf", "floor", "math.floor")
-      .Cases("ceilf", "ceil", "math.ceil")
-      .Cases("roundf", "round", "math.round")
-      .Cases("truncf", "trunc", "math.trunc")
+      .Case("expf", "math.exp")
+      .Case("exp", "math.exp")
+      .Case("exp2f", "math.exp2")
+      .Case("exp2", "math.exp2")
+      .Case("logf", "math.log")
+      .Case("log", "math.log")
+      .Case("log2f", "math.log2")
+      .Case("log2", "math.log2")
+      .Case("log10f", "math.log10")
+      .Case("log10", "math.log10")
+      .Case("sqrtf", "math.sqrt")
+      .Case("sqrt", "math.sqrt")
+      .Case("sinf", "math.sin")
+      .Case("sin", "math.sin")
+      .Case("cosf", "math.cos")
+      .Case("cos", "math.cos")
+      .Case("tanf", "math.tan")
+      .Case("tan", "math.tan")
+      .Case("tanhf", "math.tanh")
+      .Case("tanh", "math.tanh")
+      .Case("fabsf", "math.absf")
+      .Case("fabs", "math.absf")
+      .Case("floorf", "math.floor")
+      .Case("floor", "math.floor")
+      .Case("ceilf", "math.ceil")
+      .Case("ceil", "math.ceil")
+      .Case("roundf", "math.round")
+      .Case("round", "math.round")
+      .Case("truncf", "math.trunc")
+      .Case("trunc", "math.trunc")
       .Default("");
 }
 
@@ -612,9 +627,10 @@ LogicalResult populateArithFuncBody(cir::FuncOp cirFunc,
           return call.emitError()
                  << "cannot translate an indirect call in a pure function";
         StringRef mathName = mathDialectOpForName(*callee);
-        Type resultTy = call.getNumResults() == 1
-                            ? converter.convertType(call.getResult(0).getType())
-                            : Type();
+        Type resultTy =
+            call.getNumResults() == 1
+                ? converter.convertType(call.getResults().front().getType())
+                : Type();
         if (mathName.empty() || !resultTy)
           return call.emitError()
                  << "cannot call '" << *callee
@@ -629,7 +645,7 @@ LogicalResult populateArithFuncBody(cir::FuncOp cirFunc,
           state.addOperands(*mapped);
         }
         state.addTypes(resultTy);
-        valueMap[call.getResult(0)] = b.create(state)->getResult(0);
+        valueMap[call.getResults().front()] = b.create(state)->getResult(0);
         continue;
       }
 
