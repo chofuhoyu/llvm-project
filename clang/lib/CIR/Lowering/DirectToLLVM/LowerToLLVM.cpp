@@ -1076,6 +1076,9 @@ struct ConvertCIRToLLVMPass
                      "of treating the func dialect as illegal"),
       llvm::cl::init(false)};
 
+  ConvertCIRToLLVMPass() = default;
+  ConvertCIRToLLVMPass(const ConvertCIRToLLVMPass &other) : PassWrapper(other) {}
+
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::BuiltinDialect, mlir::DLTIDialect,
                     mlir::LLVM::LLVMDialect, mlir::func::FuncDialect>();
