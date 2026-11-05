@@ -45,7 +45,7 @@ module {
   cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) [#cir.annotation<"skeleton.op", ["map"]>]
   cir.func @host(%out: !cir.ptr<!cir.array<!cir.float x 4>>, %in: !cir.ptr<!cir.array<!cir.float x 4>>) [#cir.annotation<"skeleton.region", ["CPU"]>] {
     %fn = cir.get_global @hostpure : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
-    cir.call @skeleton_map(%fn, %out, %in) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) -> ()
+    cir.call @skeleton_map(%fn, %out, %in, %in) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) -> ()
     cir.return
   }
 }
@@ -95,7 +95,7 @@ module {
   cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) [#cir.annotation<"skeleton.op", ["map"]>]
   cir.func @host(%out: !cir.ptr<!cir.array<!cir.float x 4>>, %in: !cir.ptr<!cir.array<!cir.float x 4>>) [#cir.annotation<"skeleton.region", ["CPU"]>] {
     %fn = cir.get_global @hostpure : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
-    cir.call @skeleton_map(%fn, %out, %in) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) -> ()
+    cir.call @skeleton_map(%fn, %out, %in, %in) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) -> ()
     cir.return
   }
 }
@@ -150,7 +150,7 @@ module {
   cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) [#cir.annotation<"skeleton.op", ["map"]>]
   cir.func @host(%out: !cir.ptr<!cir.array<!cir.float x 4>>, %in: !cir.ptr<!cir.array<!cir.float x 4>>) [#cir.annotation<"skeleton.region", ["CPU"]>] {
     %fn = cir.get_global @hostpure : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
-    cir.call @skeleton_map(%fn, %out, %in) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) -> ()
+    cir.call @skeleton_map(%fn, %out, %in, %in) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) -> ()
     cir.return
   }
 }
@@ -190,7 +190,7 @@ module {
   cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) [#cir.annotation<"skeleton.op", ["map"]>]
   cir.func @host(%out: !cir.ptr<!cir.array<!cir.float x 4>>, %in: !cir.ptr<!cir.array<!cir.float x 4>>) [#cir.annotation<"skeleton.region", ["CPU"]>] {
     %fn = cir.get_global @hostpure : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
-    cir.call @skeleton_map(%fn, %out, %in) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) -> ()
+    cir.call @skeleton_map(%fn, %out, %in, %in) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) -> ()
     cir.return
   }
 }
@@ -245,7 +245,7 @@ module {
   cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) [#cir.annotation<"skeleton.op", ["map"]>]
   cir.func @host(%out: !cir.ptr<!cir.array<!cir.float x 4>>, %in: !cir.ptr<!cir.array<!cir.float x 4>>) [#cir.annotation<"skeleton.region", ["CPU"]>] {
     %fn = cir.get_global @hostpure : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
-    cir.call @skeleton_map(%fn, %out, %in) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) -> ()
+    cir.call @skeleton_map(%fn, %out, %in, %in) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) -> ()
     cir.return
   }
 }
@@ -278,7 +278,7 @@ module {
   cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) [#cir.annotation<"skeleton.op", ["map"]>]
   cir.func @host(%out: !cir.ptr<!cir.array<!cir.float x 4>>, %in: !cir.ptr<!cir.array<!cir.float x 4>>) [#cir.annotation<"skeleton.region", ["CPU"]>] {
     %fn = cir.get_global @volatile_load : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
-    cir.call @skeleton_map(%fn, %out, %in) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) -> ()
+    cir.call @skeleton_map(%fn, %out, %in, %in) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) -> ()
     cir.return
   }
 }
@@ -296,7 +296,7 @@ module {
   cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) [#cir.annotation<"skeleton.op", ["map"]>]
   cir.func @host(%out: !cir.ptr<!cir.array<!cir.float x 4>>, %in: !cir.ptr<!cir.array<!cir.float x 4>>) [#cir.annotation<"skeleton.region", ["CPU"]>] {
     %fn = cir.get_global @uninit_read : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
-    cir.call @skeleton_map(%fn, %out, %in) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) -> ()
+    cir.call @skeleton_map(%fn, %out, %in, %in) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) -> ()
     cir.return
   }
 }
@@ -314,7 +314,7 @@ module {
   cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) [#cir.annotation<"skeleton.op", ["map"]>]
   cir.func @host(%out: !cir.ptr<!cir.array<!cir.float x 4>>, %in: !cir.ptr<!cir.array<!cir.float x 4>>) [#cir.annotation<"skeleton.region", ["CPU"]>] {
     %fn = cir.get_global @escaped_addr : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
-    cir.call @skeleton_map(%fn, %out, %in) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) -> ()
+    cir.call @skeleton_map(%fn, %out, %in, %in) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) -> ()
     cir.return
   }
 }
@@ -332,7 +332,7 @@ module {
   cir.func private @skeleton_map(!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) [#cir.annotation<"skeleton.op", ["map"]>]
   cir.func @host(%out: !cir.ptr<!cir.array<!cir.float x 4>>, %in: !cir.ptr<!cir.array<!cir.float x 4>>) [#cir.annotation<"skeleton.region", ["CPU"]>] {
     %fn = cir.get_global @calls_ext : !cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>
-    cir.call @skeleton_map(%fn, %out, %in) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) -> ()
+    cir.call @skeleton_map(%fn, %out, %in, %in) : (!cir.ptr<!cir.func<(!cir.float, !cir.float) -> !cir.float>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>, !cir.ptr<!cir.array<!cir.float x 4>>) -> ()
     cir.return
   }
 }
