@@ -321,6 +321,11 @@ LogicalResult lowerGpuUnit(ModuleOp module, const UnitInfo &unit) {
 
   PassManager pm(context);
   pm.addPass(skeleton::createSkeletonToLinalgPass());
+  // Same reason as on the CPU: the operator computes into a fresh tensor and
+  // materializes the result in its destination buffer. A device kernel cannot
+  // reach a host temporary, so the computation has to be rewritten to write the
+  // destination directly before the GPU bridge runs bufferization.
+  pm.addPass(bufferization::createEmptyTensorEliminationPass());
   pm.addPass(skeleton::createSkeletonTargetLowerPass());
   if (failed(parsePassPipeline(
           "func.func(gpu-map-parallel-loops,convert-parallel-loops-to-gpu),"

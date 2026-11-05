@@ -377,10 +377,6 @@ void CIRSkeletonSplitPass::runOnOperation() {
                           "function if the host needs it too.";
     reportedError = true;
   });
-  if (reportedError) {
-    signalPassFailure();
-    return;
-  }
 
   DominanceInfo domInfo(module);
 
@@ -407,8 +403,6 @@ void CIRSkeletonSplitPass::runOnOperation() {
     signalPassFailure();
     return;
   }
-  if (hosts.empty())
-    return;
 
   SmallVector<SkeletonCallInfo> worklist;
   for (cir::FuncOp host : hosts) {
@@ -494,8 +488,9 @@ void CIRSkeletonSplitPass::runOnOperation() {
     }
     worklist.push_back(info);
   }
-  if (reportedError) {
-    signalPassFailure();
+  if (reportedError || worklist.empty()) {
+    if (reportedError)
+      signalPassFailure();
     return;
   }
 

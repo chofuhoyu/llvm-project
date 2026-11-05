@@ -96,7 +96,10 @@ int main() {
 // identity as a scalar. The identity is filled into the destination, which the
 // reduction then accumulates in place.
 //
-// CHECK-LABEL: func.func private @__skeleton_op_2({{.*}}: memref<3x4xf32>, {{.*}}: memref<3xf32>, [[INIT:.*]]: f32)
+// CHECK-LABEL: func.func private @__skeleton_op_2(
+// CHECK-SAME: memref<3x4xf32>,
+// CHECK-SAME: memref<3xf32>,
+// CHECK-SAME: [[INIT:.*]]: f32)
 // CHECK: bufferization.to_tensor {{.*}} restrict writable : memref<3xf32>
 // CHECK: linalg.fill ins([[INIT]] : f32)
 // CHECK: skeleton.reduce
