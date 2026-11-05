@@ -198,6 +198,11 @@ if any(
 ):
     config.available_features.add("clang-cir")
 
+# skeleton++ drives the whole C++ front end (clang, cir-opt and the driver); it
+# is only generated when those tools are part of the build.
+if os.path.exists(os.path.join(config.mlir_tools_dir, "skeleton++")):
+    config.available_features.add("skeletonxx")
+
 tools = [
     "llvm-strings",
     "mlir-tblgen",
@@ -278,6 +283,11 @@ tools.extend(
         ToolSubst("transform-opt-ch4", unresolved="ignore"),
         ToolSubst("mlir-transform-opt", unresolved="ignore"),
         ToolSubst("%mlir_lib_dir", config.mlir_lib_dir, unresolved="ignore"),
+        ToolSubst(
+            "%skeletonxx",
+            os.path.join(config.mlir_tools_dir, "skeleton++"),
+            unresolved="ignore",
+        ),
         ToolSubst("%mlir_src_dir", config.mlir_src_root, unresolved="ignore"),
     ]
 )

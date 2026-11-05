@@ -1,25 +1,19 @@
-// REQUIRES: mlir-skeleton-driver
+// REQUIRES: skeletonxx
 // REQUIRES: clang-cir
-// End-to-end run of the manual path: the operators (pure fn my_add + host
-// wrapper vec_add calling skeleton_map) are defined in real C++ and compiled
-// through clang(-fclangir) -> cir-opt(-cir-call-to-skeleton); a hand-written
-// MLIR @main (cpp-map-add.driver) allocates the memref inputs, calls
-// vec_add and prints the returned tensor. Expected C = A + B = [6, 8, 10, 12].
 //
-// skeleton-peel-module.sh peels the `module {...}` wrapper cir-opt prints off
-// the C++-compiled functions so that `cat` can join them with the driver into
-// a single implicit module for the skeleton lowering pipeline. The peel
-// validates cir-opt's output shape and fails loudly instead of silently
-// splicing a corrupt module.
+// End-to-end run of a program that is entirely C++: the operator (pure function
+// my_add + host wrapper vec_add) and the execution driver (`main`, which
+// allocates the buffers and prints the result) live in cpp-map-add.cpp.
 //
-// RUN: clang -cc1 -std=c++20 -triple x86_64-unknown-linux-gnu -fclangir -x c++ -I %mlir_src_root/include %S/cpp-map-add.cpp -emit-cir -o %t.cir
-// RUN: cir-opt %t.cir -cir-call-to-skeleton -o %t.skel.mlir
-// RUN: sh %S/skeleton-peel-module.sh %t.skel.mlir > %t.funcs.mlir
-// RUN: cat %t.funcs.mlir %S/cpp-map-add.driver > %t.all.mlir
-// RUN: mlir-skeleton-driver %t.all.mlir -entry main \
-// RUN:   --shared-libs=%mlir_c_runner_utils,%mlir_runner_utils | FileCheck %s
+// The artifact path runs the emitted executable on its own; the driver path
+// re-reads the module and runs it in-process, compiling the operator on demand.
+// Expected c = a + b = [6, 8, 10, 12].
+//
+// RUN: %skeletonxx %S/cpp-map-add.cpp -o %t.prog
+// RUN: %t.prog | FileCheck %s
+// RUN: %skeletonxx %S/cpp-map-add.cpp --run | FileCheck %s
 
-// CHECK: Unranked Memref
-// CHECK-SAME: rank = 1
-// CHECK-SAME: sizes = [4]
-// CHECK: [6,{{ +}}8,{{ +}}10,{{ +}}12]
+// CHECK: 6
+// CHECK-NEXT: 8
+// CHECK-NEXT: 10
+// CHECK-NEXT: 12

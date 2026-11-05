@@ -62,7 +62,7 @@ while [ $# -gt 0 ]; do
     -o*) output=${1#-o} ;;
     --keep-cir) shift; keep_cir=$1 ;;
     --link-arg=*) link_args="$link_args $1" ;;
-    --shared-lib=*) driver_args="$driver_args --shared-libs=$1" ;;
+    --shared-lib=*) driver_args="$driver_args --shared-libs=${1#--shared-lib=}" ;;
     --clang-arg=*) clang_args="$clang_args ${1#--clang-arg=}" ;;
     --clang=*) CLANG=${1#--clang=} ;;
     --cir-opt=*) CIR_OPT=${1#--cir-opt=} ;;

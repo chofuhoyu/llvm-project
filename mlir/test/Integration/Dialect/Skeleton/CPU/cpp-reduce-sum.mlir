@@ -1,19 +1,12 @@
-// REQUIRES: mlir-skeleton-driver
+// REQUIRES: skeletonxx
 // REQUIRES: clang-cir
-// End-to-end run of the manual path for skeleton.reduce: the pure fn my_sum
-// and the host wrapper sum_all are defined in real C++ and compiled through
-// clang(-fclangir) -> cir-opt(-cir-call-to-skeleton); a hand-written MLIR
-// @main (cpp-reduce-sum.driver) allocates the memref input and prints the
-// rank-0 result. Expected sum of [1, 2, 3, 4] = 10.
 //
-// RUN: clang -cc1 -std=c++20 -triple x86_64-unknown-linux-gnu -fclangir -x c++ -I %mlir_src_root/include %S/cpp-reduce-sum.cpp -emit-cir -o %t.cir
-// RUN: cir-opt %t.cir -cir-call-to-skeleton -o %t.skel.mlir
-// RUN: sh %S/skeleton-peel-module.sh %t.skel.mlir > %t.funcs.mlir
-// RUN: cat %t.funcs.mlir %S/cpp-reduce-sum.driver > %t.all.mlir
-// RUN: mlir-skeleton-driver %t.all.mlir -entry main \
-// RUN:   --shared-libs=%mlir_c_runner_utils,%mlir_runner_utils | FileCheck %s
+// End-to-end run of a reduction written entirely in C++: the destination is a
+// single element (`float &`), which is what makes the unit's result a rank-0
+// tensor and reduces over every input dimension.
+//
+// RUN: %skeletonxx %S/cpp-reduce-sum.cpp -o %t.prog
+// RUN: %t.prog | FileCheck %s
+// RUN: %skeletonxx %S/cpp-reduce-sum.cpp --run | FileCheck %s
 
-// CHECK: Unranked Memref
-// CHECK-SAME: rank = 0
-// CHECK-SAME: sizes = []
-// CHECK: [10]
+// CHECK: 21

@@ -88,7 +88,7 @@ def SkeletonOutline : Pass<"skeleton-outline"> {
   ];
 }
 
-def SkeletonLowerHostABI : Pass<"skeleton-lower-host-abi"> {
+def SkeletonLowerHostABI : Pass<"skeleton-lower-host-abi", "mlir::ModuleOp"> {
   let summary = "Build the host/unit ABI thunks declared by the front end";
   let description = [{
     Runs on a module already lowered to the LLVM dialect. Every declaration

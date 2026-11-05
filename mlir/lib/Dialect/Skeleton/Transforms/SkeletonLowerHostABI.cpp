@@ -58,7 +58,6 @@ constexpr StringLiteral kHostABIAttr = "skeleton.host_abi";
 /// per dimension.
 SmallVector<Type> memrefDescriptorTypes(MemRefType type, MLIRContext *ctx) {
   SmallVector<Type> types;
-  auto ptrTy = LLVM::LLVMPointerType::get(ctx);
   auto i64Ty = IntegerType::get(ctx, 64);
   types.push_back(ptrTy);
   types.push_back(ptrTy);
@@ -118,7 +117,7 @@ LogicalResult SkeletonLowerHostABIPass::lowerThunk(LLVM::LLVMFuncOp thunk,
   for (MemRefType type : dataTypes)
     llvm::append_range(expectedTypes, memrefDescriptorTypes(type, ctx));
 
-  LLVMFunctionType unitType = unit.getFunctionType();
+  LLVM::LLVMFunctionType unitType = unit.getFunctionType();
   unsigned numMemrefArgs = expectedTypes.size();
   if (unitType.getNumParams() < numMemrefArgs)
     return thunk.emitError() << "unit '" << unitAttr.getValue() << "' takes "
@@ -134,10 +133,9 @@ LogicalResult SkeletonLowerHostABIPass::lowerThunk(LLVM::LLVMFuncOp thunk,
              << "; the operator's memref signature and the host ABI disagree";
   }
 
-  Block *entry = thunk.addEntryBlock();
+  Block *entry = thunk.addEntryBlock(builder);
   builder.setInsertionPointToStart(entry);
 
-  auto ptrTy = LLVM::LLVMPointerType::get(ctx);
   auto i64Ty = IntegerType::get(ctx, 64);
   auto constant = [&](int64_t value) -> Value {
     return LLVM::ConstantOp::create(builder, loc, i64Ty,

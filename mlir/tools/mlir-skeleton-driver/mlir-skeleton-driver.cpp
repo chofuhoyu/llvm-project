@@ -22,6 +22,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonAttrs.h"
+#include "mlir/Dialect/Skeleton/IR/SkeletonOps.h"
 #include "mlir/Dialect/Skeleton/Runtime/SkeletonRuntime.h"
 #include "mlir/Dialect/Skeleton/Transforms/Passes.h"
 #include "mlir/ExecutionEngine/ExecutionEngine.h"
