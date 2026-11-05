@@ -98,7 +98,7 @@ int main() {
 // Its thunk takes one pointer per data argument and one length per dynamic
 // dimension, and describes the unit it belongs to.
 //
-// CHECK: cir.func private @__skeleton_op_0_shim(!cir.ptr<!cir.void>, !u64i, !cir.ptr<!cir.void>, !u64i, !cir.ptr<!cir.void>, !u64i) attributes {skeleton.host_abi =
+// CHECK: cir.func private @__skeleton_op_0_shim(!cir.ptr<!void>, !u64i, !cir.ptr<!void>, !u64i, !cir.ptr<!void>, !u64i) attributes {skeleton.host_abi =
 // CHECK-SAME: op_id = 0
 // CHECK-SAME: operands = [memref<?xf32>, memref<?xf32>, memref<?xf32>]
 // CHECK-SAME: unit = "__skeleton_op_0"
