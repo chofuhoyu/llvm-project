@@ -252,7 +252,7 @@ lowerToLLVM(ModuleOp module, MLIRContext *context, bool isHost,
   for (LLVM::LLVMFuncOp func : module.getOps<LLVM::LLVMFuncOp>())
     if (!func.isExternal() &&
         func.getLinkage() == LLVM::Linkage::AvailableExternally)
-      func.setLinkage(LLVM::Linkage::LinkOnceODR);
+      func.setLinkage(LLVM::Linkage::LinkonceODR);
 
   if (!isHost)
     return success();
