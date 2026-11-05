@@ -58,6 +58,7 @@ constexpr StringLiteral kHostABIAttr = "skeleton.host_abi";
 /// per dimension.
 SmallVector<Type> memrefDescriptorTypes(MemRefType type, MLIRContext *ctx) {
   SmallVector<Type> types;
+  auto ptrTy = LLVM::LLVMPointerType::get(ctx);
   auto i64Ty = IntegerType::get(ctx, 64);
   types.push_back(ptrTy);
   types.push_back(ptrTy);
