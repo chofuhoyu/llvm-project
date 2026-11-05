@@ -65,11 +65,11 @@ chain"。
 
 | roadmap §5 | 状态 | 说明 |
 |---|---|---|
-| 1 删除半自动路径 | 未开始，树上仍在 | `CirLoopToSkeleton` 及其测试、`CIRGenStmt` 的注解形参都还在 |
+| 1 删除半自动路径 | 完成（2026-11-05） | `CirLoopToSkeleton`、其注册与三组测试已删除；见 §10 |
 | 2 运行时第一版 | 完成 | M1–M5 与 2026-10-31 / 11-03 的审查修复；只剩"`target-lower` 是否收进 driver"未定 |
 | 3 远程构建与测试 | 完成 | `.profile/remote`，三组测试按脚本过滤规则跑 |
 | 4 GPU 正确性 | 进行中 | UVM 已替换旧桥接；原 20% 失败未复现；动态形状仍被 `target-lower` 拒绝 |
-| 5 算子集合与 benchmark | 刚开始 | 已拆出 operators.md；第一个算子、API、benchmark 都未定 |
+| 5 算子集合与 benchmark | 第一个算子完成 | softmax 以扁平 DAG 实现；API 见 §10 与决策文档；benchmark 未做 |
 
 C++ 前端不是 roadmap §5 里单独列出的一项，它是 operators.md §3 的主体、§5 验收的前提，因此
 可以和 §5.1（删半自动）以及 §5.4 的 GPU 线（含动态形状）并行推进；其中 §5.1 建议先做，改动小
@@ -451,3 +451,36 @@ operators.md 的第一个算子用手写 MLIR host 就能验证，正是为了�
   纯函数支持范围。
 - [`mlir-skeleton-driver.cpp`](../../mlir/tools/mlir-skeleton-driver/mlir-skeleton-driver.cpp)：
   输入、切分、host lower、产物。
+
+## 10. 实施记录（2026-11-05）
+
+W0–W7 做完了，W8 是本文。每一步的取舍记在
+[`../doc/cpp-codegen-operators-decisions.md`](../doc/cpp-codegen-operators-decisions.md)。
+
+| ID | 状态 | 落点 |
+|---|---|---|
+| W0 删除半自动路径 | 完成 | `CirLoopToSkeleton` 及 `Passes.td`/`cir-opt`/`CIRGenStmt` 的注解形参、三组测试全部删除 |
+| W1 边界 API 与 ABI | 完成 | `mlir/include/mlir/Dialect/Skeleton/SkeletonOps.h`、决策文档 §1–2 |
+| W2 CIR 切分 pass | 完成 | `cir-skeleton-split`（`CirSkeletonSplit.cpp`），替代 `cir-call-to-skeleton` |
+| W3 host 的 CIR→LLVM | 完成 | `cir-opt` 注册混合模块需要的方言；新增 `cir-strip-cir-attrs` 清掉 CIR 残留属性；入口放宽到 `llvm.func` |
+| W4 host↔单元 ABI | 完成 | `skeleton-lower-host-abi`：thunk 体、memref 描述符、单元签名校验 |
+| W5 driver | 完成 | 接受混合模块；`llvm.func` 入口；产物 `main` 返回程序退出码 |
+| W6 一条命令 | 完成（包装工具） | `mlir/tools/skeleton++`，三个工具串起来；clang driver 的 `-fskeleton` 没做 |
+| W7 测试 | 完成 | 单文件 e2e（map/reduce/softmax/特性矩阵）、GPU 一份、负例两组 |
+
+**与本文当初判断不同的地方**（细节见决策文档）：
+
+- **§4.2 的「wrapper 保留符号、内部算子变单元」照做了，但多了一层 thunk。** wrapper 的
+  body 在 CIR 里，memref 描述符是 LLVM 概念；两边分开之后，C++ 参数 → (指针, 长度) 留在
+  CIR，指针+长度 → 描述符留在 LLVM pass。
+- **§4.3 的 ABI 示例改成了按引用传 span。** CIR 把按值的 aggregate 在函数边界上拆开，
+  参数类型里就没有 span 了，形状只能从 codegen 的 coercion 序列里反推。
+- **§4.3 的「W4 第一个验证点」是成立的**：单元用可写 `to_tensor` 当骨架算子的 `outs`
+  之后，bufferization 仍然把单元 lower 成「N 个 memref 字段、无返回值」，没有隐藏出参。
+- **归约不再从零开始**：§2.2 说纯函数只做逐元素/逐归约的标量计算，但 identity 是算子语义
+  的一部分，现在由调用点传入（`skeleton_reduce(fn, out, in, init)`）。
+- **§D 的「host 调用纯函数 v1 不行」被推翻了**：纯函数在切分之后就是一个 func.func，host
+  调它就是普通调用，`cir-to-llvm` 能把它降到 `llvm.call`。`CPP/cpp-features` 覆盖了这条。
+
+**还没做的**：clang driver 的 `-fskeleton`（§W6 后半）、一个 host 里多个骨架算子（§6.3 M5）、
+动态形状 GPU（roadmap §5.4）、扁平图上的融合 pass、benchmark 的耗时基线。

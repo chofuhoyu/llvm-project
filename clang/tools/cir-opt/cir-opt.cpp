@@ -46,6 +46,11 @@ struct CIRToLLVMPipelineOptions
       *this, "enable-openmp",
       llvm::cl::desc("Add OpenMP-specific CIR-to-LLVM lowering passes"),
       llvm::cl::init(false)};
+  Option<bool> allowMixedModule{
+      *this, "allow-mixed-module",
+      llvm::cl::desc("Leave non-CIR functions (operator units) untouched "
+                     "instead of treating the func dialect as illegal"),
+      llvm::cl::init(false)};
 };
 
 int main(int argc, char **argv) {
@@ -79,7 +84,8 @@ int main(int argc, char **argv) {
   mlir::PassPipelineRegistration<CIRToLLVMPipelineOptions> pipeline(
       "cir-to-llvm", "",
       [](mlir::OpPassManager &pm, const CIRToLLVMPipelineOptions &options) {
-        cir::direct::populateCIRToLLVMPasses(pm, options.enableOpenMP);
+        cir::direct::populateCIRToLLVMPasses(pm, options.enableOpenMP,
+                                          options.allowMixedModule);
       });
 
   ::mlir::registerPass([]() -> std::unique_ptr<::mlir::Pass> {

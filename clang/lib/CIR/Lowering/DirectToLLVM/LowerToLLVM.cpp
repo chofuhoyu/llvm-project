@@ -1064,6 +1064,18 @@ private:
 struct ConvertCIRToLLVMPass
     : public mlir::PassWrapper<ConvertCIRToLLVMPass,
                                mlir::OperationPass<mlir::ModuleOp>> {
+  /// The front end can hand this pass a module that holds more than CIR: after
+  /// `cir-skeleton-split` the operator units are `func.func` and the host stub's
+  /// ABI thunk is still a `cir.func`. Those units are compiled separately, so
+  /// the conversion must leave them alone instead of failing on the func
+  /// dialect. A module that is all CIR keeps the strict target, where a
+  /// surviving `func.func` is an error.
+  mlir::Pass::Option<bool> allowMixedModule{
+      *this, "allow-mixed-module",
+      llvm::cl::desc("Leave non-CIR functions (operator units) untouched instead "
+                     "of treating the func dialect as illegal"),
+      llvm::cl::init(false)};
+
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::BuiltinDialect, mlir::DLTIDialect,
                     mlir::LLVM::LLVMDialect, mlir::func::FuncDialect>();
@@ -4365,8 +4377,9 @@ void ConvertCIRToLLVMPass::runOnOperation() {
   mlir::configureOpenMPToLLVMConversionLegality(target, converter);
   target.addLegalDialect<mlir::omp::OpenMPDialect>();
   mlir::populateOpenMPToLLVMConversionPatterns(converter, patterns);
-  target.addIllegalDialect<mlir::BuiltinDialect, cir::CIRDialect,
-                           mlir::func::FuncDialect>();
+  target.addIllegalDialect<mlir::BuiltinDialect, cir::CIRDialect>();
+  if (!allowMixedModule)
+    target.addIllegalDialect<mlir::func::FuncDialect>();
 
   llvm::SmallVector<mlir::Operation *> ops;
   ops.push_back(module);
@@ -5813,11 +5826,15 @@ std::unique_ptr<mlir::Pass> createConvertCIRToLLVMPass() {
   return std::make_unique<ConvertCIRToLLVMPass>();
 }
 
-void populateCIRToLLVMPasses(mlir::OpPassManager &pm, bool enableOpenMP) {
+void populateCIRToLLVMPasses(mlir::OpPassManager &pm, bool enableOpenMP,
+                             bool allowMixedModule) {
   mlir::populateCIRPreLoweringPasses(pm);
   if (enableOpenMP)
     pm.addPass(mlir::omp::createMarkDeclareTargetPass());
-  pm.addPass(createConvertCIRToLLVMPass());
+  std::unique_ptr<mlir::Pass> convert = createConvertCIRToLLVMPass();
+  if (allowMixedModule)
+    convert->setOption("allow-mixed-module", true);
+  pm.addPass(std::move(convert));
   if (enableOpenMP)
     pm.addPass(mlir::omp::createHostOpFilteringPass());
 }

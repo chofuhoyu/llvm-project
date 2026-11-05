@@ -10,7 +10,8 @@
 #
 #   clang++ -fclangir -emit-cir            C++ -> CIR (the whole program,
 #                                          including main and the operators)
-#   cir-opt --cir-skeleton-split --cir-to-llvm --cir-strip-cir-attrs
+#   cir-opt --cir-skeleton-split --cir-to-llvm=allow-mixed-module
+#           --cir-strip-cir-attrs
 #                                          split the operators out, lower the
 #                                          host to LLVM, drop CIR metadata
 #   mlir-skeleton-driver ... --emit        compile and link, or run in-process
@@ -97,9 +98,12 @@ if [ -n "$keep_cir" ]; then
 fi
 
 # Split the operators out, lower the rest of the program to the LLVM dialect,
-# and strip the CIR attributes a non-CIR consumer cannot parse.
-"$CIR_OPT" "$cir" --cir-skeleton-split --cir-to-llvm --cir-strip-cir-attrs \
-  -o "$module"
+# and strip the CIR attributes a non-CIR consumer cannot parse. The operator
+# units are `func.func` after the split and are compiled separately, so the
+# lowering has to leave them alone (allow-mixed-module) instead of failing on
+# the func dialect.
+"$CIR_OPT" "$cir" --cir-skeleton-split --cir-to-llvm=allow-mixed-module \
+  --cir-strip-cir-attrs -o "$module"
 
 if [ "$emit_mlir" -eq 1 ]; then
   cp "$module" "$output"

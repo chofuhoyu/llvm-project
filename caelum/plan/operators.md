@@ -70,7 +70,47 @@
 
 ## 6. 未定
 
-- 第一个算子选哪个。
-- API 规范：annotation 语法、入口签名、内存约定。
+- ~~第一个算子选哪个。~~ 已定：softmax（见 §7）。
+- ~~API 规范：annotation 语法、入口签名、内存约定。~~ 已定（见 §7、决策文档 §1）。
 - CIR 要覆盖到什么程度才算够：整个程序，还是 host 的一部分仍允许手写 MLIR。
 - 是否需要在扁平图上做融合 pass（见 §2），以及融合的边界怎么和 op 单元对齐。
+- benchmark：第一个算子的耗时基线还没记。
+
+## 7. 实施记录（2026-11-05）
+
+§4 的三件事都定了，§5 的验收在前两条上完成，第三条（GPU）只覆盖了静态形状。
+
+**§4.1 第一个算子：softmax**，写成 `rowmax → shift_exp → rowsum → normalize` 四个骨架
+算子（`reduce max` / `map exp(x-max)` / `reduce add` / `map y/sum`）的扁平 DAG，没有新增
+`skeleton.softmax`。四个算子各是一个 host 函数、一个单元、一次放置决策，与 §2 一致。
+选定理由与形状规则的细节见 [`../doc/cpp-codegen-operators-decisions.md`](../doc/cpp-codegen-operators-decisions.md) §5。
+
+**§4.1 现有原语够不够：不够，补了两条形状规则。**
+- `skeleton.map` 的输入可以比结果秩低：低秩输入对齐结果的**前导**维广播，秩 0 广播到所有
+  元素。归约结果因此可以直接喂给下一步逐元素计算。
+- `skeleton.reduce` 降的是**输入有、目的地没有的尾部维**：目的地秩 k、输入秩 n 时降
+  `[k, n)`。`float (&m)[3]` 从 `float (&x)[3][4]` 归约就是「降最后一维」。
+另外归约的 identity 从「从零开始」改成显式传入（`skeleton_reduce(fn, out, in, init)`），
+否则 max / min / product 都是错的。
+
+**§4.2 前端入口**：annotation 仍是 `__attribute__((annotate("skeleton.region", "CPU")))`，
+标在被调用的 host 函数上；`skeleton.pure` 标纯函数。边界是目的地式：
+第一个数据参数是输出缓冲，形状来自参数类型（`T (&)[N]` 编译期、`span<T>&` 运行时、
+`T&` 单个元素）。一个 host 里只能有一次骨架调用（§2 的扁平 DAG 由多个 host 函数表达）。
+
+**§4.3 host 侧怎么调用**：调用方分配缓冲、传 span/数组引用，函数返回 void；纯函数只能被
+单元引用。详见决策文档 §1。
+
+**§5 验收状态**：
+- 整个程序 C++（算子 + `main` + 输出）：通过。`CPU/cpp-softmax` 是一条命令编出来、
+  driver 与产物各跑一次的数值 e2e；`CPU/cpp-features` 覆盖 `std::vector` / `std::string` /
+  模板 / 递归 / 函数指针 / `printf`。
+- 数值期望：softmax 三行（递增、全等、双峰）与参考值逐位比对（`FileCheck`）。
+- CPU：通过。
+- GPU：`GPU/cpp-map-add-static` 通过；softmax 这一版是静态数组，也能编成 GPU 单元，但
+  按 §5 的「GPU 只在有 CUDA runner 的机器上跑」，远端只验证了前者。动态形状（span）仍被
+  `skeleton-target-lower` 拒绝，属于 roadmap §5.4。
+- 耗时：还没记录，见决策文档 §6。
+
+**§6 原本未定的两项**：CIR 覆盖到什么程度——现在是整个程序（`main`、控制流、标准库调用、
+`printf` 都经 CIR→LLVM）；融合 pass——没做，仍然每步落内存。
