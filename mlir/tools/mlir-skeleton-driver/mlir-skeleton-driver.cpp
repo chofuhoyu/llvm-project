@@ -628,7 +628,17 @@ FailureOr<int> runDriver(ModuleOp module, DriverState &state) {
   for (auto &unit : state.units)
     skeleton_rt_declare(unit->id, unit->preference, unit->bytes);
 
+  // `invokePacked` calls a packed wrapper that reads one pointer per argument
+  // out of the array and writes the function's result to the slot right after
+  // them. A C++ `main` returns its exit code, so that slot has to exist even
+  // though the driver ignores the value; without it the wrapper stores through
+  // a pointer read past the end of the array.
+  uint64_t entryResult = 0;
   SmallVector<void *> entryArgs;
+  if (auto entry = cast<LLVM::LLVMFuncOp>(module.lookupSymbol(entryPoint));
+      !isa<LLVM::LLVMVoidType>(entry.getFunctionType().getReturnType()))
+    entryArgs.push_back(&entryResult);
+
   if (llvm::Error error =
           state.hostEngine->invokePacked(entryPoint, entryArgs)) {
     llvm::errs() << "execution failed: " << llvm::toString(std::move(error))
@@ -638,7 +648,7 @@ FailureOr<int> runDriver(ModuleOp module, DriverState &state) {
 
   if (traceDecisions)
     skeleton_rt_dump_stats();
-  return 0;
+  return static_cast<int>(entryResult);
 }
 
 } // namespace
