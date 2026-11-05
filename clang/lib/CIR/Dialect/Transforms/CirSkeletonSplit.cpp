@@ -364,6 +364,7 @@ void CIRSkeletonSplitPass::runOnOperation() {
     return;
 
   DominanceInfo domInfo(module);
+  bool reportedError = false;
 
   // Every call to a skeleton helper is accounted for: the host it sits in must
   // be an annotated host and must contain exactly that one call.
