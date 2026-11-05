@@ -46,6 +46,8 @@
 - **判据**：一条 e2e，程序（算子 + main + 输出）全部用 C++ 写，经 driver 与产物两条路径
   跑出期望数值。
 
+这条线的现状、缺口拆分与实施顺序见 [`cpp_codegen.md`](cpp_codegen.md)。
+
 ## 4. 第一个真实算子
 
 候选：softmax、layernorm、单个 attention 头。

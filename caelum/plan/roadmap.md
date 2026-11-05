@@ -127,6 +127,7 @@
 ## 7. 相关文档
 
 - [`operators.md`](operators.md)：算子这条线——组合方式、第一个真实算子、API 与验收。
+- [`cpp_codegen.md`](cpp_codegen.md)：C++ 端到端——现状、缺口拆分、工作包与顺序。
 - [`../doc/runtime.md`](../doc/runtime.md)：运行时的设计与实施记录。
 
 `caelum/report/`、`caelum/review/` 里的旧文档只作历史记录；
