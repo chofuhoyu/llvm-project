@@ -107,9 +107,9 @@
   模板 / 递归 / 函数指针 / `printf`。
 - 数值期望：softmax 三行（递增、全等、双峰）与参考值逐位比对（`FileCheck`）。
 - CPU：通过。
-- GPU：`GPU/cpp-map-add-static` 通过；softmax 这一版是静态数组，也能编成 GPU 单元，但
-  按 §5 的「GPU 只在有 CUDA runner 的机器上跑」，远端只验证了前者。动态形状（span）仍被
-  `skeleton-target-lower` 拒绝，属于 roadmap §5.4。
+- GPU：`GPU/cpp-map-add-static` 通过——同一份 C++ 程序，单元被编成 `gpu.launch_func` 并
+  在设备上跑出期望值。softmax 这一版仍是 CPU-only：它的归约要走 `linalg.reduce` → 并行
+  reduction，还没验证；动态形状（span）仍被 `skeleton-target-lower` 拒绝，属于 roadmap §5.4。
 - 耗时：还没记录，见决策文档 §6。
 
 **§6 原本未定的两项**：CIR 覆盖到什么程度——现在是整个程序（`main`、控制流、标准库调用、

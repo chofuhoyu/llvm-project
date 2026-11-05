@@ -119,10 +119,31 @@ size 字段 / 数组类型的维），产物与 driver 两条路径行为一致�
 ### 2.5 thunk 发直接调用，dispatch pass 再改成 resolve + 间接调用
 
 **决策**：ABI pass 生成的 thunk 体里是对单元的普通 `llvm.call @__skeleton_op_N`；紧接着
-`layout` 的 `skeleton-lower-dispatch` 把它改写成 `skeleton_rt_resolve` + 间接调用。
+运行的 `skeleton-lower-dispatch` 把它改写成 `skeleton_rt_resolve` + 间接调用。
 
 **为什么**：放置决策只有一处（dispatch pass），ABI pass 不知道运行时存在；产物的启动注册
 仍然拿单元的地址，两边不冲突。
+
+### 2.6 单元的结果通过 `materialize_in_destination` 写回目的地
+
+**决策**：单元在目的地形状的 `tensor.empty` 上计算，再用
+`bufferization.materialize_in_destination %r in restrict writable <memref>` 写进目的地缓冲；
+归约则先把 identity `linalg.fill` 进目的地，再原地归约（这时 materialize 只是为了让计算
+不被当死代码删掉）。
+
+**为什么**：tensor 级的 linalg 算子没有副作用，结果没人用就会被 `skeleton-to-linalg` 的
+greedy driver 当死代码删掉——单元函数变空，程序照跑，输出全是 0。写回是那个「用」，同时
+保证单元签名仍是「memref 与标量进、什么都不出」，不会冒出隐藏出参。
+
+**为什么还要 empty tensor elimination**：写回本身是一次拷贝；在 GPU 上，那份临时张量是
+host 分配，kernel 访问它是非法地址（实测 `CUDA_ERROR_ILLEGAL_ADDRESS`）。单元编译前跑
+`eliminate-empty-tensors`，把「算到临时张量再拷贝」改写成「直接算进目的地」。归约不需要
+它——它本来就原地累加。
+
+**代价（写进 API 的约定）**：输入视图必须带 `restrict`（one-shot bufferization 不接受不带
+它的 `to_tensor`），所以**一次算子调用传入的所有缓冲区必须互不重叠**，和 `memcpy` 的约定
+一样。这一点写在 `SkeletonOps.h` 里；DAG 里「同一个缓冲区既是某一步的输入、又是另一步的
+输出」仍然允许，因为写回发生在计算之后。
 
 ## 3. 方言与算子形状
 
@@ -197,7 +218,35 @@ cir-opt → driver。文档 §W6 建议先做包装工具，这里照做。
 **为什么**：CIR→LLVM 之后 `main` 是 `llvm.func`，driver 原来只找 `func.func`；另外
 `int main` 返回 int，原来的产物 `main` 一律返回 0，把程序自己的退出码丢了。
 
-### 4.5 driver 只在有 tensor 级工作时才跑 bufferize
+### 4.5 `cir-to-llvm` 需要一个「保留非 CIR 函数」的开关
+
+**决策**：给 `cir-flat-to-llvm` 加 `allow-mixed-module`（默认关），前端管线把它打开。
+
+**为什么**：转换目标把 `func` 方言标成非法，切分之后的模块（host 是 CIR、单元是
+`func.func`、thunk 还是 `cir.func`）直接报 `failed to legalize operation 'func.func'`。
+CIR 全模块的常规路径保持严格目标——那里出现残留的 `func.func` 是真错误。
+
+### 4.6 入口返回值要留一个结果槽
+
+**决策**：driver 用 `invokePacked` 调入口时，如果入口有返回值，就在参数数组后面留一个槽，
+并把那个返回值当作自己的退出码。
+
+**为什么**：`invokePacked` 走 MLIR 生成的 packed wrapper：它按参数个数从数组里取指针，再把
+返回值写到**参数之后**的那个槽。C++ 的 `main` 返回 int，参数数组是空的，于是 wrapper 读到
+一个越界指针并往那里写——程序跑完算子的**最后一步**才崩溃。GPU 那个用例就是被这个掩盖成
+「设备错误」的：`compute-sanitizer` 报 0 个设备错误，因为崩的是 host。
+
+### 4.7 `available_externally` 的定义必须保留
+
+**决策**：host 与单元 lowering 之后，把 `available_externally` 且有函数体的定义改成
+`linkonce_odr`。
+
+**为什么**：clang 把隐式模板实例化（`std::allocator<char>::allocate` 之类）标成
+`available_externally`——正常构建里它要么被内联、要么进目标文件，其余由链接器从别的编译
+单元解决。这里的模块是**自己编译自己执行**（JIT，或产物链接到不导出这些内联体的库），
+少了定义就是 `Symbols not found`。
+
+### 4.8 driver 只在有 tensor 级工作时才跑 bufferize
 
 **决策**：`hasTensorLevelOps` 检查模块里还有没有 skeleton 算子或 tensor 类型的值；没有就跳过
 `skeleton-to-linalg` + bufferization。
@@ -223,10 +272,15 @@ reduce 够不够」这个问题。实现之后答案是：够，但需要补广�
 
 ### 5.3 行内 softmax 用二维静态数组，动态形状只在 CPU
 
-**决策**：测试用 `float[3][4]`（静态），因此同时能跑 GPU；span 版本（动态）只跑 CPU。
+**决策**：测试用 `float[3][4]`（静态），所以四个单元都是 `memref<3x4xf32>` /
+`memref<3xf32>`；span 版本（动态）只跑 CPU。
 
 **为什么**：GPU 桥接仍然拒绝动态形状的 operand（roadmap §5.4 的独立工作）。要么把第一个
 算子做成静态的，要么就接受它跑不了 GPU；验收要求 CPU/GPU 各一次，所以选静态。
+
+**GPU 状态**：`GPU/cpp-map-add-static` 从 C++ 一路编到 GPU 并跑出期望值（单元里是
+`gpu.launch_func`，host 侧是 UVM 分配与拷贝）。softmax 这一版仍是 CPU-only：归约在 GPU 上
+要走 `linalg.reduce` → 并行 reduction，还没验证。
 
 ## 6. 没做与遗留
 
