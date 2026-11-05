@@ -267,7 +267,7 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
     for (int64_t dim = 0; dim < dstTensorType.getRank(); ++dim)
       if (dstTensorType.isDynamicDim(dim))
         dynSizes.push_back(memref::DimOp::create(
-            body, loc, dstMemRef,
+            body, loc, dstMemref,
             arith::ConstantIndexOp::create(body, loc, dim)));
     result = tensor::EmptyOp::create(body, loc, dstTensorType.getShape(),
                                      dstTensorType.getElementType(), dynSizes);
