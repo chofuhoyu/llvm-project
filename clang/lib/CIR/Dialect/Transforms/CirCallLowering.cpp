@@ -33,13 +33,18 @@ bool isSkeletonSpan(Type ty) {
          isa<cir::IntType>(structTy.getElementType(kSpanSizeMember));
 }
 
-Value createToTensor(OpBuilder &builder, Location loc, Value memref) {
+Value createToTensor(OpBuilder &builder, Location loc, Value memref,
+                     bool writable) {
   auto memrefType = cast<MemRefType>(memref.getType());
   auto tensorType =
       RankedTensorType::get(memrefType.getShape(), memrefType.getElementType());
+  // The host may pass the same buffer as an input and as the destination (an
+  // in-place step of the DAG), so neither view claims to be unrestricted: the
+  // write stays in place because the destination is writable, not because the
+  // buffers are known not to alias.
   return bufferization::ToTensorOp::create(builder, loc, tensorType, memref,
-                                           /*restrict=*/true,
-                                           /*writable=*/true);
+                                           /*restrict=*/false,
+                                           /*writable=*/writable);
 }
 
 FailureOr<MemRefType> hostParamToMemRef(Type paramTy, bool isDestination) {

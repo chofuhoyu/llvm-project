@@ -242,7 +242,7 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
   unsigned argIdx = 0;
 
   Value dstMemref = entry->getArgument(argIdx++);
-  Value dstTensor = createToTensor(body, loc, dstMemref);
+  Value dstTensor = createToTensor(body, loc, dstMemref, /*writable=*/true);
 
   auto pureFnAttr = SymbolRefAttr::get(ctx, info.pureFnName);
   auto prefAttr = skeleton::PreferenceAttr::get(
@@ -253,7 +253,8 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
     // skeleton.map broadcasts a scalar over the destination.
     SmallVector<Value> ins;
     for (unsigned i = 1; i < info.dataOperands.size(); ++i)
-      ins.push_back(createToTensor(body, loc, entry->getArgument(argIdx++)));
+      ins.push_back(createToTensor(body, loc, entry->getArgument(argIdx++),
+                                    /*writable=*/false));
     for (unsigned i = 0; i < info.scalarOperands.size(); ++i) {
       Value scalar = entry->getArgument(argIdx++);
       auto scalarTy = RankedTensorType::get({}, scalar.getType());
@@ -267,7 +268,8 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
     // identity is written into the buffer first and the reduction then runs in
     // place. The destination has the result shape, which is what tells the
     // operator how many trailing dimensions it reduces.
-    Value inTensor = createToTensor(body, loc, entry->getArgument(argIdx++));
+    Value inTensor = createToTensor(body, loc, entry->getArgument(argIdx++),
+                                    /*writable=*/false);
     Value identity = entry->getArgument(argIdx++);
     linalg::FillOp::create(body, loc, ValueRange{identity}, ValueRange{dstTensor});
     skeleton::ReduceOp::create(body, loc, inTensor, dstTensor, pureFnAttr,

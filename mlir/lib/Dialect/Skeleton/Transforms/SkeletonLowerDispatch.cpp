@@ -71,11 +71,10 @@ struct SkeletonLowerDispatchPass
       StringRef calleeName = *call.getCallee();
       StringRef idText = calleeName.drop_front(kOpUnitPrefix.size());
       int64_t opId = 0;
-      if (idText.getAsInteger(10, opId)) {
-        call.emitError("malformed op unit name '") << calleeName << "'";
-        signalPassFailure();
-        return;
-      }
+      // A thunk (`__skeleton_op_<id>_shim`) carries the same prefix but is its
+      // own function; only the unit's own name is a dispatch point.
+      if (idText.getAsInteger(10, opId))
+        continue;
 
       OpBuilder builder(call);
       Location loc = call.getLoc();

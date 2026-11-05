@@ -93,10 +93,13 @@ mlir::FailureOr<mlir::MemRefType> hostParamToMemRef(mlir::Type paramTy,
 /// two would read out of bounds.
 mlir::LogicalResult resolveDataOperands(SkeletonCallInfo &info);
 
-/// Create bufferization.to_tensor from a memref: the tensor view the skeleton
-/// operator reads (and, for a destination, writes through).
+/// Create bufferization.to_tensor from a memref: the tensor view a skeleton
+/// operator reads, or -- with \p writable -- the destination it writes through.
+/// Only a destination is writable: that is what lets bufferization keep the
+/// write in the caller's buffer instead of materializing a new tensor whose
+/// result would be discarded.
 mlir::Value createToTensor(mlir::OpBuilder &builder, mlir::Location loc,
-                           mlir::Value memref);
+                           mlir::Value memref, bool writable);
 
 } // namespace cir
 
