@@ -248,24 +248,30 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
   auto dstTensorType =
       RankedTensorType::get(dstType.getShape(), dstType.getElementType());
 
-  // The operator computes into the result shape -- the destination's -- and
-  // writes it into the destination buffer afterwards. The write is what keeps
-  // the computation alive: a tensor-level operator has no side effects, so
-  // without a use its result would be dead code and would disappear before
-  // bufferization.
-  SmallVector<Value> dynSizes;
-  for (int64_t dim = 0; dim < dstTensorType.getRank(); ++dim)
-    if (dstTensorType.isDynamicDim(dim))
-      dynSizes.push_back(memref::DimOp::create(
-          body, loc, dstMemref,
-          arith::ConstantIndexOp::create(body, loc, dim)));
-  Value result = tensor::EmptyOp::create(body, loc, dstTensorType.getShape(),
-                                         dstTensorType.getElementType(),
-                                         dynSizes);
-
   auto pureFnAttr = SymbolRefAttr::get(ctx, info.pureFnName);
   auto prefAttr = skeleton::PreferenceAttr::get(
       ctx, StringAttr::get(ctx, toString(info.preference)));
+
+  // The operator writes into the destination buffer in place. A tensor-level
+  // operator has no side effects, so the write that follows is also what keeps
+  // the computation alive: without a use its result would be dead code and
+  // would disappear before bufferization.
+  Value result;
+  bool resultRestrict = true;
+  if (info.opType == SkeletonOpType::Map) {
+    // A fresh tensor of the result shape; empty tensor elimination rewrites it
+    // into a writable view of the destination, so the map writes there
+    // directly rather than into a temporary that would then be copied -- which
+    // matters on a device, where a temporary is not reachable from the kernel.
+    SmallVector<Value> dynSizes;
+    for (int64_t dim = 0; dim < dstTensorType.getRank(); ++dim)
+      if (dstTensorType.isDynamicDim(dim))
+        dynSizes.push_back(memref::DimOp::create(
+            body, loc, dstMemRef,
+            arith::ConstantIndexOp::create(body, loc, dim)));
+    result = tensor::EmptyOp::create(body, loc, dstTensorType.getShape(),
+                                     dstTensorType.getElementType(), dynSizes);
+  }
 
   if (info.opType == SkeletonOpType::Map) {
     // One tensor per input data argument, then one rank-0 tensor per scalar:
@@ -283,25 +289,25 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
                                      pureFnAttr, prefAttr)
                  .getResult();
   } else {
-    // The reduction's initial accumulator is the identity broadcast over the
-    // destination shape; that shape is also what tells the operator how many
-    // trailing dimensions it reduces.
+    // The reduction accumulates in its `outs`, so the identity is written into
+    // the destination first and the reduction then runs there. That keeps a
+    // reduction on the device reachable from the kernel, and the destination's
+    // shape is what tells the operator how many trailing dimensions it
+    // reduces.
     Value inTensor = createToTensor(body, loc, entry->getArgument(argIdx++));
     Value identity = entry->getArgument(argIdx++);
-    Value init = dstTensorType.getRank() == 0
-                     ? tensor::FromElementsOp::create(body, loc, dstTensorType,
-                                                      ValueRange{identity})
-                           .getResult()
-                     : tensor::SplatOp::create(body, loc, dstTensorType,
-                                               identity)
-                           .getResult();
+    Value init = createToTensor(body, loc, dstMemref);
+    linalg::FillOp::create(body, loc, ValueRange{identity}, ValueRange{init});
     result = skeleton::ReduceOp::create(body, loc, inTensor, init, pureFnAttr,
                                         prefAttr)
                  .getResult();
+    // The accumulator already lives in the destination, so this write is a
+    // no-op for bufferization; it is what keeps the reduction alive.
+    resultRestrict = false;
   }
 
   bufferization::MaterializeInDestinationOp::create(
-      body, loc, /*result=*/Type(), result, dstMemref, /*restrict=*/false,
+      body, loc, /*result=*/Type(), result, dstMemref, resultRestrict,
       /*writable=*/true);
   func::ReturnOp::create(body, loc, ValueRange{});
   return unit;

@@ -121,15 +121,16 @@ func.func @reduce_hybrid(%input: memref<?xf32>, %init: memref<f32>) {
 
 // -----
 
-// ReduceOp: init not scalar → error
+// ReduceOp: the init keeps a prefix of the input's dimensions, so it cannot
+// have more of them than the input
 
-func.func @reduce_non_scalar_init(%input: memref<?xf32>, %init: memref<?xf32>) {
+func.func @reduce_non_scalar_init(%input: memref<?xf32>, %init: memref<2x3xf32>) {
   %in_t = bufferization.to_tensor %input : memref<?xf32> to tensor<?xf32>
-  %init_t = bufferization.to_tensor %init : memref<?xf32> to tensor<?xf32>
-  // expected-error@+1 {{reduce init must be a scalar tensor (rank 0)}}
+  %init_t = bufferization.to_tensor %init : memref<2x3xf32> to tensor<2x3xf32>
+  // expected-error@+1 {{reduce init rank 2 exceeds the input's rank 1}}
   %r = skeleton.reduce pure_fn = @my_sum
     ins(%in_t : tensor<?xf32>)
-    outs(%init_t : tensor<?xf32>)
+    outs(%init_t : tensor<2x3xf32>)
   return
 }
 
@@ -174,7 +175,8 @@ func.func @yield_outside_skeleton(%val: f32) {
 
 // -----
 
-// MapOp: input rank differs from init/result rank
+// MapOp: an input may be broadcast over the result's leading dimensions, but
+// it cannot have more dimensions than the result
 
 func.func @my_add(%a: f32, %b: f32) -> f32 {
   %r = arith.addf %a, %b : f32
@@ -185,7 +187,7 @@ func.func @map_rank_mismatch(%A: memref<2x3xf32>, %B: memref<2x3xf32>, %C: memre
   %A_t = bufferization.to_tensor %A : memref<2x3xf32> to tensor<2x3xf32>
   %B_t = bufferization.to_tensor %B : memref<2x3xf32> to tensor<2x3xf32>
   %C_t = bufferization.to_tensor %C : memref<2xf32> to tensor<2xf32>
-  // expected-error@+1 {{input 0 has rank 2 but init/result has rank 1}}
+  // expected-error@+1 {{input 0 has rank 2, which is more than init/result's rank 1}}
   %r = skeleton.map pure_fn = @my_add
     ins(%A_t, %B_t : tensor<2x3xf32>, tensor<2x3xf32>)
     outs(%C_t : tensor<2xf32>)

@@ -8,7 +8,7 @@
 
 #include "mlir/Dialect/Skeleton/SkeletonOps.h"
 
-#include <cstdio>
+extern "C" int printf(const char *, ...);
 
 __attribute__((annotate("skeleton.pure")))
 float my_add(float a, float b) {

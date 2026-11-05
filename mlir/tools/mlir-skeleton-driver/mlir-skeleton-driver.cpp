@@ -225,6 +225,11 @@ lowerToLLVM(ModuleOp module, MLIRContext *context, bool isHost,
   bool tensorLevel = hasTensorLevelOps(module);
   if (tensorLevel) {
     pm.addPass(skeleton::createSkeletonToLinalgPass());
+    // An operator unit computes into a fresh tensor and materializes it in the
+    // destination buffer. Empty tensor elimination turns that into computing
+    // directly in the destination, which is what makes the operator's write
+    // reachable from a device kernel.
+    pm.addPass(bufferization::createEmptyTensorEliminationPass());
 
     bufferization::OneShotBufferizePassOptions bufferizeOptions;
     bufferizeOptions.bufferizeFunctionBoundaries = true;

@@ -65,11 +65,12 @@ int main() {
 // memref in the signature (data arguments first, then scalars). There is no
 // return value -- the caller owns the buffer.
 //
-// CHECK-LABEL: func.func private @__skeleton_op_0({{.*}}: memref<?xf32>, {{.*}}: memref<?xf32>, {{.*}}: memref<?xf32>) {
-// CHECK: bufferization.to_tensor {{.*}} restrict writable : memref<?xf32>
+// CHECK-LABEL: func.func private @__skeleton_op_0({{.*}}: memref<?xf32>, {{.*}}: memref<?xf32>, {{.*}}: memref<?xf32>)
+// CHECK: bufferization.to_tensor {{.*}} restrict : memref<?xf32>
 // CHECK: skeleton.map
 // CHECK-SAME: pure_fn = @_Z6my_addff
 // CHECK-SAME: outs({{.*}} : tensor<?xf32>)
+// CHECK: bufferization.materialize_in_destination {{.*}} in restrict writable {{.*}} : (tensor<?xf32>, memref<?xf32>) -> ()
 // CHECK: return
 
 // Its thunk takes one pointer per data argument and one length per dynamic
@@ -95,11 +96,13 @@ int main() {
 // identity as a scalar. The identity is filled into the destination, which the
 // reduction then accumulates in place.
 //
-// CHECK-LABEL: func.func private @__skeleton_op_2({{.*}}: memref<3x4xf32>, {{.*}}: memref<3xf32>, [[INIT:.*]]: f32) {
-// CHECK: linalg.fill ins([[INIT]] : f32) outs({{.*}} : tensor<3xf32>)
+// CHECK-LABEL: func.func private @__skeleton_op_2({{.*}}: memref<3x4xf32>, {{.*}}: memref<3xf32>, [[INIT:.*]]: f32)
+// CHECK: bufferization.to_tensor {{.*}} restrict writable : memref<3xf32>
+// CHECK: linalg.fill ins([[INIT]] : f32)
 // CHECK: skeleton.reduce
 // CHECK-SAME: pure_fn = @_Z6my_maxff
 // CHECK-SAME: outs({{.*}} : tensor<3xf32>)
+// CHECK: bufferization.materialize_in_destination {{.*}} in writable
 
 // `main` is untouched: it is ordinary C++ that the host lowering handles.
 //
