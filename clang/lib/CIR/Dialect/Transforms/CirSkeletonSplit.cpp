@@ -433,15 +433,17 @@ void CIRSkeletonSplitPass::runOnOperation() {
     info.callOp = callOp;
     info.opType = opDecls->lookup(*callOp.getCallee());
 
+    bool notThin = false;
     for (Operation &op : host.getBody().front())
       if (!isThinWrapperOp(&op, callOp)) {
         op.emitError() << "a skeleton region host must be a thin wrapper "
                           "around its one skeleton operator call; this "
                           "statement would be dropped";
         reportedError = true;
+        notThin = true;
         break;
       }
-    if (reportedError)
+    if (notThin)
       continue;
 
     auto pureFnRef = extractPureFnRef(callOp, 0, pureFns, domInfo);

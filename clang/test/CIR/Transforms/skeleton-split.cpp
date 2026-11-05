@@ -98,7 +98,10 @@ int main() {
 // Its thunk takes one pointer per data argument and one length per dynamic
 // dimension, and describes the unit it belongs to.
 //
-// CHECK: cir.func private @__skeleton_op_0_shim({{.*}}: !cir.ptr<!cir.void>, {{.*}}: !u64i, {{.*}}: !cir.ptr<!cir.void>, {{.*}}: !u64i, {{.*}}: !cir.ptr<!cir.void>, {{.*}}: !u64i) attributes {skeleton.host_abi = {op_id = 0 : i64, operands = [memref<?xf32>, memref<?xf32>, memref<?xf32>], unit = "__skeleton_op_0"}}
+// CHECK: cir.func private @__skeleton_op_0_shim(!cir.ptr<!cir.void>, !u64i, !cir.ptr<!cir.void>, !u64i, !cir.ptr<!cir.void>, !u64i) attributes {skeleton.host_abi =
+// CHECK-SAME: op_id = 0
+// CHECK-SAME: operands = [memref<?xf32>, memref<?xf32>, memref<?xf32>]
+// CHECK-SAME: unit = "__skeleton_op_0"
 
 // The reduce unit takes the destination first, then the input and the identity.
 // The identity is filled into the destination and the reduction accumulates
@@ -107,7 +110,7 @@ int main() {
 // CHECK-LABEL: func.func private @__skeleton_op_2(
 // CHECK-SAME: memref<3xf32>,
 // CHECK-SAME: memref<3x4xf32>,
-// CHECK-SAME: [[INIT:.*]]: f32) attributes {skeleton.bytes = 60 : i64, skeleton.op_id = 2 : i64, skeleton.preference = #skeleton.preference<"CPU">}
+// CHECK-SAME: [[INIT:%[^ ]+]]: f32) attributes {skeleton.bytes = 60 : i64, skeleton.op_id = 2 : i64, skeleton.preference = #skeleton.preference<"CPU">}
 // CHECK: bufferization.to_tensor {{.*}} restrict : memref<3x4xf32>
 // CHECK: bufferization.to_tensor {{.*}} restrict : memref<3xf32>
 // CHECK: linalg.fill ins([[INIT]] : f32)
