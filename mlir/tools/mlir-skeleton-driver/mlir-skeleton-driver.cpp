@@ -243,6 +243,17 @@ lowerToLLVM(ModuleOp module, MLIRContext *context, bool isHost,
   if (failed(pm.run(module)))
     return failure();
 
+  // clang emits an implicit template instantiation as `available_externally`: a
+  // normal build either inlines it or emits it into the object file, and a
+  // linker resolves it from another translation unit. This module is compiled on
+  // its own -- JIT'ed, or emitted and linked against libraries that do not
+  // export those inline bodies -- so the definition has to stay. `linkonce_odr`
+  // keeps it, and still allows several units to carry the same one.
+  for (LLVM::LLVMFuncOp func : module.getOps<LLVM::LLVMFuncOp>())
+    if (!func.isExternal() &&
+        func.getLinkage() == LLVM::Linkage::AvailableExternally)
+      func.setLinkage(LLVM::Linkage::LinkOnceODR);
+
   if (!isHost)
     return success();
 
