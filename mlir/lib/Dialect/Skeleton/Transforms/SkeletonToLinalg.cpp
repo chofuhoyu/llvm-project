@@ -85,12 +85,24 @@ struct ConvertMapOp : public OpRewritePattern<MapOp> {
     unsigned rank = resultType.getRank();
     auto *ctx = rewriter.getContext();
 
-    // Identity map for each operand.
+    // An input of the result's rank maps identically onto it; a lower-rank
+    // input is broadcast by matching its dimensions to the leading ones (a
+    // rank-0 input therefore maps to no dimension at all). The map is the
+    // identity on the result's dimensions restricted to the first
+    // operandRank of them.
+    auto broadcastMap = [&](unsigned operandRank) {
+      SmallVector<AffineExpr> dims;
+      for (unsigned d = 0; d < operandRank; ++d)
+        dims.push_back(rewriter.getAffineDimExpr(d));
+      return AffineMap::get(rank, /*symbolCount=*/0, dims, ctx);
+    };
+
     SmallVector<AffineMap> indexingMaps;
-    unsigned numOperands = op.getInputs().size() + 1; // inputs + init
-    for (unsigned i = 0; i < numOperands; ++i)
+    for (Value input : op.getInputs())
       indexingMaps.push_back(
-          AffineMap::getMultiDimIdentityMap(rank, ctx));
+          broadcastMap(cast<RankedTensorType>(input.getType()).getRank()));
+    // The destination is the result: identity.
+    indexingMaps.push_back(AffineMap::getMultiDimIdentityMap(rank, ctx));
 
     // All parallel iterators for element-wise ops.
     SmallVector<utils::IteratorType> iteratorTypes(
@@ -167,6 +179,14 @@ struct ConvertReduceOp : public OpRewritePattern<ReduceOp> {
     }
 
     auto inputType = cast<RankedTensorType>(op.getInput().getType());
+    auto initType = cast<RankedTensorType>(op.getInit().getType());
+
+    // The reduction covers the trailing dimensions the init does not have: the
+    // init keeps a prefix of the input's dimensions, so an init of rank 0
+    // reduces every element.
+    SmallVector<int64_t> dimensions;
+    for (int64_t d = initType.getRank(); d < inputType.getRank(); ++d)
+      dimensions.push_back(d);
 
     // Build a linalg.reduce with the pure_fn body cloned into its combiner
     // region.
@@ -174,8 +194,7 @@ struct ConvertReduceOp : public OpRewritePattern<ReduceOp> {
         rewriter, op.getLoc(),
         /*inputs=*/ValueRange{op.getInput()},
         /*inits=*/ValueRange{op.getInit()},
-        /*dimensions=*/
-        llvm::to_vector(llvm::seq<int64_t>(0, inputType.getRank())),
+        /*dimensions=*/dimensions,
         [&](OpBuilder &bodyBuilder, Location loc, ValueRange blockArgs) {
           if (hasBody) {
             // skeleton.reduce body arguments are (accumulator, element);

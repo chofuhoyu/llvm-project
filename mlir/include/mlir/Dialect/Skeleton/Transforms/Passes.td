@@ -88,6 +88,24 @@ def SkeletonOutline : Pass<"skeleton-outline"> {
   ];
 }
 
+def SkeletonLowerHostABI : Pass<"skeleton-lower-host-abi"> {
+  let summary = "Build the host/unit ABI thunks declared by the front end";
+  let description = [{
+    Runs on a module already lowered to the LLVM dialect. Every declaration
+    carrying `skeleton.host_abi` -- the thunk `cir-skeleton-split` leaves
+    between a host stub and its operator unit -- gets a body that rebuilds the
+    memref descriptors from the pointer/length arguments the host passes and
+    calls the unit with the descriptor fields flattened.
+
+    The generated call is a direct call to the unit; `skeleton-lower-dispatch`
+    runs afterwards and turns it into a runtime resolve plus an indirect call.
+  }];
+  let dependentDialects = [
+    "mlir::LLVM::LLVMDialect",
+    "mlir::skeleton::SkeletonDialect"
+  ];
+}
+
 def SkeletonLowerDispatch : Pass<"skeleton-lower-dispatch"> {
   let summary = "Lower op unit calls to runtime resolves";
   let description = [{

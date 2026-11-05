@@ -20,9 +20,11 @@
 #define LLVM_CLANG_CIR_DIALECT_TRANSFORMS_CIRFUNCTOARITH_H
 
 #include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringRef.h"
 
 namespace mlir {
+class ModuleOp;
 class OpBuilder;
 namespace func {
 class FuncOp;
@@ -44,6 +46,14 @@ mlir::func::FuncOp createFuncFromCirBody(cir::FuncOp cirFunc,
                                          llvm::StringRef newName,
                                          mlir::OpBuilder &builder);
 
+/// Convert the pure functions named in \p pureFns from cir.func to func.func,
+/// so that the operator units can reference them through `pure_fn`. A pure
+/// function whose body cannot be translated is reported and the whole
+/// conversion fails rather than leaving the module half-converted.
+mlir::LogicalResult
+convertPureFunctionsToFunc(mlir::ModuleOp module,
+                           const llvm::DenseSet<llvm::StringRef> &pureFns);
+
 /// Fill \p targetFunc (a fresh func.func with an empty body) with a
 /// translation of \p cirFunc's body.
 ///
@@ -53,11 +63,12 @@ mlir::func::FuncOp createFuncFromCirBody(cir::FuncOp cirFunc,
 /// resolved back into SSA form as it is translated; hand-written SSA bodies
 /// translate as-is.
 ///
-/// Only a subset of CIR ops is supported (constants, integer/fp
-/// add/sub/mul/div/rem, fp fused multiply-add, unary negation). Anything else
-/// — control flow, comparisons, selects, casts, calls, non-scalar allocas,
-/// volatile or atomic memory access — is rejected with a diagnostic; the
-/// translator never silently drops part of the body.
+/// The supported vocabulary is straight-line scalar code: constants, the
+/// integer and floating-point arithmetic ops, fused multiply-add, negation,
+/// comparisons, `cir.ternary`, casts between arithmetic types and the math
+/// builtins CIR models as its own ops. Anything else -- control flow, calls,
+/// non-scalar allocas, volatile or atomic memory access -- is rejected with a
+/// diagnostic; the translator never silently drops part of the body.
 ///
 /// On failure \p targetFunc is left in an undefined, partially-populated
 /// state; the caller is expected to erase it.

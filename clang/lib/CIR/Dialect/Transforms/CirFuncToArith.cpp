@@ -27,6 +27,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -67,6 +68,25 @@ StringRef mathDialectOp(Operation *op) {
 }
 
 } // namespace
+
+LogicalResult
+convertPureFunctionsToFunc(ModuleOp module,
+                           const llvm::DenseSet<llvm::StringRef> &pureFns) {
+  SmallVector<cir::FuncOp> toConvert;
+  module.walk([&](cir::FuncOp func) {
+    if (pureFns.contains(func.getSymName()))
+      toConvert.push_back(func);
+  });
+
+  for (cir::FuncOp cirFunc : toConvert) {
+    OpBuilder builder(cirFunc);
+    auto newFunc = createFuncFromCirBody(cirFunc, cirFunc.getSymName(), builder);
+    if (!newFunc)
+      return failure();
+    cirFunc.erase();
+  }
+  return success();
+}
 
 func::FuncOp createFuncFromCirBody(cir::FuncOp cirFunc, StringRef newName,
                                    OpBuilder &builder) {
@@ -590,7 +610,10 @@ LogicalResult populateArithFuncBody(cir::FuncOp cirFunc,
       return *v;
     }
     if (auto yield = dyn_cast<cir::YieldOp>(terminator)) {
-      auto v = lookupValue(yield.getValue());
+      if (yield.getArgs().size() != 1)
+        return yield.emitError()
+               << "a ternary arm must yield exactly one value";
+      auto v = lookupValue(yield.getArgs().front());
       if (failed(v))
         return failure();
       return *v;
@@ -600,8 +623,9 @@ LogicalResult populateArithFuncBody(cir::FuncOp cirFunc,
   };
 
   builder.setInsertionPointToEnd(stdEntry);
-  return success(translateBlock(*cirEntry, builder, /*inRegionArm=*/false)
-                     .succeeded());
+  if (failed(translateBlock(*cirEntry, builder, /*inRegionArm=*/false)))
+    return failure();
+  return success();
 }
 
 } // namespace cir

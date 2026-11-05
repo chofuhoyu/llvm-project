@@ -188,23 +188,54 @@ void collectSymbolRefs(Operation *op,
 /// provided, the lowered type of every outlined operator declaration is
 /// recorded before the dispatch pass erases the declarations, so a lazily
 /// compiled unit can be checked against the ABI the host already calls it with.
+/// Whether the module still has tensor-level work for skeleton-to-linalg and
+/// bufferization. A host that the C++ front end already lowered to the LLVM
+/// dialect has none, and running those passes over it would only give the
+/// bufferizer a module it has nothing to do with.
+bool hasTensorLevelOps(ModuleOp module) {
+  bool found = false;
+  module.walk([&](Operation *op) {
+    if (found)
+      return WalkResult::interrupt();
+    if (isa<skeleton::MapOp, skeleton::ReduceOp, skeleton::VectorAddOp>(op)) {
+      found = true;
+      return WalkResult::interrupt();
+    }
+    for (Type type : op->getOperandTypes())
+      if (isa<TensorType>(type)) {
+        found = true;
+        return WalkResult::interrupt();
+      }
+    for (Type type : op->getResultTypes())
+      if (isa<TensorType>(type)) {
+        found = true;
+        return WalkResult::interrupt();
+      }
+    return WalkResult::advance();
+  });
+  return found;
+}
+
 LogicalResult
 lowerToLLVM(ModuleOp module, MLIRContext *context, bool isHost,
             llvm::StringMap<LLVM::LLVMFunctionType> *hostSignatures = nullptr) {
   PassManager pm(context);
 
-  pm.addPass(skeleton::createSkeletonToLinalgPass());
+  bool tensorLevel = hasTensorLevelOps(module);
+  if (tensorLevel) {
+    pm.addPass(skeleton::createSkeletonToLinalgPass());
 
-  bufferization::OneShotBufferizePassOptions bufferizeOptions;
-  bufferizeOptions.bufferizeFunctionBoundaries = true;
-  bufferizeOptions.functionBoundaryTypeConversion =
-      bufferization::LayoutMapOption::IdentityLayoutMap;
-  pm.addPass(bufferization::createOneShotBufferizePass(bufferizeOptions));
+    bufferization::OneShotBufferizePassOptions bufferizeOptions;
+    bufferizeOptions.bufferizeFunctionBoundaries = true;
+    bufferizeOptions.functionBoundaryTypeConversion =
+        bufferization::LayoutMapOption::IdentityLayoutMap;
+    pm.addPass(bufferization::createOneShotBufferizePass(bufferizeOptions));
+  }
 
   if (failed(parsePassPipeline(
           "convert-linalg-to-loops,convert-scf-to-cf,expand-strided-metadata,"
-          "convert-arith-to-llvm,finalize-memref-to-llvm,convert-func-to-llvm,"
-          "convert-cf-to-llvm,reconcile-unrealized-casts",
+          "convert-arith-to-llvm,convert-math-to-llvm,finalize-memref-to-llvm,"
+          "convert-func-to-llvm,convert-cf-to-llvm,reconcile-unrealized-casts",
           pm)))
     return failure();
 
@@ -220,7 +251,11 @@ lowerToLLVM(ModuleOp module, MLIRContext *context, bool isHost,
         (*hostSignatures)[func.getSymName()] = func.getFunctionType();
   }
 
+  // The ABI thunks the C++ front end declared are filled in once the host is
+  // LLVM; they call the operator unit directly, so the dispatch lowering below
+  // still turns every operator call into one resolve plus one indirect call.
   PassManager dispatchPm(context);
+  dispatchPm.addPass(skeleton::createSkeletonLowerHostABIPass());
   dispatchPm.addPass(skeleton::createSkeletonLowerDispatchPass());
   return dispatchPm.run(module);
 }
@@ -505,17 +540,30 @@ LogicalResult splitUnits(ModuleOp module, DriverState &state) {
 // Execution
 
 FailureOr<int> runDriver(ModuleOp module, DriverState &state) {
-  // The runtime only supports a C-style entry point: no arguments and no
-  // result. Check it before outlining so the diagnostic points at the input.
-  auto entry = module.lookupSymbol<func::FuncOp>(entryPoint);
+  // The runtime only supports a C-style entry point: no arguments. Its result,
+  // if it has one, is the process exit code and is reported by the artifact; in
+  // process it is ignored. A C++ `main` reaches here as an llvm.func, a
+  // hand-written skeleton program as a func.func.
+  Operation *entry = module.lookupSymbol(entryPoint);
   if (!entry) {
     llvm::errs() << "entry function '" << entryPoint << "' not found\n";
     return failure();
   }
-  FunctionType entryType = entry.getFunctionType();
-  if (entryType.getNumInputs() != 0 || entryType.getNumResults() != 0) {
+  if (auto funcEntry = dyn_cast<func::FuncOp>(entry)) {
+    if (funcEntry.getNumArguments() != 0) {
+      llvm::errs() << "entry function '" << entryPoint
+                   << "' must take no arguments\n";
+      return failure();
+    }
+  } else if (auto llvmEntry = dyn_cast<LLVM::LLVMFuncOp>(entry)) {
+    if (llvmEntry.getFunctionType().getNumParams() != 0) {
+      llvm::errs() << "entry function '" << entryPoint
+                   << "' must take no arguments\n";
+      return failure();
+    }
+  } else {
     llvm::errs() << "entry function '" << entryPoint
-                 << "' must take no arguments and return void\n";
+                 << "' is neither a func.func nor an llvm.func\n";
     return failure();
   }
 
@@ -655,7 +703,9 @@ LogicalResult addProgramInit(OpBuilder &builder, ModuleOp module,
   return success();
 }
 
-/// Generate the C entry point: run the registration, then the program.
+/// Generate the C entry point: run the registration, then the program. An
+/// entry that returns a value -- a C++ `main` returns an int -- gives the
+/// process its exit code.
 void addMain(OpBuilder &builder, ModuleOp module, StringRef entryName,
              Location loc) {
   MLIRContext *ctx = builder.getContext();
@@ -670,11 +720,28 @@ void addMain(OpBuilder &builder, ModuleOp module, StringRef entryName,
   LLVM::CallOp::create(builder, loc, TypeRange{},
                        FlatSymbolRefAttr::get(ctx, "skeleton_program_init"),
                        ValueRange{});
-  LLVM::CallOp::create(builder, loc, TypeRange{},
-                       FlatSymbolRefAttr::get(ctx, entryName), ValueRange{});
-  Value zero = LLVM::ConstantOp::create(builder, loc, i32Ty,
+
+  Value exitCode;
+  auto entry = module.lookupSymbol<LLVM::LLVMFuncOp>(entryName);
+  Type entryResultTy = entry ? entry.getFunctionType().getReturnType()
+                             : LLVM::LLVMVoidType::get(ctx);
+  if (isa<LLVM::LLVMVoidType>(entryResultTy)) {
+    LLVM::CallOp::create(builder, loc, TypeRange{},
+                         FlatSymbolRefAttr::get(ctx, entryName), ValueRange{});
+  } else {
+    Value result = LLVM::CallOp::create(builder, loc, TypeRange{entryResultTy},
+                                        FlatSymbolRefAttr::get(ctx, entryName),
+                                        ValueRange{})
+                       .getResult();
+    if (result.getType() == i32Ty)
+      exitCode = result;
+    else if (isa<IntegerType>(result.getType()))
+      exitCode = LLVM::TruncOp::create(builder, loc, i32Ty, result);
+  }
+  if (!exitCode)
+    exitCode = LLVM::ConstantOp::create(builder, loc, i32Ty,
                                         builder.getI32IntegerAttr(0));
-  LLVM::ReturnOp::create(builder, loc, ValueRange{zero});
+  LLVM::ReturnOp::create(builder, loc, ValueRange{exitCode});
 }
 
 /// Embed the skeleton IR in its own section so the driver can re-read it from
@@ -841,14 +908,24 @@ LogicalResult emitArtifact(ModuleOp module, DriverState &state,
   if (!skeletonIR)
     return failure();
 
-  auto entry = module.lookupSymbol<func::FuncOp>(entryPoint);
+  Operation *entry = module.lookupSymbol(entryPoint);
   if (!entry) {
     llvm::errs() << "entry function '" << entryPoint << "' not found\n";
     return failure();
   }
-  FunctionType entryType = entry.getFunctionType();
-  if (entryType.getNumInputs() != 0 || entryType.getNumResults() != 0) {
-    llvm::errs() << "artifact entry must take no arguments and return void\n";
+  if (auto funcEntry = dyn_cast<func::FuncOp>(entry)) {
+    if (funcEntry.getNumArguments() != 0 || funcEntry.getNumResults() != 0) {
+      llvm::errs() << "artifact entry must take no arguments and return void\n";
+      return failure();
+    }
+  } else if (auto llvmEntry = dyn_cast<LLVM::LLVMFuncOp>(entry)) {
+    if (llvmEntry.getFunctionType().getNumParams() != 0) {
+      llvm::errs() << "artifact entry must take no arguments\n";
+      return failure();
+    }
+  } else {
+    llvm::errs() << "artifact entry '" << entryPoint
+                 << "' is neither a func.func nor an llvm.func\n";
     return failure();
   }
   if (SymbolTable::lookupSymbolIn(module, "__skeleton_entry")) {
@@ -861,7 +938,7 @@ LogicalResult emitArtifact(ModuleOp module, DriverState &state,
                  << "'\n";
     return failure();
   }
-  entry.setName("__skeleton_entry");
+  SymbolTable::setSymbolName(entry, "__skeleton_entry");
 
   if (SymbolTable::lookupSymbolIn(module, "main")) {
     llvm::errs() << "artifact already has a 'main' symbol; choose a "

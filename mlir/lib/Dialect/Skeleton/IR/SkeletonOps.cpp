@@ -88,20 +88,21 @@ LogicalResult MapOp::verify() {
 
   auto initEltType = initType.getElementType();
 
-  // Every input must have the same rank as init/result: this op is
-  // element-wise, so inputs map element-for-element onto the output. A rank
-  // mismatch would silently misalign ConvertMapOp's indexing maps, which are
-  // built from the result rank.
+  // An input is applied element-wise against the destination, so it either
+  // has the destination's rank or is broadcast: an input of a lower rank
+  // matches the leading dimensions of the result, and a rank-0 input (a scalar
+  // tensor) is broadcast everywhere. The result rank is what ConvertMapOp
+  // builds its indexing maps from, so the rank relation is checked here.
   unsigned resultRank = resultType.getRank();
   for (unsigned i = 0, e = getInputs().size(); i < e; ++i) {
     auto inputType = cast<RankedTensorType>(getInputs()[i].getType());
-    if (inputType.getRank() != resultRank)
+    if (inputType.getRank() > resultRank)
       return emitOpError("input ")
              << i << " has rank " << inputType.getRank()
-             << " but init/result has rank " << resultRank;
+             << ", which is more than init/result's rank " << resultRank;
 
     // Static dimensions must agree where both are known.
-    for (unsigned d = 0; d < resultRank; ++d) {
+    for (unsigned d = 0; d < inputType.getRank(); ++d) {
       int64_t inSize = inputType.getDimSize(d);
       int64_t resSize = resultType.getDimSize(d);
       if (!ShapedType::isDynamic(inSize) &&
@@ -187,16 +188,27 @@ LogicalResult ReduceOp::verify() {
 
   auto eltType = inputType.getElementType();
 
-  // Input must be at least 1D. Init must be 0D (scalar tensor) or same
-  // element type with reduced rank.
-  if (initType.getRank() != 0)
-    return emitOpError("reduce init must be a scalar tensor (rank 0), got "
-                       "rank ")
-           << initType.getRank();
+  // The operator reduces the trailing dimensions the init does not have, so
+  // the init keeps a prefix of the input's dimensions: a rank-0 init reduces
+  // every element, and an init of the input's own rank reduces nothing.
+  if (initType.getRank() > inputType.getRank())
+    return emitOpError("reduce init rank ")
+           << initType.getRank() << " exceeds the input's rank "
+           << inputType.getRank();
 
   if (initType.getElementType() != eltType)
     return emitOpError("reduce init element type must match input element "
                        "type");
+
+  for (unsigned d = 0; d < initType.getRank(); ++d) {
+    int64_t initSize = initType.getDimSize(d);
+    int64_t inSize = inputType.getDimSize(d);
+    if (!ShapedType::isDynamic(initSize) && !ShapedType::isDynamic(inSize) &&
+        initSize != inSize)
+      return emitOpError("reduce init dimension ")
+             << d << " has static size " << initSize
+             << " but the input has static size " << inSize;
+  }
 
   // Verify pure_fn signature if present.
   if (hasPureFn) {

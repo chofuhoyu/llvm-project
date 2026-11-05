@@ -41,6 +41,7 @@
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonAttrs.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonOps.h"
@@ -97,6 +98,17 @@ Type scalarUnitType(Type cirType) {
   return converter.convertType(cirType);
 }
 
+/// `cir.load` with every optional attribute left at its default.
+Value loadValue(OpBuilder &builder, Location loc, Type type, Value addr) {
+  return cir::LoadOp::create(builder, loc, type, addr, /*isDeref=*/false,
+                             /*is_volatile=*/false, /*is_nontemporal=*/false,
+                             /*alignment=*/IntegerAttr(),
+                             /*sync_scope=*/cir::SyncScopeKindAttr(),
+                             /*mem_order=*/cir::MemOrderAttr(),
+                             /*invariant=*/false)
+      .getResult();
+}
+
 /// The ops a thin skeleton host may contain besides its one skeleton call:
 /// parameter staging and constants. Anything else would be silently dropped
 /// when the body is replaced by the thunk call, so it is reported instead.
@@ -148,7 +160,7 @@ LogicalResult CIRSkeletonSplitPass::rewriteHost(SkeletonCallInfo &info,
   Operation *terminator = entry.getTerminator();
   builder->setInsertionPoint(terminator);
 
-  auto voidPtrTy = cir::PointerType::get(cir::VoidType::get(getContext()));
+  auto voidPtrTy = cir::PointerType::get(cir::VoidType::get(&getContext()));
   SmallVector<Value> args;
   for (const DataOperandRef &data : info.dataOperands) {
     Value param = host.getArgument(data.hostParam);
@@ -162,13 +174,11 @@ LogicalResult CIRSkeletonSplitPass::rewriteHost(SkeletonCallInfo &info,
       auto dataPtr = cir::GetMemberOp::create(
           *builder, loc, cir::PointerType::get(dataMemberTy), param, "",
           kSpanDataMember);
-      Value base =
-          cir::LoadOp::create(*builder, loc, dataMemberTy, dataPtr).getResult();
+      Value base = loadValue(*builder, loc, dataMemberTy, dataPtr.getResult());
       auto sizePtr = cir::GetMemberOp::create(
           *builder, loc, cir::PointerType::get(sizeMemberTy), param, "",
           kSpanSizeMember);
-      Value size =
-          cir::LoadOp::create(*builder, loc, sizeMemberTy, sizePtr).getResult();
+      Value size = loadValue(*builder, loc, sizeMemberTy, sizePtr.getResult());
       args.push_back(cir::CastOp::create(*builder, loc, voidPtrTy,
                                          cir::CastKind::bitcast, base));
       args.push_back(size);
@@ -183,8 +193,8 @@ LogicalResult CIRSkeletonSplitPass::rewriteHost(SkeletonCallInfo &info,
     args.push_back(info.callOp.getOperand(operandIdx));
 
   cir::CallOp::create(*builder, loc,
-                      SymbolRefAttr::get(getContext(), thunk.getSymName()),
-                      cir::VoidType::get(getContext()), ValueRange(args));
+                      FlatSymbolRefAttr::get(&getContext(), thunk.getSymName()),
+                      cir::VoidType::get(&getContext()), ValueRange(args));
   cir::ReturnOp::create(*builder, loc, ValueRange{});
 
   // Drop the old body: the skeleton call and the return are replaced, and the
@@ -203,7 +213,7 @@ LogicalResult CIRSkeletonSplitPass::rewriteHost(SkeletonCallInfo &info,
 
 func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
                                               int64_t id) {
-  MLIRContext *ctx = getContext();
+  MLIRContext *ctx = &getContext();
   Location loc = info.callOp.getLoc();
 
   SmallVector<Type> argTypes;
@@ -269,7 +279,7 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
 
 cir::FuncOp CIRSkeletonSplitPass::createThunk(SkeletonCallInfo &info, int64_t id,
                                               func::FuncOp unit) {
-  MLIRContext *ctx = getContext();
+  MLIRContext *ctx = &getContext();
   Location loc = info.callOp.getLoc();
 
   auto voidPtrTy = cir::PointerType::get(cir::VoidType::get(ctx));
@@ -286,7 +296,9 @@ cir::FuncOp CIRSkeletonSplitPass::createThunk(SkeletonCallInfo &info, int64_t id
   for (unsigned operandIdx : info.scalarOperands)
     argTypes.push_back(info.callOp.getOperand(operandIdx).getType());
 
-  auto funcType = FunctionType::get(ctx, argTypes, {});
+  auto funcType =
+      cir::FuncType::get(argTypes, cir::VoidType::get(&getContext()),
+                         /*isVarArg=*/false);
   std::string name = (kUnitPrefix + Twine(id) + kThunkSuffix).str();
   builder->setInsertionPointToEnd(module.getBody());
   auto thunk = cir::FuncOp::create(*builder, loc, name, funcType);
@@ -372,7 +384,7 @@ void CIRSkeletonSplitPass::runOnOperation() {
       continue;
     }
 
-    SmallVector<cir::CallOp> &calls = callsByHost.lookup(host.getOperation());
+    SmallVector<cir::CallOp> &calls = callsByHost[host.getOperation()];
     if (calls.size() != 1) {
       host.emitError() << "a skeleton region host must contain exactly one "
                           "skeleton operator call, found "

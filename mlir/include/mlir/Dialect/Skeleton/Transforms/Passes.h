@@ -22,6 +22,7 @@ std::unique_ptr<Pass> createSkeletonTargetLowerPass();
 std::unique_ptr<Pass> createSkeletonPatternMergePass();
 std::unique_ptr<Pass> createSkeletonOutlinePass();
 std::unique_ptr<Pass> createSkeletonLowerDispatchPass();
+std::unique_ptr<Pass> createSkeletonLowerHostABIPass();
 
 // Registration
 
