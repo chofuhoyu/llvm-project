@@ -3,6 +3,9 @@
 // with the wrong extent, a caller left dangling -- so the pass reports them
 // while the CIR still has the source types that explain what went wrong.
 //
+// The diagnostics come out in the order the pass checks: every host function
+// first, then the calls to pure functions.
+//
 // RUN: %clang_cc1 -std=c++20 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -I %S/../../../../mlir/include %s -o %t.cir
 // RUN: not cir-opt %t.cir -cir-skeleton-split 2>&1 | FileCheck %s
 
@@ -17,13 +20,6 @@ float my_add(float a, float b) {
 
 float plain_add(float a, float b) {
   return a + b;
-}
-
-// A pure function only exists inside the operator units that reference it, so
-// a host call to it would be left dangling after the split.
-// CHECK: error: host code may not call the pure function '_Z6my_addff'
-void calls_pure(float &out, float a) {
-  out = my_add(a, a);
 }
 
 // A helper that was not marked as a pure function cannot be applied element-wise
@@ -84,4 +80,15 @@ float *bad_return(float (&a)[4], float (&out)[4]) {
 // CHECK: error: calls a skeleton operator but is not marked as a skeleton region
 void not_annotated(float (&a)[4], float (&out)[4]) {
   skeleton_map(my_add, out, a, a);
+}
+
+// A pure function only exists inside the operator units that reference it, so a
+// host call to it would be left dangling after the split.
+// CHECK: error: host code may not call the pure function '_Z6my_addff'
+float *calls_pure(float (&a)[4]) {
+  return a[0] > 0 ? a : a;
+}
+
+float call_it(float a) {
+  return my_add(a, a);
 }

@@ -363,21 +363,6 @@ void CIRSkeletonSplitPass::runOnOperation() {
   if (opDecls->empty())
     return;
 
-  // A pure function is part of the operator, not of the host program: after the
-  // split it exists only as the func.func an operator unit references, so a
-  // call from host code would be left dangling.
-  bool reportedError = false;
-  module.walk([&](cir::CallOp callOp) {
-    auto callee = callOp.getCallee();
-    if (!callee || pureFns.find(*callee) == pureFns.end())
-      return;
-    callOp.emitError() << "host code may not call the pure function '" << *callee
-                       << "': a pure function only exists inside the operator "
-                          "units that reference it. Make it an ordinary "
-                          "function if the host needs it too.";
-    reportedError = true;
-  });
-
   DominanceInfo domInfo(module);
 
   // Every call to a skeleton helper is accounted for: the host it sits in must
@@ -488,6 +473,21 @@ void CIRSkeletonSplitPass::runOnOperation() {
     }
     worklist.push_back(info);
   }
+
+  // A pure function is part of the operator, not of the host program: after the
+  // split it exists only as the func.func an operator unit references, so a
+  // call from host code would be left dangling.
+  module.walk([&](cir::CallOp callOp) {
+    auto callee = callOp.getCallee();
+    if (!callee || pureFns.find(*callee) == pureFns.end())
+      return;
+    callOp.emitError() << "host code may not call the pure function '" << *callee
+                       << "': a pure function only exists inside the operator "
+                          "units that reference it. Make it an ordinary "
+                          "function if the host needs it too.";
+    reportedError = true;
+  });
+
   if (reportedError || worklist.empty()) {
     if (reportedError)
       signalPassFailure();
