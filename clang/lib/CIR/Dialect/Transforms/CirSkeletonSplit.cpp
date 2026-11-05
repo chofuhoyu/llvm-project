@@ -42,6 +42,8 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonAttrs.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonOps.h"
@@ -242,7 +244,24 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
   unsigned argIdx = 0;
 
   Value dstMemref = entry->getArgument(argIdx++);
-  Value dstTensor = createToTensor(body, loc, dstMemref, /*writable=*/true);
+  auto dstType = cast<MemRefType>(dstMemref.getType());
+  auto dstTensorType =
+      RankedTensorType::get(dstType.getShape(), dstType.getElementType());
+
+  // The operator computes into the result shape -- the destination's -- and
+  // writes it into the destination buffer afterwards. The write is what keeps
+  // the computation alive: a tensor-level operator has no side effects, so
+  // without a use its result would be dead code and would disappear before
+  // bufferization.
+  SmallVector<Value> dynSizes;
+  for (int64_t dim = 0; dim < dstTensorType.getRank(); ++dim)
+    if (dstTensorType.isDynamicDim(dim))
+      dynSizes.push_back(memref::DimOp::create(
+          body, loc, dstMemref,
+          arith::ConstantIndexOp::create(body, loc, dim)));
+  Value result = tensor::EmptyOp::create(body, loc, dstTensorType.getShape(),
+                                         dstTensorType.getElementType(),
+                                         dynSizes);
 
   auto pureFnAttr = SymbolRefAttr::get(ctx, info.pureFnName);
   auto prefAttr = skeleton::PreferenceAttr::get(
@@ -253,28 +272,36 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
     // skeleton.map broadcasts a scalar over the destination.
     SmallVector<Value> ins;
     for (unsigned i = 1; i < info.dataOperands.size(); ++i)
-      ins.push_back(createToTensor(body, loc, entry->getArgument(argIdx++),
-                                    /*writable=*/false));
+      ins.push_back(createToTensor(body, loc, entry->getArgument(argIdx++)));
     for (unsigned i = 0; i < info.scalarOperands.size(); ++i) {
       Value scalar = entry->getArgument(argIdx++);
       auto scalarTy = RankedTensorType::get({}, scalar.getType());
       ins.push_back(tensor::FromElementsOp::create(body, loc, scalarTy,
                                                    ValueRange{scalar}));
     }
-    skeleton::MapOp::create(body, loc, ValueRange(ins), dstTensor, pureFnAttr,
-                            prefAttr);
+    result = skeleton::MapOp::create(body, loc, ValueRange(ins), result,
+                                     pureFnAttr)
+                 .getResult();
   } else {
-    // A reduce reads its destination as the initial accumulator, so the
-    // identity is written into the buffer first and the reduction then runs in
-    // place. The destination has the result shape, which is what tells the
-    // operator how many trailing dimensions it reduces.
-    Value inTensor = createToTensor(body, loc, entry->getArgument(argIdx++),
-                                    /*writable=*/false);
+    // The reduction's initial accumulator is the identity broadcast over the
+    // destination shape; that shape is also what tells the operator how many
+    // trailing dimensions it reduces.
+    Value inTensor = createToTensor(body, loc, entry->getArgument(argIdx++));
     Value identity = entry->getArgument(argIdx++);
-    linalg::FillOp::create(body, loc, ValueRange{identity}, ValueRange{dstTensor});
-    skeleton::ReduceOp::create(body, loc, inTensor, dstTensor, pureFnAttr,
-                               prefAttr);
+    Value init = dstTensorType.getRank() == 0
+                     ? tensor::FromElementsOp::create(body, loc, dstTensorType,
+                                                      ValueRange{identity})
+                           .getResult()
+                     : tensor::SplatOp::create(body, loc, dstTensorType,
+                                               identity)
+                           .getResult();
+    result = skeleton::ReduceOp::create(body, loc, inTensor, init, pureFnAttr)
+                 .getResult();
   }
+
+  bufferization::MaterializeInDestinationOp::create(
+      body, loc, result, dstMemref, /*restrict=*/UnitAttr(),
+      /*writable=*/UnitAttr::get(ctx));
   func::ReturnOp::create(body, loc, ValueRange{});
   return unit;
 }

@@ -322,6 +322,7 @@ def CIRSkeletonSplit : Pass<"cir-skeleton-split", "mlir::ModuleOp"> {
     "mlir::tensor::TensorDialect",
     "mlir::linalg::LinalgDialect",
     "mlir::math::MathDialect",
+    "mlir::memref::MemRefDialect",
     "mlir::bufferization::BufferizationDialect"
   ];
 }
