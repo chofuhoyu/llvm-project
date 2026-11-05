@@ -14,7 +14,7 @@ add_clang_library(MLIRCIRTransforms
   GotoSolver.cpp
   IdiomRecognizer.cpp
   LibOpt.cpp
-  CirCallToSkeleton.cpp
+  CirSkeletonSplit.cpp
   CirCallAnalysis.cpp
   CirCallLowering.cpp
   CirSkeletonAnnotations.cpp

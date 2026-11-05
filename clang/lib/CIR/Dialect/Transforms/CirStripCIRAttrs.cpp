@@ -43,12 +43,12 @@ namespace {
 static bool mentionsCIR(Attribute attr, Dialect *cirDialect) {
   if (!attr)
     return false;
-  if (attr.getDialect() == cirDialect)
+  if (&attr.getDialect() == cirDialect)
     return true;
   if (auto typeAttr = dyn_cast<TypeAttr>(attr))
-    return typeAttr.getValue().getDialect() == cirDialect;
+    return &typeAttr.getValue().getDialect() == cirDialect;
   if (auto typed = dyn_cast<TypedAttr>(attr))
-    return typed.getType().getDialect() == cirDialect;
+    return &typed.getType().getDialect() == cirDialect;
   if (auto array = dyn_cast<ArrayAttr>(attr)) {
     for (Attribute element : array)
       if (mentionsCIR(element, cirDialect))

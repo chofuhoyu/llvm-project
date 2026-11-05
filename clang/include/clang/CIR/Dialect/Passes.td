@@ -284,39 +284,47 @@ def CIRStripCIRAttrs : Pass<"cir-strip-cir-attrs", "mlir::ModuleOp"> {
   let dependentDialects = ["cir::CIRDialect"];
 }
 
-def CIRCallToSkeleton : Pass<"cir-call-to-skeleton", "mlir::ModuleOp"> {
-  let summary = "Convert calls to skeleton helper functions into Skeleton dialect ops";
+def CIRSkeletonSplit : Pass<"cir-skeleton-split", "mlir::ModuleOp"> {
+  let summary = "Split skeleton region hosts into operator units";
   let description = [{
-    Full manual path: Recognizes `cir.call` operations whose callee is a
-    skeleton helper function declaration (marked with the `skeleton.op`
-    attribute) and replaces the call with the corresponding Skeleton dialect
-    structured operation (e.g., `skeleton.map`, `skeleton.reduce`).
+    The front end lowers a whole C++ program to CIR. This pass is where an
+    operator leaves the host function that uses it.
 
-    The pass:
-    1. Collects functions annotated with `skeleton.pure` (pure functions).
-    2. Collects external function declarations annotated with `skeleton.op`
-       (skeleton helper functions from headers).
-    3. For calls to skeleton helper functions inside annotated functions:
-       - Extracts the pure_fn reference from the first call argument.
-       - Rewrites the enclosing cir.func to a func.func with memref parameters.
-       - Generates the corresponding skeleton.map or skeleton.reduce op.
+    A function marked with the `skeleton.region` annotation is an operator
+    boundary. Its body must be one call to a skeleton helper (an external
+    function marked `skeleton.op`), passing the host's own parameters. The pass
+    then produces, next to it:
 
-    Semi-automatic path (TODO): annotated for-loops with inline computation
-    will be handled in the future, auto-extracting pure functions from loop
-    bodies.
+      - `func.func @__skeleton_op_<id>(<memref>..., <scalar>...)` -- the
+        operator unit: the skeleton operator on memrefs, no return value,
+        carrying `skeleton.op_id`, `skeleton.bytes` and `skeleton.preference`.
+        The driver compiles it per device;
+      - `cir.func @__skeleton_op_<id>_shim(ptr, i64..., <scalar>...)` -- the ABI
+        thunk declaration, described by `skeleton.host_abi`.
+        `skeleton-lower-host-abi` fills its body after the host has been
+        lowered to the LLVM dialect.
 
-    Lambda support (TODO): captureless lambdas will be recognized as pure_fn
-    references.
+    The host keeps its symbol and its C++ signature; its body becomes a call to
+    the thunk. The boundary is destination-passing: the helper's first data
+    argument is the destination buffer, owned by the caller.
+
+    Everything else in the module -- `main`, ordinary functions, the pure
+    functions the units reference -- is left untouched for `cir-to-llvm`. The
+    CIR module attributes are kept as well: the lowering after this pass still
+    needs them.
   }];
-  let constructor = "mlir::createCIRCallToSkeletonPass()";
+  let constructor = "mlir::createCIRSkeletonSplitPass()";
   let dependentDialects = [
     "cir::CIRDialect",
     "mlir::skeleton::SkeletonDialect",
     "mlir::func::FuncDialect",
-    "mlir::memref::MemRefDialect",
-    "mlir::bufferization::BufferizationDialect",
-    "mlir::cf::ControlFlowDialect"
+    "mlir::arith::ArithDialect",
+    "mlir::tensor::TensorDialect",
+    "mlir::linalg::LinalgDialect",
+    "mlir::math::MathDialect",
+    "mlir::bufferization::BufferizationDialect"
   ];
 }
+
 
 #endif // CLANG_CIR_DIALECT_PASSES_TD

@@ -1,76 +1,94 @@
-// C++ entry point of the manual Skeleton path.
+// C++ entry point of the Skeleton front end.
 //
-// Each helper below maps one skeleton operator to a plain C++ function call the
-// front-end can recognize:
+// A host function marked with
 //
-//   __attribute__((annotate("skeleton.op", "map")))
+//   __attribute__((annotate("skeleton.region", "CPU")))
 //
-// turns the declaration into a cir.func carrying that cir.annotation; the
-// cir-call-to-skeleton pass then rewrites a call to it (and the surrounding
-// host function) into a func.func that returns a Skeleton dialect op.
+// is an operator boundary. Its body is one call to a helper below, and that
+// call becomes the operator unit; the function itself stays an ordinary C++
+// function so that the rest of the program calls it like any other. Everything
+// outside the marked functions is plain C++: `main`, control flow, standard
+// library containers and `printf` all ride the normal CIR -> LLVM path.
 //
-// The helpers are declarations only and are never defined. The C++ return type
-// is a placeholder: the rewritten host function is given its real return type
-// (the skeleton op's result tensor) by the pass, independently of what is
-// written here. Data arguments are passed by reference so that the host's
-// parameter type reaches the call unchanged; that type is where the array's
-// shape comes from. A parameter declared as an array reference carries a
-// compile-time extent and becomes a static memref (`float (&a)[4]` ->
-// memref<4xf32>); one declared as skeleton_detail::span carries a runtime
-// extent and becomes a memref with a dynamic extent (`span<float>` ->
-// memref<?xf32>); a bare pointer carries no extent and becomes dynamic as
-// well. A call's data arguments must denote one and the same element type and
-// shape: compile-time extents that disagree are reported by the pass, and
-// runtime ones are compared when the rewritten function runs. The pure function
-// is passed by name as the first argument and must carry the "skeleton.pure"
-// annotation.
+// The boundary is destination-passing. The helper does not return a value; it
+// writes into a buffer the caller owns. The first data argument after the
+// function is always the destination, and its shape is the operator's result
+// shape. A program composes operators by calling several such functions from
+// `main`, not by nesting them:
 //
-// To reference the rewritten host function from the execution driver, declare
-// it with extern "C" so its symbol stays unmangled.
+//   __attribute__((annotate("skeleton.pure")))
+//   float my_add(float a, float b) { return a + b; }
+//
+//   extern "C" __attribute__((annotate("skeleton.region", "CPU")))
+//   void vec_add(const skeleton_detail::span<const float> &a,
+//                const skeleton_detail::span<const float> &b,
+//                const skeleton_detail::span<float> &out) {
+//     skeleton_map(my_add, out, a, b);
+//   }
+//
+// Data arguments come in three forms, and the form is where the shape comes
+// from:
+//
+//   - `T (&a)[N]` (and `T (&a)[N][M]`, ...) carries a compile-time extent per
+//     dimension and becomes memref<NxT> (memref<NxMxT>, ...);
+//   - `const skeleton_detail::span<T> &` carries its length in the `size`
+//     member and becomes memref<?xT>, with that length as the run-time extent;
+//   - `T &` is a single element and becomes memref<T>; it is how a reduction
+//     writes its scalar result.
+//
+// A bare pointer (`T *`) says nothing about its length, so it is not a data
+// argument: write the length as an array reference's extent, or pass the
+// pointer and the length together as a span.
+//
+// Scalar arguments (`float init`, `int n`, ...) are passed by value and reach
+// the operator unit as scalars. A scalar input to `skeleton_map` is broadcast
+// over the destination, which is how a reduction result feeds the next
+// element-wise step.
+//
+// A pure function is marked with "__attribute__((annotate("skeleton.pure")))".
+// It is not part of the host program: only the operator unit references it, so
+// it may only compute with scalars. Its body is a single block of arithmetic,
+// comparisons, selects and the math builtins CIR models as `cir.*` ops (for
+// example `expf`); anything else is rejected with a diagnostic rather than
+// silently compiled differently.
+//
+// Host functions that reach an operator must use `extern "C"` to give it a
+// stable symbol.
 
 #ifndef MLIR_DIALECT_SKELETON_SKELETONOPS_H
 #define MLIR_DIALECT_SKELETON_SKELETONOPS_H
 
 namespace skeleton_detail {
 
-// The element type of a data argument, so that a helper's placeholder return
-// type can name it. Every pointer, array and span layer is peeled: an argument
-// of type float*, float[4] or float[2][4] each leaves float.
-template <typename T> struct DataElement { using type = T; };
-template <typename T> struct DataElement<T *> : DataElement<T> {};
-template <typename T, unsigned long N> struct DataElement<T[N]>
-    : DataElement<T> {};
-
-// A non-owning view of an array whose length is only known at run time. Naming
-// it as a host parameter is how a host says its extent is not a compile-time
-// one: the pass takes the element type from the pointee of `data` and the size
-// member as the length, and the rewritten function then takes a memref whose
-// dynamic extent is that length.
+// A non-owning view of an array whose length is only known at run time. Passing
+// one by reference is how a host says its extent is not a compile-time one: the
+// pass takes the element type from the pointee of `data`, the size member as
+// the length, and the operator unit then takes a memref whose dynamic extent is
+// that length.
 template <typename T> struct span {
   T *data;
   unsigned long size;
 };
-template <typename T> struct DataElement<span<T>> { using type = T; };
 
 } // namespace skeleton_detail
 
-// skeleton.map: N-ary element-wise operator. fn is applied once per element,
-// taking one element from each data array (their element types must agree).
-// The number of data arrays is variadic, matching skeleton.map's variadic
-// `ins` operand. All data arrays must have the same shape.
-template <typename Fn, typename T, typename... Ts>
+// skeleton.map: N-ary element-wise operator. `out` is the destination and every
+// input must be broadcastable to it: an input with a lower rank matches the
+// leading dimensions of the result, and a scalar input is broadcast everywhere.
+// The pure function is applied once per destination element, taking one element
+// per input.
+template <typename Fn, typename Out, typename... Ins>
 __attribute__((annotate("skeleton.op", "map")))
-typename skeleton_detail::DataElement<T>::type *
-skeleton_map(Fn fn, const T &first, const Ts &...rest);
+void skeleton_map(Fn fn, const Out &out, const Ins &...ins);
 
-// skeleton.reduce: reduces the elements of a single data array with the binary
-// function fn. The accumulator starts at the element type's zero value: the
-// entry point takes no initial accumulator, so operators whose identity is not
-// zero (min, max, product) reduce from zero and must not rely on this
-// overload until it grows an initial value.
-template <typename Fn, typename T>
+// skeleton.reduce: reduces `in` over the trailing dimensions that `out` does
+// not have, so a destination of the same rank reduces nothing and a scalar
+// destination (`T &`) reduces every element. `init` is the reduction's
+// identity: it is written to every destination element before the first
+// element is combined in, so min/max/product reductions pass their own
+// identity instead of relying on a zero the operator cannot know about.
+template <typename Fn, typename Out, typename In, typename Init>
 __attribute__((annotate("skeleton.op", "reduce")))
-typename skeleton_detail::DataElement<T>::type
-skeleton_reduce(Fn fn, const T &input);
+void skeleton_reduce(Fn fn, const Out &out, const In &in, Init init);
 
 #endif // MLIR_DIALECT_SKELETON_SKELETONOPS_H
