@@ -119,15 +119,16 @@ int main() {
 // CHECK-SAME: [[INIT:%[^ ]+]]: f32) attributes {skeleton.bytes = 60 : i64, skeleton.op_id = 2 : i64, skeleton.preference = #skeleton.preference<"CPU">}
 // CHECK: bufferization.to_tensor {{.*}} restrict : memref<3x4xf32>
 // CHECK: [[INIT_VIEW:%.*]] = bufferization.to_tensor {{.*}} writable : memref<3xf32> to tensor<3xf32>
-// CHECK: linalg.fill ins([[INIT]] : f32) outs([[INIT_VIEW]] : tensor<3xf32>)
+// CHECK: [[FILLED:%.*]] = linalg.fill ins([[INIT]] : f32) outs([[INIT_VIEW]] : tensor<3xf32>) -> tensor<3xf32>
 // CHECK: skeleton.reduce
 // CHECK-SAME: pure_fn = @_Z6my_maxff
-// CHECK-SAME: ins({{.*}} : tensor<3x4xf32>) outs({{.*}} : tensor<3xf32>)
+// CHECK-SAME: ins({{.*}} : tensor<3x4xf32>) outs([[FILLED]] : tensor<3xf32>)
 // CHECK: bufferization.materialize_in_destination {{.*}} in writable
 
 // A matmul has no pure function: the contraction is the operator, so the unit
 // is a linalg.matmul writing its destination through a writable view. The
-// destination is still the first data argument.
+// destination is still the first data argument, and it is cleared first because
+// linalg.matmul adds into its outs.
 //
 // CHECK-LABEL: func.func private @__skeleton_op_3(
 // CHECK-SAME: memref<2x4xf32>,
@@ -136,4 +137,6 @@ int main() {
 // CHECK: [[LHS:%.*]] = bufferization.to_tensor {{.*}} restrict : memref<2x3xf32> to tensor<2x3xf32>
 // CHECK: [[RHS:%.*]] = bufferization.to_tensor {{.*}} restrict : memref<3x4xf32> to tensor<3x4xf32>
 // CHECK: [[ACC:%.*]] = bufferization.to_tensor {{.*}} writable : memref<2x4xf32> to tensor<2x4xf32>
-// CHECK: linalg.matmul ins([[LHS]], [[RHS]] : tensor<2x3xf32>, tensor<3x4xf32>) outs([[ACC]] : tensor<2x4xf32>)
+// CHECK: [[ZERO:%.*]] = arith.constant 0.000000e+00 : f32
+// CHECK: [[CLEARED:%.*]] = linalg.fill ins([[ZERO]] : f32) outs([[ACC]] : tensor<2x4xf32>) -> tensor<2x4xf32>
+// CHECK: linalg.matmul ins([[LHS]], [[RHS]] : tensor<2x3xf32>, tensor<3x4xf32>) outs([[CLEARED]] : tensor<2x4xf32>)

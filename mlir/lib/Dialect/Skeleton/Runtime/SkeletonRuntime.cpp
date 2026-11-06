@@ -292,21 +292,22 @@ void *skeleton_rt_alloc(int32_t device, int64_t bytes) {
 
   if (device == SKELETON_DEVICE_GPU && cudaAvailable()) {
     void *ptr = nullptr;
+    int error = 0;
     bool allocated = withPrimaryContext([&](CudaDriver &driver) {
       if (!driver.memAllocManaged)
         return false;
       // CU_MEM_ATTACH_GLOBAL: the allocation is readable and writable from
       // both the host and the device.
-      return driver.memAllocManaged(&ptr, static_cast<size_t>(bytes), 1) == 0 &&
-             ptr != nullptr;
+      error = driver.memAllocManaged(&ptr, static_cast<size_t>(bytes), 1);
+      return error == 0 && ptr != nullptr;
     });
     if (!allocated) {
       // There is a device, so handing back host memory would only turn this
       // into a fault inside a kernel later.
       std::fprintf(stderr,
                    "[skeleton-rt] error: cannot allocate %lld bytes of managed "
-                   "memory\n",
-                   static_cast<long long>(bytes));
+                   "memory (CUDA error %d)\n",
+                   static_cast<long long>(bytes), error);
       std::exit(1);
     }
     s.allocations[ptr] = {device, /*managed=*/true};
