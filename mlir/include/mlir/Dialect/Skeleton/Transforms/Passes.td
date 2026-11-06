@@ -34,11 +34,18 @@ def SkeletonTargetLower : Pass<"skeleton-target-lower"> {
   let description = [{
     Lowers the linalg ops of a function marked with skeleton.target. CPU
     targets use -convert-linalg-to-loops (scf.for), GPU targets use
-    -convert-linalg-to-parallel-loops (scf.parallel) and get a Unified Memory
-    bridge around their call. Both paths are preceded by one-shot-bufferize.
+    -convert-linalg-to-parallel-loops (scf.parallel). Both paths are preceded by
+    one-shot-bufferize.
+
+    A GPU target whose operands are host buffers gets a Unified Memory bridge
+    around its call: each memref operand is allocated with gpu.alloc host_shared
+    and copied in, and the writable ones are copied back and deallocated after
+    the call. A target marked skeleton.managed takes its operands from memory
+    the runtime allocated, so the bridge is skipped; either way the generated
+    code synchronizes the device through the runtime before it reads a result.
 
     The runtime driver uses this pass to compile one operator unit for the
-    device it placed it on; it no longer makes placement decisions itself.
+    device it placed it on; it does not make placement decisions itself.
   }];
   let dependentDialects = [
     "mlir::linalg::LinalgDialect",

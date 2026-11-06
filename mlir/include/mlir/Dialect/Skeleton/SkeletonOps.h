@@ -33,6 +33,9 @@
 //     dimension and becomes memref<NxT> (memref<NxMxT>, ...);
 //   - `const skeleton_detail::span<T> &` carries its length in the `size`
 //     member and becomes memref<?xT>, with that length as the run-time extent;
+//   - `skeleton_detail::buffer<T> &` is the same shape, but its storage comes
+//     from the runtime and the unit is marked managed, so a device kernel
+//     works on that storage directly instead of on a copy of it;
 //   - `T &` is a single element and becomes memref<T>; it is how a reduction
 //     writes its scalar result.
 //
@@ -58,6 +61,11 @@
 #ifndef MLIR_DIALECT_SKELETON_SKELETONOPS_H
 #define MLIR_DIALECT_SKELETON_SKELETONOPS_H
 
+#include "mlir/Dialect/Skeleton/Runtime/SkeletonRuntime.h"
+
+#include <cstdio>
+#include <cstdlib>
+
 namespace skeleton_detail {
 
 // A non-owning view of an array whose length is only known at run time. Passing
@@ -68,6 +76,50 @@ namespace skeleton_detail {
 template <typename T> struct span {
   T *data;
   unsigned long size;
+};
+
+// A buffer the runtime allocates and owns, so that the memory an operator reads
+// and writes can be the memory a device kernel sees. The allocation is the
+// runtime's choice: Unified Memory when the machine has a GPU, aligned host
+// memory otherwise, which keeps a program that never reaches a device working
+// and keeps an artifact free of a CUDA dependency.
+//
+// Passing one by reference is how a host says its operator's buffers belong to
+// the runtime: the operator unit is then marked managed, and lowering leaves
+// the buffers alone instead of giving each operand a device allocation and
+// copying it in and out. The type has the same two members as span, so a read
+// of `data` and `size` is all the boundary needs.
+template <typename T> struct buffer {
+  explicit buffer(unsigned long length)
+      : data(static_cast<T *>(
+            skeleton_rt_alloc(allocationDevice(), length * sizeof(T)))),
+        size(length) {
+    if (!data) {
+      std::fprintf(stderr,
+                   "skeleton: cannot allocate %lu bytes for an operator "
+                   "buffer\n",
+                   length * sizeof(T));
+      std::abort();
+    }
+  }
+
+  ~buffer() { skeleton_rt_free(allocationDevice(), data); }
+
+  buffer(const buffer &) = delete;
+  buffer &operator=(const buffer &) = delete;
+
+  T *data;
+  unsigned long size;
+
+private:
+  // The device whose memory is the most widely usable. Growing a program from
+  // CPU-only to device-capable must not change its allocations, so this asks
+  // the runtime rather than the annotation, and the answer only depends on
+  // whether the machine has a GPU at all.
+  static int allocationDevice() {
+    return skeleton_rt_probe(SKELETON_DEVICE_GPU) ? SKELETON_DEVICE_GPU
+                                                  : SKELETON_DEVICE_CPU;
+  }
 };
 
 } // namespace skeleton_detail

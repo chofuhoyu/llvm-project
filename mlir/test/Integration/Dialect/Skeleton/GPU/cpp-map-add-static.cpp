@@ -1,8 +1,10 @@
 // The CPU test's static-extent program with the operator asking for the GPU.
 //
-// Array-reference parameters are what makes this possible: the device bridge
-// gives a GPU unit Unified Memory buffers and refuses a dynamically-shaped
-// operand, so a span-based operator cannot reach it yet (roadmap §5.4).
+// The buffers here are host arrays, so the device bridge gives every operand a
+// Unified Memory allocation and copies the data in and out around the call.
+// That is the path for a host that owns its buffers; cpp-managed-add is the
+// same program with runtime buffers, which needs neither the allocation nor
+// the copies.
 //
 // The driver path is the one that exercises the GPU: an emitted artifact
 // carries CPU implementations only, and recompiles the operator for the device

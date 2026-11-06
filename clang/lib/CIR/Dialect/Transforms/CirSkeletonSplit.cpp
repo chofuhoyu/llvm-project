@@ -78,6 +78,11 @@ constexpr StringLiteral kOpIdAttr = "skeleton.op_id";
 constexpr StringLiteral kBytesAttr = "skeleton.bytes";
 constexpr StringLiteral kPreferenceAttr = "skeleton.preference";
 constexpr StringLiteral kHostABIAttr = "skeleton.host_abi";
+/// Set on a unit whose data arguments are runtime buffers. Device lowering
+/// leaves such a unit's operands alone: they are already memory the kernel can
+/// reach, and giving each of them a device allocation plus a copy would defeat
+/// the point of allocating them from the runtime.
+constexpr StringLiteral kManagedAttr = "skeleton.managed";
 
 /// Number of bytes the unit moves through its data arguments, when every one of
 /// them has a static shape. 0 means "not known at compile time", which is what
@@ -238,6 +243,8 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
       kPreferenceAttr,
       skeleton::PreferenceAttr::get(
           ctx, StringAttr::get(ctx, toString(info.preference))));
+  if (info.managed)
+    unit->setAttr(kManagedAttr, UnitAttr::get(ctx));
 
   Block *entry = unit.addEntryBlock();
   OpBuilder body = OpBuilder::atBlockBegin(entry);

@@ -33,6 +33,17 @@ bool isSkeletonSpan(Type ty) {
          isa<cir::IntType>(structTy.getElementType(kSpanSizeMember));
 }
 
+bool isSkeletonBuffer(Type ty) {
+  auto structTy = dyn_cast<cir::StructType>(ty);
+  if (!structTy)
+    return false;
+  StringAttr name = structTy.getName();
+  return name && name.getValue().starts_with("skeleton_detail::buffer<") &&
+         structTy.getNumElements() == 2 &&
+         isa<cir::PointerType>(structTy.getElementType(kSpanDataMember)) &&
+         isa<cir::IntType>(structTy.getElementType(kSpanSizeMember));
+}
+
 Value createToTensor(OpBuilder &builder, Location loc, Value memref,
                       bool writable) {
   auto memrefType = cast<MemRefType>(memref.getType());
@@ -58,10 +69,11 @@ FailureOr<MemRefType> hostParamToMemRef(Type paramTy, bool isDestination) {
   }
 
   bool hasRuntimeExtent = false;
-  if (isSkeletonSpan(elemTy)) {
-    // A span is itself the data array, so no array layer may sit above it. Its
-    // element type comes from the data member and its length is a run-time
-    // value, i.e. one dynamic extent.
+  if (isSkeletonSpan(elemTy) || isSkeletonBuffer(elemTy)) {
+    // A span (or a runtime buffer, which has the same two members) is itself
+    // the data array, so no array layer may sit above it. Its element type
+    // comes from the data member and its length is a run-time value, i.e. one
+    // dynamic extent.
     if (!shape.empty())
       return failure();
     elemTy = cast<cir::PointerType>(
@@ -160,10 +172,26 @@ LogicalResult resolveDataOperands(SkeletonCallInfo &info) {
       return failure();
     }
 
+    Type pointee = cast<cir::PointerType>(paramTy).getPointee();
+    bool isBuffer = isSkeletonBuffer(pointee);
+    if (isBuffer && !info.dataOperands.empty() && !info.managed) {
+      callOp.emitError() << "skeleton call argument " << argIdx
+                         << " is a skeleton_detail::buffer but an earlier data "
+                            "argument is not; a managed operator takes all of "
+                            "its data arguments as runtime buffers";
+      return failure();
+    }
+    if (!isBuffer && info.managed) {
+      callOp.emitError() << "skeleton call argument " << argIdx
+                         << " is not a skeleton_detail::buffer but an earlier "
+                            "data argument is; a managed operator takes all of "
+                            "its data arguments as runtime buffers";
+      return failure();
+    }
+    if (isBuffer)
+      info.managed = true;
     info.dataOperands.push_back(
-        DataOperandRef{param, *memrefTy,
-                       isSkeletonSpan(cast<cir::PointerType>(paramTy)
-                                          .getPointee())});
+        DataOperandRef{param, *memrefTy, isSkeletonSpan(pointee) || isBuffer});
   }
 
   if (info.dataOperands.empty()) {

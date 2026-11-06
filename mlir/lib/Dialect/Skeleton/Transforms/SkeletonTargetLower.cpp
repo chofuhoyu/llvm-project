@@ -67,11 +67,17 @@ struct SkeletonTargetLowerPass
 
     // Build a set of GPU target function names (using StringSet which owns
     // copies of the strings, avoiding dangling StringRefs after IR mutations).
+    // A managed target takes its operands from memory the runtime allocated, so
+    // its callers pass it device-visible buffers already.
     llvm::StringSet<> gpuTargetNames;
+    llvm::StringSet<> managedTargetNames;
     for (func::FuncOp func : targets) {
       if (auto attr = func->getAttrOfType<TargetAttr>("skeleton.target")) {
-        if (attr.getValue() == "GPU")
+        if (attr.getValue() == "GPU") {
           gpuTargetNames.insert(func.getSymName().str());
+          if (func->hasAttr("skeleton.managed"))
+            managedTargetNames.insert(func.getSymName().str());
+        }
       }
     }
 
@@ -119,6 +125,11 @@ struct SkeletonTargetLowerPass
         if (!gpuTargetNames.contains(callee))
           return;
         gpuCalls.push_back(call);
+        // A managed unit's operands are already memory the kernel can reach.
+        // Bridging them would allocate a device buffer and copy the data into
+        // it, which is exactly the cost the managed path exists to avoid.
+        if (managedTargetNames.contains(callee))
+          return;
         if (call->getNumResults() > 1) {
           call.emitError("cannot bridge an operator with more than one result "
                          "to the GPU");

@@ -45,6 +45,10 @@ constexpr unsigned kSpanSizeMember = 1;
 /// struct which merely looks similar is not taken for one.
 bool isSkeletonSpan(mlir::Type ty);
 
+/// True when \p ty is the skeleton_detail::buffer<T> the front-end header
+/// declares: the same two members as a span, but storage the runtime owns.
+bool isSkeletonBuffer(mlir::Type ty);
+
 /// One data argument of a skeleton helper call: the host parameter it came
 /// from, and the memref that parameter denotes.
 struct DataOperandRef {
@@ -65,6 +69,11 @@ struct SkeletonCallInfo {
   SkeletonOpType opType;
   llvm::StringRef pureFnName;
   SkeletonPreference preference;
+
+  /// True when the host passes skeleton_detail::buffer arguments: the
+  /// operator's storage then comes from the runtime, and a device works on it
+  /// directly instead of on an allocation the lowering makes around the call.
+  bool managed = false;
 
   /// The data arguments in call order. The first one is the destination whose
   /// shape is the operator's result shape.

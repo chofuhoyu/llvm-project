@@ -298,10 +298,15 @@ LogicalResult prepareGpuUnit(ModuleOp module, const UnitInfo &unit) {
   }
 
   FunctionType signature = impl.getFunctionType();
+  bool managed = impl->hasAttr("skeleton.managed");
   impl.setName(unit.symbol + "_impl");
   impl->setAttr(
       "skeleton.target",
       skeleton::TargetAttr::get(context, StringAttr::get(context, "GPU")));
+  // The unit takes its operands from memory the runtime allocated, so device
+  // lowering must not put an allocation and a copy around the call.
+  if (managed)
+    impl->setAttr("skeleton.managed", UnitAttr::get(context));
 
   OpBuilder builder(context);
   builder.setInsertionPoint(impl);
