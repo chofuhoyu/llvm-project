@@ -209,14 +209,17 @@ LogicalResult CIRSkeletonSplitPass::rewriteHost(SkeletonCallInfo &info,
   cir::ReturnOp::create(*builder, loc, ValueRange{});
 
   // Drop the old body: the skeleton call and the return are replaced, and the
-  // staging ops that fed them are dead once the call is gone. Only ops the thin
-  // wrapper check allowed are candidates, so no user statement can go with them.
+  // staging ops whose results nothing uses any more are dead. Only ops the thin
+  // wrapper check allowed are candidates, so no user statement can go with
+  // them. Ops without results stay: a store into a parameter slot is what
+  // initializes a value a rewritten call reads back, and an unused one costs
+  // nothing once the host is lowered.
   oldCall->erase();
   terminator->erase();
   for (Operation *op : llvm::reverse(originalOps)) {
     if (op == oldCall || op == terminator || op->getBlock() != &entry)
       continue;
-    if (!op->getNumResults() || op->use_empty())
+    if (op->getNumResults() && op->use_empty())
       op->erase();
   }
   return success();
@@ -297,6 +300,12 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
     Value lhs = createToTensor(body, loc, entry->getArgument(argIdx++));
     Value rhs = createToTensor(body, loc, entry->getArgument(argIdx++));
     Value accumulate = createToTensor(body, loc, dstMemref, /*writable=*/true);
+    // linalg.matmul adds into its outs, so the destination is cleared first;
+    // the operator's contract is C = A * B, not C += A * B.
+    Value zero = arith::ConstantOp::create(
+        body, loc, cast<MemRefType>(dstMemref.getType()).getElementType(),
+        body.getZeroAttr(cast<MemRefType>(dstMemref.getType()).getElementType()));
+    linalg::FillOp::create(body, loc, ValueRange{zero}, ValueRange{accumulate});
     result = linalg::MatmulOp::create(body, loc, ValueRange{lhs, rhs},
                                       ValueRange{accumulate})
                  .getResult(0);
