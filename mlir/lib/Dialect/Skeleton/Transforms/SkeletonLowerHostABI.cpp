@@ -156,7 +156,9 @@ LogicalResult SkeletonLowerHostABIPass::lowerThunk(LLVM::LLVMFuncOp thunk,
     // The host only ever describes contiguous buffers: a span is one dynamic
     // dimension, an array reference is fully static. Row-major strides are
     // therefore constants unless a dynamic dimension has dimensions after it,
-    // whose product would only be known at run time.
+    // whose product would only be known at run time. The C++ front end cannot
+    // produce that shape today, so this rejects hand-written IR that reaches
+    // the pass with a stride it could not compute.
     for (int64_t dim = 0; dim + 1 < type.getRank(); ++dim)
       if (ShapedType::isDynamic(type.getShape()[dim]))
         return thunk.emitError()
