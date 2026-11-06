@@ -1,5 +1,4 @@
-//===- CirStripCIRAttrs.cpp - drop CIR metadata from a lowered module -*- C++
-//-*-===//
+//===- CirStripCIRAttrs.cpp - drop CIR metadata from a lowered module -----===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.

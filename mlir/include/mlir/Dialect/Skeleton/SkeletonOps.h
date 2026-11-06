@@ -43,8 +43,10 @@
 // argument: write the length as an array reference's extent, or pass the
 // pointer and the length together as a span.
 //
-// Scalar arguments (`float init`, `int n`, ...) are passed by value and reach
-// the operator unit as scalars. A scalar input to `skeleton_map` is broadcast
+// Scalar arguments (`float init`, `int n`, ...) reach the operator unit as
+// scalars: skeleton_reduce takes its identity by value, and every other helper
+// takes its inputs by reference, so a scalar written at the call site is a
+// pointer to it that the split loads before the call. A scalar input to `skeleton_map` is broadcast
 // over the destination, which is how a reduction result feeds the next
 // element-wise step.
 //
