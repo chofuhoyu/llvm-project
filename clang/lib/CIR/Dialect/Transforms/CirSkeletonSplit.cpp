@@ -196,8 +196,12 @@ LogicalResult CIRSkeletonSplitPass::rewriteHost(SkeletonCallInfo &info,
     args.push_back(cir::CastOp::create(*builder, loc, voidPtrTy,
                                        cir::CastKind::bitcast, param));
   }
-  for (unsigned operandIdx : info.scalarOperands)
-    args.push_back(info.callOp.getOperand(operandIdx));
+  for (const ScalarOperandRef &scalar : info.scalarOperands) {
+    Value value = info.callOp.getOperand(scalar.callOperand);
+    if (scalar.byReference)
+      value = loadValue(*builder, loc, scalar.cirType, value);
+    args.push_back(value);
+  }
 
   cir::CallOp::create(*builder, loc,
                       FlatSymbolRefAttr::get(&getContext(), thunk.getSymName()),
@@ -229,8 +233,8 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
     argTypes.push_back(data.type);
     dataTypes.push_back(data.type);
   }
-  for (unsigned operandIdx : info.scalarOperands)
-    argTypes.push_back(scalarUnitType(info.callOp.getOperand(operandIdx).getType()));
+  for (const ScalarOperandRef &scalar : info.scalarOperands)
+    argTypes.push_back(scalarUnitType(scalar.cirType));
 
   auto funcType = FunctionType::get(ctx, argTypes, {});
   std::string name = (kUnitPrefix + Twine(id)).str();
@@ -354,8 +358,8 @@ cir::FuncOp CIRSkeletonSplitPass::createThunk(SkeletonCallInfo &info, int64_t id
       if (ShapedType::isDynamic(data.type.getShape()[dim]))
         argTypes.push_back(lengthTy);
   }
-  for (unsigned operandIdx : info.scalarOperands)
-    argTypes.push_back(info.callOp.getOperand(operandIdx).getType());
+  for (const ScalarOperandRef &scalar : info.scalarOperands)
+    argTypes.push_back(scalar.cirType);
 
   auto funcType =
       cir::FuncType::get(argTypes, cir::VoidType::get(&getContext()),

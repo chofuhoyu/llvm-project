@@ -117,8 +117,22 @@ LogicalResult resolveDataOperands(SkeletonCallInfo &info) {
                            << ", which is neither a data argument nor a scalar";
         return failure();
       }
-      info.scalarOperands.push_back(op);
+      info.scalarOperands.push_back({op, operand.getType(),
+                                     /*byReference=*/false});
       continue;
+    }
+
+    // The helper's variadic data parameters take everything by reference, so a
+    // scalar written at the call site arrives as a pointer to it. Only the
+    // first data argument can be a single element by design, and that is the
+    // destination; every later pointer to a scalar is a scalar value.
+    if (!info.dataOperands.empty()) {
+      CirScalarTypeConverter converter;
+      Type pointed = cast<cir::PointerType>(operand.getType()).getPointee();
+      if (Type scalarTy = converter.convertType(pointed)) {
+        info.scalarOperands.push_back({op, pointed, /*byReference=*/true});
+        continue;
+      }
     }
 
     auto hostArg = resolveToHostArg(operand, host);

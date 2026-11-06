@@ -60,6 +60,18 @@ struct DataOperandRef {
   bool hasRuntimeExtent = false;
 };
 
+/// One scalar argument of a skeleton helper call: a value the unit takes as it
+/// is, not a buffer. The helper's variadic data parameters take everything by
+/// reference, so a scalar written at the call site is a pointer to it and has to
+/// be loaded before the unit is called; the reduce helper's `init` is the
+/// by-value form.
+struct ScalarOperandRef {
+  unsigned callOperand = 0;
+  /// The scalar type, for the by-reference form the pointee of the operand.
+  mlir::Type cirType;
+  bool byReference = false;
+};
+
 /// A skeleton helper call prepared for the split: which operator it is, the
 /// pure function it applies, and where its data and scalar arguments come
 /// from. The call's operand order is the unit's operand order.
@@ -79,9 +91,9 @@ struct SkeletonCallInfo {
   /// shape is the operator's result shape.
   llvm::SmallVector<DataOperandRef> dataOperands;
 
-  /// The call operand indices of the scalar arguments (init values and the
-  /// like), in call order. Their values are passed to the unit as they are.
-  llvm::SmallVector<unsigned> scalarOperands;
+  /// The scalar arguments (init values, broadcast values and the like), in
+  /// call order. Their values are passed to the unit as they are.
+  llvm::SmallVector<ScalarOperandRef> scalarOperands;
 };
 
 /// The memref the host parameter \p paramTy denotes, or failure when the type
