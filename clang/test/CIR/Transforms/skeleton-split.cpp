@@ -44,6 +44,12 @@ void rowmax(const float (&x)[3][4], float (&out)[3]) {
   skeleton_reduce(my_max, out, x, -3.4e38f);
 }
 
+extern "C" __attribute__((annotate("skeleton.region", "CPU")))
+void times(const float (&a)[2][3], const float (&b)[3][4],
+           float (&out)[2][4]) {
+  skeleton_matmul(out, a, b);
+}
+
 int main() {
   float a[4] = {1, 2, 3, 4};
   float b[4] = {5, 6, 7, 8};
@@ -118,3 +124,16 @@ int main() {
 // CHECK-SAME: pure_fn = @_Z6my_maxff
 // CHECK-SAME: ins({{.*}} : tensor<3x4xf32>) outs({{.*}} : tensor<3xf32>)
 // CHECK: bufferization.materialize_in_destination {{.*}} in writable
+
+// A matmul has no pure function: the contraction is the operator, so the unit
+// is a linalg.matmul writing its destination through a writable view. The
+// destination is still the first data argument.
+//
+// CHECK-LABEL: func.func private @__skeleton_op_3(
+// CHECK-SAME: memref<2x4xf32>,
+// CHECK-SAME: memref<2x3xf32>,
+// CHECK-SAME: memref<3x4xf32>) attributes {skeleton.bytes = 104 : i64, skeleton.op_id = 3 : i64, skeleton.preference = #skeleton.preference<"CPU">}
+// CHECK: [[LHS:%.*]] = bufferization.to_tensor {{.*}} restrict : memref<2x3xf32> to tensor<2x3xf32>
+// CHECK: [[RHS:%.*]] = bufferization.to_tensor {{.*}} restrict : memref<3x4xf32> to tensor<3x4xf32>
+// CHECK: [[ACC:%.*]] = bufferization.to_tensor {{.*}} writable : memref<2x4xf32> to tensor<2x4xf32>
+// CHECK: linalg.matmul ins([[LHS]], [[RHS]] : tensor<2x3xf32>, tensor<3x4xf32>) outs([[ACC]] : tensor<2x4xf32>)

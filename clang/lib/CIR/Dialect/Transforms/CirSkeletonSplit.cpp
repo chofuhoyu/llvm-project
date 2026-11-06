@@ -295,6 +295,19 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
     result = skeleton::MapOp::create(body, loc, ValueRange(ins), result,
                                      pureFnAttr, prefAttr)
                  .getResult();
+  } else if (info.opType == SkeletonOpType::Matmul) {
+    // A matrix multiply writes the destination as `outs`. The writable view
+    // keeps the contraction writing into the caller's buffer, which is what a
+    // device kernel can reach.
+    Value lhs = createToTensor(body, loc, entry->getArgument(argIdx++));
+    Value rhs = createToTensor(body, loc, entry->getArgument(argIdx++));
+    Value accumulate = createToTensor(body, loc, dstMemref, /*writable=*/true);
+    result = linalg::MatmulOp::create(body, loc, ValueRange{lhs, rhs},
+                                      ValueRange{accumulate})
+                 .getResult(0);
+    // The contraction accumulates in the destination, so there is nothing to
+    // copy back; the write below only keeps it alive.
+    resultRestrict = false;
   } else {
     // The reduction accumulates in its `outs`, so the identity is written into
     // the destination first and the reduction then runs there. That keeps a
@@ -458,15 +471,20 @@ void CIRSkeletonSplitPass::runOnOperation() {
     if (notThin)
       continue;
 
-    auto pureFnRef = extractPureFnRef(callOp, 0, pureFns, domInfo);
-    if (!pureFnRef) {
-      callOp.emitError() << "the first argument of a skeleton operator call "
-                            "must be a pure function reference (a function "
-                            "marked __attribute__((annotate(\"skeleton.pure\"))))";
-      reportedError = true;
-      continue;
+    // A matmul has no scalar body to name: the contraction itself is the
+    // operator, and only linalg can express it.
+    if (info.opType != SkeletonOpType::Matmul) {
+      auto pureFnRef = extractPureFnRef(callOp, 0, pureFns, domInfo);
+      if (!pureFnRef) {
+        callOp.emitError()
+            << "the first argument of a skeleton operator call must be a pure "
+               "function reference (a function marked "
+               "__attribute__((annotate(\"skeleton.pure\"))))";
+        reportedError = true;
+        continue;
+      }
+      info.pureFnName = pureFnRef.getRootReference().getValue();
     }
-    info.pureFnName = pureFnRef.getRootReference().getValue();
 
     auto preference = getSkeletonPreference(host);
     if (failed(preference)) {
@@ -483,6 +501,13 @@ void CIRSkeletonSplitPass::runOnOperation() {
         (info.dataOperands.size() != 2 || info.scalarOperands.size() != 1)) {
       callOp.emitError() << "skeleton_reduce takes a destination, one input "
                             "and one identity value";
+      reportedError = true;
+      continue;
+    }
+    if (info.opType == SkeletonOpType::Matmul &&
+        (info.dataOperands.size() != 3 || !info.scalarOperands.empty())) {
+      callOp.emitError() << "skeleton_matmul takes a destination, a left "
+                            "operand and a right operand";
       reportedError = true;
       continue;
     }

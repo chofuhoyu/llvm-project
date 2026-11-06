@@ -89,14 +89,15 @@ FailureOr<SkeletonOpType> getSkeletonOpType(Operation *op) {
   if (!args || args.empty()) {
     op->emitError() << "invalid \"" << kSkeletonOp
                     << "\" annotation: expected one argument naming the "
-                       "operator (\"map\" or \"reduce\")";
+                       "operator (\"map\", \"reduce\" or \"matmul\")";
     return failure();
   }
   auto typeStr = dyn_cast<StringAttr>(args[0]);
   if (!typeStr) {
     op->emitError() << "invalid \"" << kSkeletonOp
                     << "\" annotation: the first argument must be a string "
-                       "naming the operator (\"map\" or \"reduce\")";
+                       "naming the operator (\"map\", \"reduce\" or "
+                       "\"matmul\")";
     return failure();
   }
   StringRef type = typeStr.getValue();
@@ -104,9 +105,11 @@ FailureOr<SkeletonOpType> getSkeletonOpType(Operation *op) {
     return SkeletonOpType::Map;
   if (type == "reduce")
     return SkeletonOpType::Reduce;
+  if (type == "matmul")
+    return SkeletonOpType::Matmul;
   op->emitError() << "invalid \"" << kSkeletonOp
                   << "\" annotation: unsupported op type \"" << type
-                  << R"(", expected "map" or "reduce")";
+                  << R"(", expected "map", "reduce" or "matmul")";
   return failure();
 }
 

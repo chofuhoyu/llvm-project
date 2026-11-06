@@ -134,4 +134,13 @@ template <typename Fn, typename Out, typename In, typename Init>
 __attribute__((annotate("skeleton.op", "reduce")))
 void skeleton_reduce(Fn fn, const Out &out, const In &in, Init init);
 
+// skeleton.matmul: C = A * B, with `out` the destination, shaped [M][N] for
+// A shaped [M][K] and B shaped [K][N]. It takes no pure function: the
+// contraction is the operator, and only the linalg matrix multiply expresses
+// it. The destination is the first data argument, like every other operator,
+// and it is overwritten rather than accumulated into.
+template <typename Out, typename A, typename B>
+__attribute__((annotate("skeleton.op", "matmul")))
+void skeleton_matmul(const Out &out, const A &a, const B &b);
+
 #endif // MLIR_DIALECT_SKELETON_SKELETONOPS_H

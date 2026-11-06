@@ -100,12 +100,14 @@ LogicalResult resolveDataOperands(SkeletonCallInfo &info) {
   cir::CallOp callOp = info.callOp;
   cir::FuncOp host = info.cirFunc;
 
-  // Operand 0 is the pure function reference; every other argument is either a
-  // data argument (a pointer the ABI thunk turns into a memref descriptor) or a
-  // scalar the unit takes as it is.
-  for (unsigned op = 1, e = callOp.getNumOperands(); op < e; ++op) {
+  // Operand 0 is the pure function reference for a map or a reduce and the
+  // destination itself for a matmul, which has no scalar body. Every remaining
+  // argument is either a data argument (a pointer the ABI thunk turns into a
+  // memref descriptor) or a scalar the unit takes as it is.
+  unsigned firstOperand = info.opType == SkeletonOpType::Matmul ? 0 : 1;
+  for (unsigned op = firstOperand, e = callOp.getNumOperands(); op < e; ++op) {
     Value operand = callOp.getOperand(op);
-    unsigned argIdx = op - 1;
+    unsigned argIdx = op - firstOperand;
 
     if (!isa<cir::PointerType>(operand.getType())) {
       CirScalarTypeConverter converter;

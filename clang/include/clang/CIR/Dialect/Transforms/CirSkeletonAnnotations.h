@@ -29,7 +29,7 @@ class Operation;
 namespace cir {
 
 /// The operator a "skeleton.op" declaration stands for.
-enum class SkeletonOpType { Map, Reduce };
+enum class SkeletonOpType { Map, Reduce, Matmul };
 
 /// The execution preference a "skeleton.region" host carries.
 enum class SkeletonPreference { CPU, GPU };
