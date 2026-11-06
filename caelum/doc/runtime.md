@@ -22,7 +22,7 @@
 
 - 分布式、跨机数据搬运、多个 executor 同时存在；
 - 子进程 / 远程执行、把 host 放到 driver 以外的机器上；
-- 动态形状、多输出、非 identity layout；
+- 多输出、非 identity layout、二维及以上的动态形状（一维动态形状可用，见 §14）；
 - 学习型代价模型、异步流水、算子切分；
 - 产物里预先放 GPU 代码（PTX/ cubin）——见 §13；
 - 半自动识别路径（按 roadmap §2.1 另行删除）。
@@ -128,6 +128,18 @@ driver 读 IR 用 LLVM 的 object 库按 section 名取内容，不 dlopen、不
 
 ```c
 enum { SKELETON_DEVICE_CPU = 0, SKELETON_DEVICE_GPU = 1 };
+
+/* 设备内存：等待已提交的工作完成；CPU 上是空操作。 */
+void skeleton_rt_sync(int32_t device);
+
+/* 运行时拥有的内存：有 GPU 时是 managed，否则是对齐的 host 内存；
+   失败即报错退出，返回值不会是 NULL。 */
+void *skeleton_rt_alloc(int32_t device, int64_t bytes);
+void skeleton_rt_free(int32_t device, void *ptr);
+
+/* v1 进程即 executor 0。 */
+int32_t skeleton_rt_executor_id(void);
+int32_t skeleton_rt_executor_count(void);
 
 /* 声明一个 op 单元及其偏好；由产物/驱动在启动时调用。 */
 void skeleton_rt_declare(int64_t op_id, int32_t preference, int64_t bytes);
@@ -370,6 +382,16 @@ CPU）、`driver-nested`（嵌套图被 `skeleton-to-linalg` 拒绝）、`driver
 | 2026-11-03 | 多结果的适用范围 | 只在 preference 是 GPU 时拒绝 | CPU 单元的候选设备只有 CPU，GPU 桥接才是真正的限制 |
 | 2026-11-03 | provider 与 register 的分工 | provider 通过返回值安装，register 只用于启动与替换 | 两条安装路径只能有一条契约，否则 provider 的行为取决于实现细节 |
 | 2026-11-03 | 嵌套图 | outline 不下钻，整图留在一个单元里 | 单元之间没有调用机制；切开只会得到一个没人调用的单元和一个空声明 |
+
+### 2026-11-07 的三条补充
+
+| 日期 | 背景 | 选择 | 理由 |
+|---|---|---|---|
+| 2026-11-07 | GPU 内核异步、host 立刻读回 | `skeleton_rt_sync`，lowering 在 GPU 单元调用后插入 | 同步属于运行时，插在哪属于 lowering |
+| 2026-11-07 | 分配应归运行时 | `skeleton_rt_alloc` / `free`，C++ 侧是 `skeleton_detail::buffer<T>` | UVM 由运行时给，managed 单元不再分配/拷贝 |
+| 2026-11-07 | executor 在代码里没有锚点 | trace/stats 末尾追加 `exec=<id>` | 只加可观测字段，v1 仍是一个进程一个 executor |
+
+细节与放弃的做法见 [`finish-roadmap-decisions.md`](finish-roadmap-decisions.md) D3–D6。
 
 ## 15. 修掉的问题
 
