@@ -39,6 +39,8 @@ func.func @main() {
 // CHECK: gpu.alloc {{.*}}host_shared
 // CHECK-NEXT: memref.copy
 // CHECK: call @gpu_add_void
+// The device is synchronized before the host reads anything the kernel wrote.
+// CHECK-NEXT: call @skeleton_rt_sync
 // Each writable operand is copied back and deallocated; there is no call
 // result to replace.
 // CHECK-NEXT: memref.copy

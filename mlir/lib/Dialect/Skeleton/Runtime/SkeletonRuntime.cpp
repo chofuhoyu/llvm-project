@@ -17,6 +17,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
+#include <unordered_map>
 #include <vector>
 
 #if defined(_WIN32)
@@ -68,6 +70,15 @@ struct RuntimeState {
   int32_t probeResult[kDeviceCount] = {0, 0};
   int64_t probeFree[kDeviceCount] = {-1, -1};
   std::chrono::steady_clock::time_point probeStamp[kDeviceCount];
+
+  /// Memory the runtime handed out, keyed by pointer. `managed` records whether
+  /// it came from cuMemAllocManaged, because a GPU request that had no driver
+  /// to satisfy it falls back to host memory and must be released with free.
+  struct Allocation {
+    int32_t device;
+    bool managed;
+  };
+  std::unordered_map<void *, Allocation> allocations;
 };
 
 RuntimeState &state() {
@@ -109,6 +120,15 @@ struct CudaDriver {
   int (*getCount)(int *) = nullptr;
   int (*ctxGetCurrent)(void **) = nullptr;
   int (*memGetInfo)(size_t *, size_t *) = nullptr;
+  int (*ctxSynchronize)() = nullptr;
+  int (*primaryCtxRetain)(void **, int) = nullptr;
+  int (*ctxPushCurrent)(void *) = nullptr;
+  int (*ctxPopCurrent)(void **) = nullptr;
+  int (*memAllocManaged)(void **, size_t, unsigned) = nullptr;
+  int (*memFree)(unsigned long long) = nullptr;
+  /// The retained primary context. Retained once and never released: the
+  /// modules the runtime hands memory to keep using it.
+  void *primaryContext = nullptr;
 };
 
 CudaDriver &cudaDriver() {
@@ -126,6 +146,18 @@ CudaDriver &cudaDriver() {
         (int (*)(void **))GetProcAddress(handle, "cuCtxGetCurrent");
     driver.memGetInfo =
         (int (*)(size_t *, size_t *))GetProcAddress(handle, "cuMemGetInfo");
+    driver.ctxSynchronize =
+        (int (*)())GetProcAddress(handle, "cuCtxSynchronize");
+    driver.primaryCtxRetain = (int (*)(void **, int))GetProcAddress(
+        handle, "cuDevicePrimaryCtxRetain");
+    driver.ctxPushCurrent =
+        (int (*)(void *))GetProcAddress(handle, "cuCtxPushCurrent");
+    driver.ctxPopCurrent =
+        (int (*)(void **))GetProcAddress(handle, "cuCtxPopCurrent");
+    driver.memAllocManaged = (int (*)(void **, size_t, unsigned))
+        GetProcAddress(handle, "cuMemAllocManaged");
+    driver.memFree =
+        (int (*)(unsigned long long))GetProcAddress(handle, "cuMemFree");
   }
 #else
   void *handle = dlopen("libcuda.so.1", RTLD_NOW | RTLD_LOCAL);
@@ -137,6 +169,14 @@ CudaDriver &cudaDriver() {
     driver.ctxGetCurrent = (int (*)(void **))dlsym(handle, "cuCtxGetCurrent");
     driver.memGetInfo =
         (int (*)(size_t *, size_t *))dlsym(handle, "cuMemGetInfo");
+    driver.ctxSynchronize = (int (*)())dlsym(handle, "cuCtxSynchronize");
+    driver.primaryCtxRetain =
+        (int (*)(void **, int))dlsym(handle, "cuDevicePrimaryCtxRetain");
+    driver.ctxPushCurrent = (int (*)(void *))dlsym(handle, "cuCtxPushCurrent");
+    driver.ctxPopCurrent = (int (*)(void **))dlsym(handle, "cuCtxPopCurrent");
+    driver.memAllocManaged =
+        (int (*)(void **, size_t, unsigned))dlsym(handle, "cuMemAllocManaged");
+    driver.memFree = (int (*)(unsigned long long))dlsym(handle, "cuMemFree");
   }
 #endif
   if (driver.init && driver.getCount && driver.init(0) == 0) {
@@ -147,6 +187,30 @@ CudaDriver &cudaDriver() {
 }
 
 bool cudaAvailable() { return cudaDriver().available; }
+
+/// Run `fn` with the primary CUDA context of the default device current.
+/// Allocating managed memory and synchronizing both need a current context, and
+/// the runtime cannot assume the caller left one in place. Returns false when
+/// the driver API is missing or the context cannot be made current.
+bool withPrimaryContext(const std::function<bool(CudaDriver &)> &fn) {
+  CudaDriver &driver = cudaDriver();
+  if (!driver.available || !driver.primaryCtxRetain || !driver.ctxPushCurrent)
+    return false;
+  if (!driver.primaryContext) {
+    void *context = nullptr;
+    if (driver.primaryCtxRetain(&context, 0) != 0 || !context)
+      return false;
+    driver.primaryContext = context;
+  }
+  if (driver.ctxPushCurrent(driver.primaryContext) != 0)
+    return false;
+  bool result = fn(driver);
+  if (driver.ctxPopCurrent) {
+    void *popped = nullptr;
+    driver.ctxPopCurrent(&popped);
+  }
+  return result;
+}
 
 /// Free device memory in bytes, or -1 when it cannot be queried. The driver
 /// API needs a current context; before the first GPU allocation there is none,
@@ -210,6 +274,74 @@ void skeleton_rt_register(int64_t opId, int32_t device, void *impl) {
     std::fprintf(stderr, "[skeleton-rt] op=%lld register device=%s impl=%p\n",
                  static_cast<long long>(opId), deviceName(device), impl);
 }
+
+void skeleton_rt_sync(int32_t device) {
+  if (device != SKELETON_DEVICE_GPU)
+    return;
+  withPrimaryContext([](CudaDriver &driver) {
+    if (!driver.ctxSynchronize)
+      return false;
+    return driver.ctxSynchronize() == 0;
+  });
+}
+
+void *skeleton_rt_alloc(int32_t device, int64_t bytes) {
+  RuntimeState &s = state();
+  if (bytes < 1)
+    bytes = 1;
+
+  if (device == SKELETON_DEVICE_GPU) {
+    void *ptr = nullptr;
+    bool allocated = withPrimaryContext([&](CudaDriver &driver) {
+      if (!driver.memAllocManaged)
+        return false;
+      // CU_MEM_ATTACH_GLOBAL: the allocation is readable and writable from
+      // both the host and the device.
+      return driver.memAllocManaged(&ptr, static_cast<size_t>(bytes), 1) == 0 &&
+             ptr != nullptr;
+    });
+    if (allocated) {
+      s.allocations[ptr] = {device, /*managed=*/true};
+      return ptr;
+    }
+    // No driver, no free device memory: fall back to host memory so that a
+    // program which never reaches a device still runs. A unit placed on the
+    // GPU then fails to compile or to allocate, and the runtime falls back.
+  }
+
+  const size_t alignment = 64;
+  size_t size = static_cast<size_t>(bytes);
+  size = (size + alignment - 1) / alignment * alignment;
+  void *ptr = std::aligned_alloc(alignment, size);
+  if (!ptr)
+    return nullptr;
+  s.allocations[ptr] = {device, /*managed=*/false};
+  return ptr;
+}
+
+void skeleton_rt_free(int32_t device, void *ptr) {
+  if (!ptr)
+    return;
+  RuntimeState &s = state();
+  auto it = s.allocations.find(ptr);
+  if (it == s.allocations.end())
+    return;
+  bool managed = it->second.managed;
+  s.allocations.erase(it);
+  if (managed) {
+    withPrimaryContext([&](CudaDriver &driver) {
+      return driver.memFree &&
+             driver.memFree(reinterpret_cast<unsigned long long>(ptr)) == 0;
+    });
+    return;
+  }
+  (void)device;
+  std::free(ptr);
+}
+
+int32_t skeleton_rt_executor_id(void) { return 0; }
+
+int32_t skeleton_rt_executor_count(void) { return 1; }
 
 int32_t skeleton_rt_probe(int32_t device) {
   if (device < 0 || device >= kDeviceCount)

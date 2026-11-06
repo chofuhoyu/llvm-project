@@ -66,6 +66,30 @@ SKELETON_RT_EXPORT void skeleton_rt_declare(int64_t opId, int32_t preference,
 SKELETON_RT_EXPORT void skeleton_rt_register(int64_t opId, int32_t device,
                                              void *impl);
 
+/// Wait until everything already submitted to `device` has completed. A GPU
+/// implementation is launched asynchronously, so a host that reads a buffer it
+/// has written has to synchronize first; the runtime does that at the operator
+/// boundary. Synchronizing a CPU device is a no-op.
+SKELETON_RT_EXPORT void skeleton_rt_sync(int32_t device);
+
+/// Allocate `bytes` of memory owned by the runtime and accessible from
+/// `device`. GPU memory is Unified Memory, so the host can read and write it
+/// too; without a GPU the runtime falls back to aligned host memory and still
+/// returns a valid pointer, which keeps a program that never reaches a device
+/// working. Returns NULL when the allocation itself fails.
+SKELETON_RT_EXPORT void *skeleton_rt_alloc(int32_t device, int64_t bytes);
+
+/// Release memory returned by skeleton_rt_alloc and allocated for `device`.
+/// Freeing a pointer the runtime did not allocate is a no-op.
+SKELETON_RT_EXPORT void skeleton_rt_free(int32_t device, void *ptr);
+
+/// The executor this process is. Placement decisions land on an executor, and
+/// v1 has exactly one per process, so the answer is always 0. The functions
+/// exist so that decision logs carry the identifier the architecture names,
+/// and so that a later multi-executor runtime can keep the same call sites.
+SKELETON_RT_EXPORT int32_t skeleton_rt_executor_id(void);
+SKELETON_RT_EXPORT int32_t skeleton_rt_executor_count(void);
+
 /// Resolve the implementation to call for `opId`. This is the hot path: it
 /// must stay O(1) apart from the (cached) device probe. Prints a diagnostic
 /// and exits with status 1 when no device can run the operator; the result is

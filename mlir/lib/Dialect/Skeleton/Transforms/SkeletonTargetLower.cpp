@@ -16,17 +16,20 @@
 // given a Unified Memory (UVM) buffer instead: gpu.alloc with host_shared
 // lowers to cuMemAllocManaged, and the same allocation is visible to both the
 // host and the kernel. The host copies the initial contents in and the results
-// back out with memref.copy, which is a plain synchronous host memcpy into
-// host-visible memory. No explicit device transfers (gpu.memcpy) or async
-// streams are involved, so there is no copy/kernel ordering race.
+// back out with memref.copy, which is a plain host memcpy into host-visible
+// memory; no explicit device transfers (gpu.memcpy) or async streams are
+// involved. The kernel launch itself is asynchronous, so the generated code
+// synchronizes through the runtime before the first copy-back.
 //
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Skeleton/IR/SkeletonDialect.h"
+#include "mlir/Dialect/Skeleton/Runtime/SkeletonRuntime.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -103,6 +106,10 @@ struct SkeletonTargetLowerPass
         MemRefType hostMemrefType;
       };
       SmallVector<GPUBridgeEntry> bridgeWorklist;
+      // Every call into a GPU target, whether or not it moves memrefs. The
+      // kernel behind it runs asynchronously, so each of them needs a
+      // synchronization before the host touches anything the kernel wrote.
+      SmallVector<func::CallOp> gpuCalls;
 
       bool multiResult = false;
       module.walk([&](func::CallOp call) {
@@ -111,6 +118,7 @@ struct SkeletonTargetLowerPass
         auto callee = call.getCallee();
         if (!gpuTargetNames.contains(callee))
           return;
+        gpuCalls.push_back(call);
         if (call->getNumResults() > 1) {
           call.emitError("cannot bridge an operator with more than one result "
                          "to the GPU");
@@ -188,12 +196,32 @@ struct SkeletonTargetLowerPass
             {allocOp.getMemref(), entry.hostMemref});
       }
 
-      // Phase B: host copy-back + dealloc after each GPU call.
-      for (auto &kv : callGpuMemrefs) {
-        func::CallOp call = kv.first;
-        auto &pairs = kv.second;
+      // The runtime entry point the generated code synchronizes through.
+      if (!module.lookupSymbol<func::FuncOp>("skeleton_rt_sync")) {
+        OpBuilder declarationBuilder(module.getContext());
+        declarationBuilder.setInsertionPointToStart(module.getBody());
+        auto declaration = func::FuncOp::create(
+            declarationBuilder, module.getLoc(), "skeleton_rt_sync",
+            FunctionType::get(module.getContext(),
+                              {declarationBuilder.getI32Type()}, {}));
+        declaration.setPrivate();
+      }
 
+      // Phase B: synchronize, copy back, and deallocate after each GPU call.
+      for (func::CallOp call : gpuCalls) {
         builder.setInsertionPointAfter(call);
+
+        // The launch has returned but the kernel has not necessarily finished.
+        // The copy-backs below read what it wrote, so wait for the device
+        // first; a kernel that faults otherwise shows up as a host read of
+        // half-written memory.
+        Value device = arith::ConstantOp::create(
+            builder, call.getLoc(), builder.getI32Type(),
+            builder.getI32IntegerAttr(SKELETON_DEVICE_GPU));
+        func::CallOp::create(builder, call.getLoc(), "skeleton_rt_sync",
+                             TypeRange{}, ValueRange{device});
+
+        auto &pairs = callGpuMemrefs[call];
         Value outputHostMemref;
 
         for (auto &pair : pairs) {

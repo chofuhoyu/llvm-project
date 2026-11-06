@@ -22,6 +22,10 @@ func.func @main() {
 // A and B are read-only globals, so only C (a writable host buffer) is copied
 // back. All three UVM allocations are deallocated: the read-only ones right
 // after the call, C after its copy-back.
+// The runtime entry point the generated wait goes through is declared once, at
+// module level.
+// CHECK: func.func private @skeleton_rt_sync(i32)
+
 // CHECK-LABEL: func.func @main
 // CHECK: gpu.alloc {{.*}}host_shared
 // CHECK-NEXT: memref.copy
@@ -30,6 +34,9 @@ func.func @main() {
 // CHECK: gpu.alloc {{.*}}host_shared
 // CHECK-NEXT: memref.copy
 // CHECK: call @gpu_matmul
+// The launch is asynchronous and the copy-backs below read what the kernel
+// wrote, so the device is synchronized first.
+// CHECK: call @skeleton_rt_sync
 // CHECK-COUNT-2: gpu.dealloc
 // CHECK: memref.copy
 // CHECK: gpu.dealloc

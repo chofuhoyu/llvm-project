@@ -364,6 +364,13 @@ void registerRuntimeSymbols(ExecutionEngine &engine) {
         reinterpret_cast<void *>(&skeleton_rt_register));
     add("skeleton_rt_resolve", reinterpret_cast<void *>(&skeleton_rt_resolve));
     add("skeleton_rt_probe", reinterpret_cast<void *>(&skeleton_rt_probe));
+    add("skeleton_rt_sync", reinterpret_cast<void *>(&skeleton_rt_sync));
+    add("skeleton_rt_alloc", reinterpret_cast<void *>(&skeleton_rt_alloc));
+    add("skeleton_rt_free", reinterpret_cast<void *>(&skeleton_rt_free));
+    add("skeleton_rt_executor_id",
+        reinterpret_cast<void *>(&skeleton_rt_executor_id));
+    add("skeleton_rt_executor_count",
+        reinterpret_cast<void *>(&skeleton_rt_executor_count));
     add("skeleton_rt_set_device_available",
         reinterpret_cast<void *>(&skeleton_rt_set_device_available));
     add("skeleton_rt_set_free_bytes",
@@ -447,6 +454,10 @@ void *compileUnit(UnitInfo &unit, int32_t device) {
     return fail(message);
   }
   std::unique_ptr<ExecutionEngine> engine = std::move(*engineOrErr);
+  // A GPU unit calls back into the runtime to synchronize the device before the
+  // host reads a buffer the kernel wrote, so the unit's engine needs the same
+  // entry points the host engine has.
+  registerRuntimeSymbols(*engine);
   engine->initialize();
 
   auto symbol = engine->lookup(unit.symbol);
