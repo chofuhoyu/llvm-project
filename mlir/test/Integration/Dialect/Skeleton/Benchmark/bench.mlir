@@ -17,7 +17,7 @@
 // RUN: %skeletonxx %S/bench.cpp --run \
 // RUN:   --shared-lib=%mlir_cuda_runtime --shared-lib=%mlir_runner_utils \
 // RUN:   --shared-lib=%mlir_c_runner_utils | FileCheck %s --check-prefix=GPU
-// RUN: SKELETON_BENCH_DEVICE=cpu %skeletonxx %S/bench.cpp --run \
+// RUN: env SKELETON_BENCH_DEVICE=cpu %skeletonxx %S/bench.cpp --run \
 // RUN:   --shared-lib=%mlir_cuda_runtime --shared-lib=%mlir_runner_utils \
 // RUN:   --shared-lib=%mlir_c_runner_utils | FileCheck %s --check-prefix=CPU
 // RUN: %skeletonxx %S/bench.cpp -o %t.prog && %t.prog | FileCheck %s --check-prefix=ART
