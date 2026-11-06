@@ -97,8 +97,31 @@ struct ConvertMapOp : public OpRewritePattern<MapOp> {
       return AffineMap::get(rank, /*symbolCount=*/0, dims, ctx);
     };
 
+    // A scalar input reaches the operator as a rank-0 tensor holding one
+    // element. It is a value, not a buffer: keeping it as a linalg operand
+    // would make bufferization allocate storage for it, and on a device that
+    // storage is host memory the kernel cannot read. Fold it into the region as
+    // the scalar it is.
+    SmallVector<Value> tensorInputs;
+    SmallVector<Value> inputValues; // one entry per input, scalars included
+    SmallVector<bool> inputIsScalar;
+    SmallVector<tensor::FromElementsOp> foldedScalars;
+    for (Value input : op.getInputs()) {
+      if (auto fromElements = input.getDefiningOp<tensor::FromElementsOp>();
+          fromElements && fromElements.getNumOperands() == 1 &&
+          fromElements.getResult().getType().getRank() == 0) {
+        inputValues.push_back(fromElements.getElements().front());
+        inputIsScalar.push_back(true);
+        foldedScalars.push_back(fromElements);
+        continue;
+      }
+      inputValues.push_back(input);
+      inputIsScalar.push_back(false);
+      tensorInputs.push_back(input);
+    }
+
     SmallVector<AffineMap> indexingMaps;
-    for (Value input : op.getInputs())
+    for (Value input : tensorInputs)
       indexingMaps.push_back(
           broadcastMap(cast<RankedTensorType>(input.getType()).getRank()));
     // The destination is the result: identity.
@@ -108,25 +131,34 @@ struct ConvertMapOp : public OpRewritePattern<MapOp> {
     SmallVector<utils::IteratorType> iteratorTypes(
         rank, utils::IteratorType::parallel);
 
+    unsigned numInputs = op.getInputs().size();
     auto generic = linalg::GenericOp::create(
         rewriter, op.getLoc(),
         /*resultTensorTypes=*/resultType,
-        /*inputs=*/op.getInputs(),
+        /*inputs=*/tensorInputs,
         /*outputs=*/ValueRange{op.getInit()},
         /*indexingMaps=*/indexingMaps,
         /*iteratorTypes=*/iteratorTypes,
         /*doc=*/"",
         /*libraryCall=*/"",
         [&](OpBuilder &bodyBuilder, Location loc, ValueRange blockArgs) {
+          // The region takes one argument per input, in the operator's own
+          // order, plus the destination.
+          SmallVector<Value> args;
+          unsigned tensorArg = 0;
+          for (unsigned i = 0; i < numInputs; ++i)
+            args.push_back(inputIsScalar[i] ? inputValues[i]
+                                            : blockArgs[tensorArg++]);
+          args.push_back(blockArgs.back());
           if (hasBody) {
-            cloneSkeletonBody(op.getBody(), bodyBuilder, loc, blockArgs);
+            cloneSkeletonBody(op.getBody(), bodyBuilder, loc, args);
             return;
           }
-          // The pure_fn body is single-block (checked above). Map blockArgs
-          // to pure_fn parameters and clone the body.
+          // The pure_fn body is single-block (checked above). Map the region
+          // arguments to pure_fn parameters and clone the body.
           IRMapping mapper;
-          for (unsigned i = 0; i < blockArgs.size() - 1; ++i)
-            mapper.map(pureFn.getArgument(i), blockArgs[i]);
+          for (unsigned i = 0; i < numInputs; ++i)
+            mapper.map(pureFn.getArgument(i), args[i]);
           for (auto &bodyOp : pureFn.getBody().front().without_terminator())
             bodyBuilder.clone(bodyOp, mapper);
           auto retOp =
@@ -134,6 +166,12 @@ struct ConvertMapOp : public OpRewritePattern<MapOp> {
           Value mappedRet = mapper.lookupOrDefault(retOp.getOperand(0));
           linalg::YieldOp::create(bodyBuilder, loc, mappedRet);
         });
+
+    // The folded scalar tensors have no other user; drop them so that nothing
+    // allocates storage for a value the region now carries directly.
+    for (tensor::FromElementsOp fromElements : foldedScalars)
+      if (fromElements->use_empty())
+        rewriter.eraseOp(fromElements);
 
     // Preserve skeleton.preference as a discardable attribute.
     if (auto pref = op.getPreferenceAttr())

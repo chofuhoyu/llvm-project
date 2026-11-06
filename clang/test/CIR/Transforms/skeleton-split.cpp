@@ -98,7 +98,7 @@ int main() {
 // CHECK: skeleton.map
 // CHECK-SAME: pure_fn = @_Z6my_addff
 // CHECK-SAME: outs({{.*}} : tensor<?xf32>)
-// CHECK: bufferization.materialize_in_destination {{.*}} in restrict writable {{.*}} : (tensor<?xf32>, memref<?xf32>) -> ()
+// CHECK: bufferization.materialize_in_destination {{.*}} in writable {{.*}} : (tensor<?xf32>, memref<?xf32>) -> ()
 // CHECK: return
 
 // Its thunk takes one pointer per data argument and one length per dynamic
