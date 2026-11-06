@@ -121,6 +121,7 @@ struct CudaDriver {
   int (*ctxGetCurrent)(void **) = nullptr;
   int (*memGetInfo)(size_t *, size_t *) = nullptr;
   int (*ctxSynchronize)() = nullptr;
+  int (*ctxCreate)(void **, unsigned, int) = nullptr;
   int (*deviceGet)(int *, int) = nullptr;
   int (*primaryCtxRetain)(void **, int) = nullptr;
   int (*ctxPushCurrent)(void *) = nullptr;
@@ -151,6 +152,8 @@ CudaDriver &cudaDriver() {
     driver.ctxSynchronize =
         (int (*)())GetProcAddress(handle, "cuCtxSynchronize");
     driver.deviceGet = (int (*)(int *, int))GetProcAddress(handle, "cuDeviceGet");
+    driver.ctxCreate =
+        (int (*)(void **, unsigned, int))GetProcAddress(handle, "cuCtxCreate_v2");
     driver.primaryCtxRetain = (int (*)(void **, int))GetProcAddress(
         handle, "cuDevicePrimaryCtxRetain");
     driver.ctxPushCurrent =
@@ -174,6 +177,8 @@ CudaDriver &cudaDriver() {
         (int (*)(size_t *, size_t *))dlsym(handle, "cuMemGetInfo");
     driver.ctxSynchronize = (int (*)())dlsym(handle, "cuCtxSynchronize");
     driver.deviceGet = (int (*)(int *, int))dlsym(handle, "cuDeviceGet");
+    driver.ctxCreate =
+        (int (*)(void **, unsigned, int))dlsym(handle, "cuCtxCreate_v2");
     driver.primaryCtxRetain =
         (int (*)(void **, int))dlsym(handle, "cuDevicePrimaryCtxRetain");
     driver.ctxPushCurrent = (int (*)(void *))dlsym(handle, "cuCtxPushCurrent");
@@ -227,6 +232,23 @@ bool withPrimaryContext(const std::function<bool(CudaDriver &)> &fn) {
     driver.ctxPopCurrent(&popped);
   }
   return result;
+}
+
+/// A one-line description of the context state, for the failure paths. Getting
+/// this wrong is the difference between an allocation that works and one that
+/// reports CUDA_ERROR_INVALID_CONTEXT, and the two look identical from outside.
+const char *contextStateText() {
+  CudaDriver &driver = cudaDriver();
+  void *current = nullptr;
+  bool haveCurrent =
+      driver.ctxGetCurrent && driver.ctxGetCurrent(&current) == 0 && current;
+  if (haveCurrent && driver.primaryContext)
+    return "primary context current";
+  if (haveCurrent)
+    return "a context is current, but not the retained one";
+  if (driver.primaryContext)
+    return "primary context retained but not current";
+  return "no CUDA context";
 }
 
 /// Free device memory in bytes, or -1 when it cannot be queried. The driver
@@ -324,8 +346,8 @@ void *skeleton_rt_alloc(int32_t device, int64_t bytes) {
       // into a fault inside a kernel later.
       std::fprintf(stderr,
                    "[skeleton-rt] error: cannot allocate %lld bytes of managed "
-                   "memory (CUDA error %d)\n",
-                   static_cast<long long>(bytes), error);
+                   "memory (CUDA error %d; %s)\n",
+                   static_cast<long long>(bytes), error, contextStateText());
       std::exit(1);
     }
     s.allocations[ptr] = {device, /*managed=*/true};
