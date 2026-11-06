@@ -456,10 +456,11 @@ void *skeleton_rt_resolve(int64_t opId) {
                     static_cast<long long>(freeBytes / (1024 * 1024)));
     std::fprintf(stderr,
                  "[skeleton-rt] op=%lld pref=%s probe=%s free=%s choose=%s "
-                 "reason=%s\n",
+                 "reason=%s exec=%d\n",
                  static_cast<long long>(opId), deviceName(preference),
                  deviceName(preference), freeText,
-                 chosen < 0 ? "none" : deviceName(chosen), reason);
+                 chosen < 0 ? "none" : deviceName(chosen), reason,
+                 skeleton_rt_executor_id());
   }
 
   if (!impl) {
@@ -513,13 +514,15 @@ void skeleton_rt_dump_stats(void) {
     std::fprintf(
         stderr,
         "[skeleton-rt] stats op=%zu pref=%s bytes=%lld resolves=%lld "
-        "cpu_impl=%d gpu_impl=%d cpu_compiles=%lld gpu_compiles=%lld\n",
+        "cpu_impl=%d gpu_impl=%d cpu_compiles=%lld gpu_compiles=%lld "
+        "exec=%d\n",
         i, deviceName(entry.preference), static_cast<long long>(entry.bytes),
         static_cast<long long>(entry.resolves),
         entry.impls[SKELETON_DEVICE_CPU] != nullptr,
         entry.impls[SKELETON_DEVICE_GPU] != nullptr,
         static_cast<long long>(entry.compiles[SKELETON_DEVICE_CPU]),
-        static_cast<long long>(entry.compiles[SKELETON_DEVICE_GPU]));
+        static_cast<long long>(entry.compiles[SKELETON_DEVICE_GPU]),
+        skeleton_rt_executor_id());
   }
 }
 
