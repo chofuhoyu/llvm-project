@@ -121,6 +121,7 @@ struct CudaDriver {
   int (*ctxGetCurrent)(void **) = nullptr;
   int (*memGetInfo)(size_t *, size_t *) = nullptr;
   int (*ctxSynchronize)() = nullptr;
+  int (*deviceGet)(int *, int) = nullptr;
   int (*primaryCtxRetain)(void **, int) = nullptr;
   int (*ctxPushCurrent)(void *) = nullptr;
   int (*ctxPopCurrent)(void **) = nullptr;
@@ -129,6 +130,7 @@ struct CudaDriver {
   /// The retained primary context. Retained once and never released: the
   /// modules the runtime hands memory to keep using it.
   void *primaryContext = nullptr;
+  bool contextReady = false;
 };
 
 CudaDriver &cudaDriver() {
@@ -148,6 +150,7 @@ CudaDriver &cudaDriver() {
         (int (*)(size_t *, size_t *))GetProcAddress(handle, "cuMemGetInfo");
     driver.ctxSynchronize =
         (int (*)())GetProcAddress(handle, "cuCtxSynchronize");
+    driver.deviceGet = (int (*)(int *, int))GetProcAddress(handle, "cuDeviceGet");
     driver.primaryCtxRetain = (int (*)(void **, int))GetProcAddress(
         handle, "cuDevicePrimaryCtxRetain");
     driver.ctxPushCurrent =
@@ -157,7 +160,7 @@ CudaDriver &cudaDriver() {
     driver.memAllocManaged = (int (*)(void **, size_t, unsigned))
         GetProcAddress(handle, "cuMemAllocManaged");
     driver.memFree =
-        (int (*)(unsigned long long))GetProcAddress(handle, "cuMemFree");
+        (int (*)(unsigned long long))GetProcAddress(handle, "cuMemFree_v2");
   }
 #else
   void *handle = dlopen("libcuda.so.1", RTLD_NOW | RTLD_LOCAL);
@@ -170,13 +173,19 @@ CudaDriver &cudaDriver() {
     driver.memGetInfo =
         (int (*)(size_t *, size_t *))dlsym(handle, "cuMemGetInfo");
     driver.ctxSynchronize = (int (*)())dlsym(handle, "cuCtxSynchronize");
+    driver.deviceGet = (int (*)(int *, int))dlsym(handle, "cuDeviceGet");
     driver.primaryCtxRetain =
         (int (*)(void **, int))dlsym(handle, "cuDevicePrimaryCtxRetain");
     driver.ctxPushCurrent = (int (*)(void *))dlsym(handle, "cuCtxPushCurrent");
     driver.ctxPopCurrent = (int (*)(void **))dlsym(handle, "cuCtxPopCurrent");
     driver.memAllocManaged =
         (int (*)(void **, size_t, unsigned))dlsym(handle, "cuMemAllocManaged");
-    driver.memFree = (int (*)(unsigned long long))dlsym(handle, "cuMemFree");
+    // The driver exports the versioned names; the unversioned ones are
+    // compatibility entry points with a different ABI.
+    driver.memFree =
+        (int (*)(unsigned long long))dlsym(handle, "cuMemFree_v2");
+    if (!driver.memFree)
+      driver.memFree = (int (*)(unsigned long long))dlsym(handle, "cuMemFree");
   }
 #endif
   if (driver.init && driver.getCount && driver.init(0) == 0) {
@@ -194,18 +203,26 @@ bool cudaAvailable() { return cudaDriver().available; }
 /// the driver API is missing or the context cannot be made current.
 bool withPrimaryContext(const std::function<bool(CudaDriver &)> &fn) {
   CudaDriver &driver = cudaDriver();
-  if (!driver.available || !driver.primaryCtxRetain || !driver.ctxPushCurrent)
+  if (!driver.available)
     return false;
-  if (!driver.primaryContext) {
-    void *context = nullptr;
-    if (driver.primaryCtxRetain(&context, 0) != 0 || !context)
-      return false;
-    driver.primaryContext = context;
+
+  // The order matters: the primary context is only usable after the device has
+  // been looked up. Retaining it before any cuDeviceGet call leaves the caller
+  // without a context, and every allocation then fails with
+  // CUDA_ERROR_INVALID_CONTEXT.
+  if (!driver.contextReady) {
+    driver.contextReady = true;
+    int device = 0;
+    if (driver.deviceGet)
+      driver.deviceGet(&device, 0);
+    if (driver.primaryCtxRetain)
+      driver.primaryCtxRetain(&driver.primaryContext, device);
   }
-  if (driver.ctxPushCurrent(driver.primaryContext) != 0)
-    return false;
+
+  bool pushed = driver.primaryContext && driver.ctxPushCurrent &&
+                driver.ctxPushCurrent(driver.primaryContext) == 0;
   bool result = fn(driver);
-  if (driver.ctxPopCurrent) {
+  if (pushed && driver.ctxPopCurrent) {
     void *popped = nullptr;
     driver.ctxPopCurrent(&popped);
   }
@@ -216,17 +233,18 @@ bool withPrimaryContext(const std::function<bool(CudaDriver &)> &fn) {
 /// API needs a current context; before the first GPU allocation there is none,
 /// in which case the memory check is skipped.
 int64_t cudaFreeBytes() {
-  CudaDriver &driver = cudaDriver();
-  if (!driver.available || !driver.ctxGetCurrent || !driver.memGetInfo)
-    return -1;
-  void *context = nullptr;
-  if (driver.ctxGetCurrent(&context) != 0 || !context)
-    return -1;
-  size_t free = 0;
-  size_t total = 0;
-  if (driver.memGetInfo(&free, &total) != 0)
-    return -1;
-  return static_cast<int64_t>(free);
+  int64_t freeBytes = -1;
+  withPrimaryContext([&](CudaDriver &driver) {
+    if (!driver.memGetInfo)
+      return false;
+    size_t free = 0;
+    size_t total = 0;
+    if (driver.memGetInfo(&free, &total) != 0)
+      return false;
+    freeBytes = static_cast<int64_t>(free);
+    return true;
+  });
+  return freeBytes;
 }
 
 OpEntry *lookup(int64_t opId) {

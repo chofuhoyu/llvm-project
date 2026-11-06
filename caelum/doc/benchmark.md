@@ -1,0 +1,76 @@
+# Benchmark：负载、算子矩阵、数值与耗时
+
+> 2026-11-07
+>
+> `roadmap.md` §2.4 把「算哪些算子」交给 benchmark 定；`operators.md` §5 要求真实负载
+> 有固定输入、参考数值、CPU/GPU 两种实现与耗时。本文是那份 benchmark 的说明与结果。
+> 程序在 [`../../mlir/test/Integration/Dialect/Skeleton/Benchmark/bench.cpp`](../../mlir/test/Integration/Dialect/Skeleton/Benchmark/bench.cpp)，
+> lit 入口是同目录的 `bench.mlir`。
+
+## 1. 选定的负载
+
+一个可在单机 4090 上重复运行的负载，四个部分，都是真实算子的组成部分：
+
+| 负载 | 形状 | 算子数 | 说明 |
+|---|---|---|---|
+| softmax | 32 × 128 | 4 | rowmax → shift_exp → rowsum → normalize，`operators.md` §7 的第一个真实算子 |
+| layernorm | 32 × 128 | 6 | rowsum → center → square → sumsq → stats → scale |
+| matmul | 32×128 · 128×32 | 1 | 唯一不能写成纯函数的原语 |
+| map-add | 262144 | 1 | 逐元素 add，缓冲由运行时分配 |
+
+前三个用静态数组作数据参数，所以设备侧走 Unified Memory 桥接（每个算子一次分配、一次
+进、一次出）。`map-add` 用 `skeleton_detail::buffer<T>`，长度只在运行时才知道，单元标记
+`managed`，设备侧没有分配也没有拷贝。两条路径都是一等公民，耗时表因此分开列。
+
+选择标准：能重复（固定输入，无随机数）、有参考实现（同一程序里的 C++ 直白实现）、
+覆盖两条内存路径、覆盖归约与 contraction 两类非逐元素计算。
+
+## 2. 算子矩阵
+
+| 需求 | 方言原语 | C++ 入口 | 实现 |
+|---|---|---|---|
+| 逐元素 | `skeleton.map` | `skeleton_map` | `linalg.generic`，标量极值经 `tensor.from_elements` 折进 region |
+| 归约 | `skeleton.reduce` | `skeleton_reduce` | `linalg.fill` + `linalg.reduce` |
+| contraction | （无新方言 op） | `skeleton_matmul` | `linalg.fill` + `linalg.matmul` |
+| 逐元素（手写 MLIR） | `skeleton.vector.add` | —— | `linalg.add` |
+
+- 划分原则：能被一个标量纯函数描述的进 `map`/`reduce`，不能的（contraction）单独成原语。
+- 任意带 `skeleton.preference` 的 linalg op 仍是合法单元，手写 MLIR 用例用它验证运行时；
+  C++ 侧只暴露上表三个入口。
+- 没有进矩阵的：融合算子（一个 kernel 跑完整个 DAG）、GEMM 之外的 BLAS 级别算子、
+  需要多输出的算子。前两个需要融合 pass 或新的方言 op，第三个是 v1 非目标。
+
+## 3. 判据与数值
+
+每个负载在计时前先和 C++ 参考实现逐元素比对（容差 1e-4，matmul 1e-2），不一致则打印
+最大的偏差、位置与两个值，并以非零状态退出——**计时的数字只对已知正确的结果打印**。
+另外检查「算子不改写输入」：算子写 destination，输入必须原样。
+
+lit 入口跑三次：driver + GPU 可用、driver + 强制 GPU 不可用（同一份二进制落到 CPU）、
+产物（只带 CPU 代码）。三者的数值都必须与参考一致。
+
+## 4. 耗时
+
+见 §6；数字来自远端 4090，debug-cuda 构建（**未优化**），只用来看相对关系，不是性能上限。
+
+## 5. 压力与正确性验证
+
+见 §6。
+
+## 6. 复现
+
+```bash
+# 一条命令编出并运行（driver 路径，GPU 可用时落在设备上）
+skeleton++ mlir/test/Integration/Dialect/Skeleton/Benchmark/bench.cpp --run \
+  --shared-lib=$BUILD/lib/libmlir_cuda_runtime.so \
+  --shared-lib=$BUILD/lib/libmlir_runner_utils.so \
+  --shared-lib=$BUILD/lib/libmlir_c_runner_utils.so
+
+# 强制 CPU（同一份程序：放置是运行时决定）
+SKELETON_BENCH_DEVICE=cpu skeleton++ ... --run ...
+
+# 产物路径（只带 CPU 代码）
+skeleton++ ... -o bench && ./bench
+```
+
+`SKELETON_TRACE=1` 会在 stderr 打出每个算子的放置决策（含 `exec=` 字段）。
