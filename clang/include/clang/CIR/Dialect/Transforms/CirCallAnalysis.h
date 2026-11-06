@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Phase-1 analysis for cir-call-to-skeleton: read the CIR input and answer the
+// Phase-1 analysis for cir-skeleton-split: read the CIR input and answer the
 // questions the rewriting phase needs. What pure functions and skeleton-op
 // declarations the user marked with annotations, and — for a given
 // skeleton-helper call — which pure function its first argument refers to.
