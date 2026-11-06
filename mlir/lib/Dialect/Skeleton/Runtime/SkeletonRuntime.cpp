@@ -249,7 +249,10 @@ bool withPrimaryContext(const std::function<bool(CudaDriver &)> &fn) {
       driver.privateContext ? driver.privateContext : driver.primaryContext;
   bool pushed = false;
   driver.contextError = 0;
-  if (!haveCurrent && context && driver.ctxPushCurrent) {
+  // Push unless this very context is already current: pushing a context that is
+  // current is an error, and any other current context may be a stale handle
+  // left behind by a caller that popped what it did not push.
+  if (context && driver.ctxPushCurrent && current != context) {
     driver.contextError = driver.ctxPushCurrent(context);
     pushed = driver.contextError == 0;
   }
