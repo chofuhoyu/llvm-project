@@ -101,18 +101,34 @@
 **§4.3 host 侧怎么调用**：调用方分配缓冲、传 span/数组引用，函数返回 void；纯函数只能被
 单元引用。详见决策文档 §1。
 
-**§5 验收状态**：
+**§5 验收状态**（2026-11-07 更新，全部满足）：
 - 整个程序 C++（算子 + `main` + 输出）：通过。`CPU/cpp-softmax` 是一条命令编出来、
   driver 与产物各跑一次的数值 e2e；`CPU/cpp-features` 覆盖 `std::vector` / `std::string` /
   模板 / 递归 / 函数指针 / `printf`。
-- 数值期望：softmax 三行（递增、全等、双峰）与参考值逐位比对（`FileCheck`）。
+- 数值期望：softmax 三行（递增、全等、双峰）与参考值逐位比对（`FileCheck`）；
+  `Benchmark/bench` 另有 softmax、layernorm、matmul、逐元素 add 四个负载与 C++ 参考实现
+  逐元素比对。
 - CPU：通过。
-- GPU：`GPU/cpp-map-add-static` 通过——同一份 C++ 程序，单元被编成 `gpu.launch_func` 并
-  在设备上跑出期望值。softmax 的 GPU 版本标成 `XFAIL`：逐元素单元能上设备，**归约不能**——
-  归约单元里的 `scf.reduce` 组合器被当成独立迭代映射到线程，kernel 非法访存，需要单独的
-  共享内存树形归约 lowering。动态形状（span）仍被 `skeleton-target-lower` 拒绝；两件都属于
-  roadmap §5.4。
-- 耗时：还没记录，见决策文档 §6。
+- GPU：通过。`GPU/cpp-map-add-static`（宿主缓冲 + 桥接）与 `GPU/cpp-managed-add`
+  （运行时缓冲、无拷贝）各一条；`GPU/cpp-softmax` 的四个算子全部在设备上跑出期望值，
+  原来的 `XFAIL` 已删除。
+- 动态形状：一维（`skeleton_detail::buffer<T>` / `span<T>`）可以上设备；二维动态仍是
+  明确拒绝的非目标。
+- 耗时：记录在 [`../doc/benchmark.md`](../doc/benchmark.md)。
 
 **§6 原本未定的两项**：CIR 覆盖到什么程度——现在是整个程序（`main`、控制流、标准库调用、
 `printf` 都经 CIR→LLVM）；融合 pass——没做，仍然每步落内存。
+
+## 8. 实施记录（2026-11-07）
+
+- **算子矩阵定下**：见 [`../doc/benchmark.md`](../doc/benchmark.md)。方言与 C++ 入口新增
+  `skeleton.matmul` / `skeleton_matmul`——contraction 本身就是算子，没有纯函数；它落到
+  `linalg.matmul`，目标缓冲先清零（`linalg.matmul` 是累加语义）。
+- **归约上设备**：不需要新的 device lowering。`linalg.reduce` 的迭代类型是
+  `[parallel, reduction]`，`convert-linalg-to-parallel-loops` 已经生成「外层
+  `scf.parallel`、归约维 `scf.for`」。此前失败的原因是归约单元的 destination 用了不可写视图，
+  bufferization 把结果写到宿主临时缓冲里，内核访问宿主内存。
+- **标量参数**：`skeleton_map` 的变参是引用，标量在调用点成为指向它的指针；切分现在把
+  destination 之后的指向标量的指针当标量值处理，并在调用前 load。
+- **运行时缓冲**：`skeleton_detail::buffer<T>` 提供运行时拥有的存储，单元带
+  `skeleton.managed` 时设备侧不做分配与拷贝。

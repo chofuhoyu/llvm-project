@@ -56,20 +56,41 @@ void selectDeviceFromEnvironment() {
 bool closeEnough(const char *name, const float *got, const float *want,
                  int count, float tolerance) {
   float worst = 0.0f;
+  int worstIndex = 0;
   for (int i = 0; i < count; ++i) {
     float diff = got[i] - want[i];
     if (diff < 0.0f)
       diff = -diff;
-    if (diff > worst)
+    if (diff > worst) {
       worst = diff;
+      worstIndex = i;
+    }
   }
   if (worst <= tolerance) {
     printf("%s: ok (max |diff| %.6g)\n", name, static_cast<double>(worst));
     return true;
   }
-  printf("%s: MISMATCH (max |diff| %.6g, tolerance %.6g)\n", name,
-         static_cast<double>(worst), static_cast<double>(tolerance));
+  printf("%s: MISMATCH (max |diff| %.6g at %d: got %.6g want %.6g, tolerance "
+         "%.6g)\n",
+         name, static_cast<double>(worst), worstIndex,
+         static_cast<double>(got[worstIndex]),
+         static_cast<double>(want[worstIndex]),
+         static_cast<double>(tolerance));
   return false;
+}
+
+/// Operators write their destination and leave their inputs alone. Checking it
+/// keeps a wrong result from hiding behind a corrupted input.
+bool unchanged(const char *name, const float *before, const float *after,
+               int count) {
+  for (int i = 0; i < count; ++i)
+    if (before[i] != after[i]) {
+      printf("%s: INPUT CHANGED at %d (%.6g -> %.6g)\n", name, i,
+             static_cast<double>(before[i]), static_cast<double>(after[i]));
+      return false;
+    }
+  printf("%s: inputs unchanged\n", name);
+  return true;
 }
 
 // Pure functions: the scalar body of an operator.
@@ -303,18 +324,24 @@ int main() {
   selectDeviceFromEnvironment();
 
   float x[kRows][kCols], got[kRows][kCols], want[kRows][kCols];
+  float xBefore[kRows][kCols];
   fillSoftmaxInput(x);
+  for (int r = 0; r < kRows; ++r)
+    for (int c = 0; c < kCols; ++c)
+      xBefore[r][c] = x[r][c];
 
   referenceSoftmax(x, want);
   double softmaxMs = timeSoftmax(x, got);
   bool softmaxOk = closeEnough("softmax", &got[0][0], &want[0][0],
                                kRows * kCols, 1.0e-4f);
+  softmaxOk &= unchanged("softmax", &xBefore[0][0], &x[0][0], kRows * kCols);
 
   const float eps = 1.0e-5f;
   referenceLayernorm(x, want, eps);
   double normMs = timeLayernorm(x, got, eps);
   bool normOk = closeEnough("layernorm", &got[0][0], &want[0][0],
                             kRows * kCols, 1.0e-4f);
+  normOk &= unchanged("layernorm", &xBefore[0][0], &x[0][0], kRows * kCols);
 
   // A small, dense contraction: the shapes come from the parameter types, so
   // the device sees static extents here.

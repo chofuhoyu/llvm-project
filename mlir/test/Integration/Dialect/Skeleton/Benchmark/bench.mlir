@@ -23,7 +23,9 @@
 // RUN: %skeletonxx %S/bench.cpp -o %t.prog && %t.prog | FileCheck %s --check-prefix=ART
 
 // GPU: softmax: ok
+// GPU: softmax: inputs unchanged
 // GPU: layernorm: ok
+// GPU: layernorm: inputs unchanged
 // GPU: matmul: ok
 // GPU: map-add: ok
 // GPU: timing softmax {{[0-9.]+}} ms/iteration
@@ -32,7 +34,9 @@
 // GPU: timing map-add {{[0-9.]+}} ms/iteration
 
 // CPU: softmax: ok
+// CPU: softmax: inputs unchanged
 // CPU: layernorm: ok
+// CPU: layernorm: inputs unchanged
 // CPU: matmul: ok
 // CPU: map-add: ok
 // CPU: timing softmax {{[0-9.]+}} ms/iteration
@@ -41,7 +45,9 @@
 // CPU: timing map-add {{[0-9.]+}} ms/iteration
 
 // ART: softmax: ok
+// ART: softmax: inputs unchanged
 // ART: layernorm: ok
+// ART: layernorm: inputs unchanged
 // ART: matmul: ok
 // ART: map-add: ok
 // ART: timing softmax {{[0-9.]+}} ms/iteration
