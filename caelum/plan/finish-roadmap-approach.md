@@ -175,8 +175,9 @@
 - C++ host 的缓冲区是栈数组或 `std::vector`，不经过运行时，因而不可能在设备上直接访问；
 - 所以“分配交给运行时”这一步从未发生，host 拷贝是桥接的固定成本。
 
-**影响**：UVM 只是把设备分配换成 managed allocation，并没有消除拷贝；每个 memref operand
-都要一次进、一次出，实时延与带宽都不符合 roadmap 的“先正确性、后性能”的下一步。
+**影响**：UVM 只是把设备分配换成 managed allocation，并没有消除拷贝；每个可写 memref
+operand 一次进、一次出，只读 global 只进不出，实时延与带宽都不符合 roadmap 的
+“先正确性、后性能”的下一步。
 
 **收口**：WP1。核心是让 GPU 单元的缓冲区来自运行时分配的可被设备访问的内存，并在单元上
 标记“managed”路径，让 `target-lower` 跳过桥接；未标记的模块继续走旧桥接，保证手写 MLIR
@@ -312,7 +313,7 @@ skill 形态作为可选包装，不改变脚本行为。
 | 编号 | 判据 | 验证 |
 |---|---|---|
 | E1 | 半自动路径无代码、无测试、无过滤器引用 | grep + 远端三组测试 |
-| E2 | annotation 语法与字段写进文档并有正/负例 | `skeleton-split.cpp` / `-invalid.cpp` |
+| E2 | annotation 语法与字段写进文档并有正/负例 | `skeleton-split.cpp` / `skeleton-split-invalid.cpp` |
 | E3 | 放置决策只在运行期；trace 能看到 op/pref/probe/free/choose/reason | `driver-*` 的 `--trace` 检查 |
 | E4 | 产物只带 CPU 实现与内嵌 IR；driver 能读回并为 GPU 重编译 | `driver-artifact`、`driver-matmul-gpu` |
 | E5 | GPU 程序的缓冲区来自运行时分配；managed 单元的 GPU 路径不再有 `gpu.alloc`/`memref.copy` | IR 检查 + CPU/GPU 数值 |
