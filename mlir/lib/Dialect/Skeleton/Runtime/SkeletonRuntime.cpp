@@ -119,7 +119,6 @@ struct CudaDriver {
   int (*init)(unsigned) = nullptr;
   int (*getCount)(int *) = nullptr;
   int (*ctxGetCurrent)(void **) = nullptr;
-  int (*memGetInfo)(size_t *, size_t *) = nullptr;
   int (*ctxSynchronize)() = nullptr;
   int (*ctxCreate)(void **, unsigned, int) = nullptr;
   int (*deviceGet)(int *, int) = nullptr;
@@ -151,8 +150,6 @@ CudaDriver &cudaDriver() {
         (int (*)(int *))GetProcAddress(handle, "cuDeviceGetCount");
     driver.ctxGetCurrent =
         (int (*)(void **))GetProcAddress(handle, "cuCtxGetCurrent");
-    driver.memGetInfo =
-        (int (*)(size_t *, size_t *))GetProcAddress(handle, "cuMemGetInfo");
     driver.ctxSynchronize =
         (int (*)())GetProcAddress(handle, "cuCtxSynchronize");
     driver.deviceGet = (int (*)(int *, int))GetProcAddress(handle, "cuDeviceGet");
@@ -177,8 +174,6 @@ CudaDriver &cudaDriver() {
     driver.init = (int (*)(unsigned))dlsym(handle, "cuInit");
     driver.getCount = (int (*)(int *))dlsym(handle, "cuDeviceGetCount");
     driver.ctxGetCurrent = (int (*)(void **))dlsym(handle, "cuCtxGetCurrent");
-    driver.memGetInfo =
-        (int (*)(size_t *, size_t *))dlsym(handle, "cuMemGetInfo");
     driver.ctxSynchronize = (int (*)())dlsym(handle, "cuCtxSynchronize");
     driver.deviceGet = (int (*)(int *, int))dlsym(handle, "cuDeviceGet");
     driver.ctxCreate =
@@ -282,33 +277,16 @@ const char *contextStateText() {
   return "no CUDA context";
 }
 
-/// Free device memory in bytes, or -1 when it cannot be queried. The driver
-/// API needs a current context; before the first GPU allocation there is none,
-/// in which case the memory check is skipped.
-int64_t cudaFreeBytes() {
-  // Only ask when this call made the context current itself. Another component
-  // may have popped what it did not push, and a handle that is still reported
-  // as current can be one the driver no longer accepts. An unreadable count is
-  // a supported answer: the placement decision then skips the memory check
-  // rather than guessing.
-  bool pushed = false;
-  int64_t freeBytes = -1;
-  withPrimaryContext(
-      [&](CudaDriver &driver) {
-        if (!driver.memGetInfo)
-          return false;
-        size_t free = 0;
-        size_t total = 0;
-        if (driver.memGetInfo(&free, &total) != 0)
-          return false;
-        freeBytes = static_cast<int64_t>(free);
-        return true;
-      },
-      &pushed);
-  if (!pushed)
-    return -1;
-  return freeBytes;
-}
+/// Free device memory.
+///
+/// The runtime does not read it. Reading it needs a current context, and in a
+/// process where another component pushes and pops the CUDA contexts, the
+/// handle the driver reports can be one it no longer accepts: the read then
+/// fails with CUDA_ERROR_INVALID_CONTEXT on every probe, which is noise rather
+/// than information. The probe reports an unknown count instead, and resolve
+/// skips the memory check when the count is unknown. Tests and experiments set
+/// a count explicitly with skeleton_rt_set_free_bytes.
+constexpr int64_t kFreeBytesUnknown = -1;
 
 OpEntry *lookup(int64_t opId) {
   RuntimeState &s = state();
@@ -468,7 +446,7 @@ int32_t skeleton_rt_probe(int32_t device) {
   } else if (device == SKELETON_DEVICE_GPU) {
     result = cudaAvailable() ? 1 : 0;
     if (result)
-      freeBytes = cudaFreeBytes();
+      freeBytes = kFreeBytesUnknown;
   }
 
   s.probeValid[device] = true;
