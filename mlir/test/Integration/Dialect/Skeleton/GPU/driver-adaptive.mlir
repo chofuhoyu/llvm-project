@@ -13,7 +13,7 @@
 
 // TRACE: [skeleton-rt] op=0 declare pref=GPU
 // TRACE: [skeleton-rt] op=0 compile device=GPU
-// TRACE: [skeleton-rt] op=0 pref=GPU probe=GPU{{.*}}choose=GPU
+// TRACE: [skeleton-rt] op=0 pref=GPU probe=GPU{{.*}}choose=GPU{{.*}}exec=0
 // TRACE: [skeleton-rt] device=GPU available=0 (forced)
 // TRACE: [skeleton-rt] op=0 compile device=CPU
 // TRACE: [skeleton-rt] op=0 pref=GPU probe=GPU free=- choose=CPU reason=device-unavailable

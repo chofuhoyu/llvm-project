@@ -12,8 +12,8 @@
 //
 // The first two hand the operator host buffers, so device lowering gives each
 // operand a Unified Memory allocation and copies the data in and out around the
-// call. The third allocates its buffers from the runtime, so the device works
-// on them where they are. Both paths are what a program can express today, and
+// call. The last one allocates its buffers from the runtime, so the device
+// works on them where they are. Both paths are what a program can express today, and
 // the timing table separates them.
 //
 // Every result is checked against a plain C++ reference before it is timed, so

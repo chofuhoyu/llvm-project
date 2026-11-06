@@ -12,11 +12,21 @@
 // this is also the one-dimensional dynamic-shape case the device path used to
 // refuse.
 //
-// Expected c = a + b = [0, 11, 22, 33, 44, 55].
+// The destination starts filled with a sentinel and every element is checked
+// afterwards. Nothing orders the host's read after the kernel except the
+// synchronization the lowering emits at the operator boundary, so a buffer this
+// size read too early comes back with sentinels in it rather than with the
+// right sums.
+//
+// Expected c[i] = a[i] + b[i] with a[i] = i % 97 and b[i] = i % 89.
 
 #include "mlir/Dialect/Skeleton/SkeletonOps.h"
 
 #include <cstdio>
+
+namespace {
+constexpr unsigned long kElements = 1u << 18;
+}
 
 __attribute__((annotate("skeleton.pure")))
 float my_add(float a, float b) {
@@ -31,19 +41,40 @@ void vec_add(const skeleton_detail::buffer<float> &a,
 }
 
 int main() {
-  const unsigned long n = 6;
+  const unsigned long n = kElements;
   skeleton_detail::buffer<float> a(n);
   skeleton_detail::buffer<float> b(n);
   skeleton_detail::buffer<float> c(n);
   for (unsigned long i = 0; i < n; ++i) {
-    a.data[i] = static_cast<float>(i);
-    b.data[i] = static_cast<float>(10 * i);
-    c.data[i] = 0.0f;
+    a.data[i] = static_cast<float>(i % 97);
+    b.data[i] = static_cast<float>(i % 89);
+    c.data[i] = -1.0f;
   }
 
   vec_add(a, b, c);
 
-  for (unsigned long i = 0; i < n; ++i)
-    printf("%.1f\n", c.data[i]);
+  unsigned long wrong = 0;
+  unsigned long firstWrong = 0;
+  for (unsigned long i = 0; i < n; ++i) {
+    float want = a.data[i] + b.data[i];
+    if (c.data[i] != want) {
+      if (wrong == 0)
+        firstWrong = i;
+      ++wrong;
+    }
+  }
+  if (wrong != 0) {
+    printf("managed add: MISMATCH %lu of %lu elements, first at %lu "
+           "(got %.1f want %.1f)\n",
+           wrong, n, firstWrong, static_cast<double>(c.data[firstWrong]),
+           static_cast<double>(a.data[firstWrong] + b.data[firstWrong]));
+    return 1;
+  }
+
+  printf("managed add: ok (%lu elements)\n", n);
+  printf("%.1f\n", static_cast<double>(c.data[0]));
+  printf("%.1f\n", static_cast<double>(c.data[1]));
+  printf("%.1f\n", static_cast<double>(c.data[2]));
+  printf("%.1f\n", static_cast<double>(c.data[n - 1]));
   return 0;
 }

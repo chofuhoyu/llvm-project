@@ -37,6 +37,7 @@ usage: skeleton++ <input.cpp> [options]
   --keep-cir <path>      keep the CIR module at <path>
   --link-arg=<arg>       extra linker argument for the emitted artifact
   --shared-lib=<path>    extra shared library the driver resolves symbols from
+  --driver-arg=<arg>     extra argument for the driver (e.g. --driver-arg=--trace)
   --clang-arg=<arg>      extra argument to the C++ front end
   --clang=<path>         C++ front end to use
   --cir-opt=<path>       cir-opt to use
@@ -64,6 +65,7 @@ while [ $# -gt 0 ]; do
     --keep-cir) shift; keep_cir=$1 ;;
     --link-arg=*) link_args="$link_args $1" ;;
     --shared-lib=*) driver_args="$driver_args --shared-libs=${1#--shared-lib=}" ;;
+    --driver-arg=*) driver_args="$driver_args ${1#--driver-arg=}" ;;
     --clang-arg=*) clang_args="$clang_args ${1#--clang-arg=}" ;;
     --clang=*) CLANG=${1#--clang=} ;;
     --cir-opt=*) CIR_OPT=${1#--cir-opt=} ;;

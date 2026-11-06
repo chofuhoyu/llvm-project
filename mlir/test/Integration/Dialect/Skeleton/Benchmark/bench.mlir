@@ -21,6 +21,12 @@
 // RUN:   --shared-lib=%mlir_cuda_runtime --shared-lib=%mlir_runner_utils \
 // RUN:   --shared-lib=%mlir_c_runner_utils | FileCheck %s --check-prefix=CPU
 // RUN: %skeletonxx %S/bench.cpp -o %t.prog && %t.prog | FileCheck %s --check-prefix=ART
+// The numbers say nothing about where they were computed: a unit that cannot be
+// compiled for the device falls back to the CPU and still matches the reference.
+// This run asks the trace where the operators went.
+// RUN: %skeletonxx %S/bench.cpp --run --driver-arg=--trace \
+// RUN:   --shared-lib=%mlir_cuda_runtime --shared-lib=%mlir_runner_utils \
+// RUN:   --shared-lib=%mlir_c_runner_utils 2>&1 | FileCheck %s --check-prefix=TRACE
 
 // GPU: softmax: ok
 // GPU: softmax: inputs unchanged
@@ -54,3 +60,7 @@
 // ART: timing layernorm {{[0-9.]+}} ms/iteration
 // ART: timing matmul {{[0-9.]+}} ms/iteration
 // ART: timing map-add {{[0-9.]+}} ms/iteration
+
+// TRACE: [skeleton-rt] op=0 compile device=GPU
+// TRACE: [skeleton-rt] op=11 compile device=GPU
+// TRACE: [skeleton-rt] op=0 pref=GPU probe=GPU free={{.*}}choose=GPU exec=0
