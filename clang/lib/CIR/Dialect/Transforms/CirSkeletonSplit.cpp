@@ -296,7 +296,12 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
     // reduces.
     Value inTensor = createToTensor(body, loc, entry->getArgument(argIdx++));
     Value identity = entry->getArgument(argIdx++);
-    Value init = createToTensor(body, loc, dstMemref);
+    // The destination is the accumulator: a writable view keeps the fill and
+    // the reduction writing into the caller's buffer. A read-only view would
+    // make bufferization allocate a temporary and copy it back, which on a
+    // device means the kernel writes host memory instead of the buffer the
+    // runtime placed there.
+    Value init = createToTensor(body, loc, dstMemref, /*writable=*/true);
     linalg::FillOp::create(body, loc, ValueRange{identity}, ValueRange{init});
     result = skeleton::ReduceOp::create(body, loc, inTensor, init, pureFnAttr,
                                         prefAttr)

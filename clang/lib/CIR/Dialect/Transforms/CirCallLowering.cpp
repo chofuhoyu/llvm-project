@@ -33,13 +33,14 @@ bool isSkeletonSpan(Type ty) {
          isa<cir::IntType>(structTy.getElementType(kSpanSizeMember));
 }
 
-Value createToTensor(OpBuilder &builder, Location loc, Value memref) {
+Value createToTensor(OpBuilder &builder, Location loc, Value memref,
+                      bool writable) {
   auto memrefType = cast<MemRefType>(memref.getType());
   auto tensorType =
       RankedTensorType::get(memrefType.getShape(), memrefType.getElementType());
   return bufferization::ToTensorOp::create(builder, loc, tensorType, memref,
-                                           /*restrict=*/true,
-                                           /*writable=*/false);
+                                           /*restrict=*/!writable,
+                                           /*writable=*/writable);
 }
 
 FailureOr<MemRefType> hostParamToMemRef(Type paramTy, bool isDestination) {

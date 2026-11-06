@@ -112,8 +112,8 @@ int main() {
 // CHECK-SAME: memref<3x4xf32>,
 // CHECK-SAME: [[INIT:%[^ ]+]]: f32) attributes {skeleton.bytes = 60 : i64, skeleton.op_id = 2 : i64, skeleton.preference = #skeleton.preference<"CPU">}
 // CHECK: bufferization.to_tensor {{.*}} restrict : memref<3x4xf32>
-// CHECK: bufferization.to_tensor {{.*}} restrict : memref<3xf32>
-// CHECK: linalg.fill ins([[INIT]] : f32)
+// CHECK: [[INIT_VIEW:%.*]] = bufferization.to_tensor {{.*}} writable : memref<3xf32> to tensor<3xf32>
+// CHECK: linalg.fill ins([[INIT]] : f32) outs([[INIT_VIEW]] : tensor<3xf32>)
 // CHECK: skeleton.reduce
 // CHECK-SAME: pure_fn = @_Z6my_maxff
 // CHECK-SAME: ins({{.*}} : tensor<3x4xf32>) outs({{.*}} : tensor<3xf32>)

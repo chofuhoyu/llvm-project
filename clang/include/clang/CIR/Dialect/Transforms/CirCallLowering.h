@@ -98,12 +98,17 @@ mlir::LogicalResult resolveDataOperands(SkeletonCallInfo &info);
 ///
 /// The view is `restrict`, which one-shot bufferization requires of a
 /// `to_tensor` that is not a destination: the input buffers an operator is
-/// given must not overlap each other. The destination is not viewed this way --
-/// it is written through `bufferization.materialize_in_destination` after the
-/// computation, so a host may pass the same buffer as an input and as the
-/// result of a step (the copy reads the finished result, not the input).
+/// given must not overlap each other.
+///
+/// `writable` produces the other kind of view, for an operator that accumulates
+/// into its destination rather than producing a fresh tensor. A writable view
+/// is neither restrict nor assumed disjoint from the inputs: the reduction
+/// writes the destination while it reads the input, and the caller is allowed
+/// to pass the same buffer for both. Bufferization then keeps the writes in the
+/// destination instead of allocating a temporary for them, which a device
+/// kernel could not reach.
 mlir::Value createToTensor(mlir::OpBuilder &builder, mlir::Location loc,
-                           mlir::Value memref);
+                           mlir::Value memref, bool writable = false);
 
 } // namespace cir
 
