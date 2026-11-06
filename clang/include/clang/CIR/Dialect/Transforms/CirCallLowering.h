@@ -101,12 +101,11 @@ mlir::LogicalResult resolveDataOperands(SkeletonCallInfo &info);
 /// given must not overlap each other.
 ///
 /// `writable` produces the other kind of view, for an operator that accumulates
-/// into its destination rather than producing a fresh tensor. A writable view
-/// is neither restrict nor assumed disjoint from the inputs: the reduction
-/// writes the destination while it reads the input, and the caller is allowed
-/// to pass the same buffer for both. Bufferization then keeps the writes in the
-/// destination instead of allocating a temporary for them, which a device
-/// kernel could not reach.
+/// into its destination rather than producing a fresh tensor. Bufferization
+/// then keeps the writes in the destination instead of allocating a temporary
+/// for them, which a device kernel could not reach. The view stays restrict --
+/// one-shot analysis rejects a `to_tensor` without it -- so an operator that
+/// accumulates writes into its own buffer while reading a different one.
 mlir::Value createToTensor(mlir::OpBuilder &builder, mlir::Location loc,
                            mlir::Value memref, bool writable = false);
 

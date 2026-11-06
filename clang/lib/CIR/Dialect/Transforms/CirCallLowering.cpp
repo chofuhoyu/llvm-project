@@ -39,7 +39,7 @@ Value createToTensor(OpBuilder &builder, Location loc, Value memref,
   auto tensorType =
       RankedTensorType::get(memrefType.getShape(), memrefType.getElementType());
   return bufferization::ToTensorOp::create(builder, loc, tensorType, memref,
-                                           /*restrict=*/!writable,
+                                           /*restrict=*/true,
                                            /*writable=*/writable);
 }
 
