@@ -51,11 +51,45 @@ lit 入口跑三次：driver + GPU 可用、driver + 强制 GPU 不可用（同�
 
 ## 4. 耗时
 
-见 §6；数字来自远端 4090，debug-cuda 构建（**未优化**），只用来看相对关系，不是性能上限。
+远端 4090，`debug-cuda` 构建（**未优化**），32 次迭代取平均，每次运行前先跑一遍热身
+（第一次 resolve 要编译单元，那笔时间不属于测量）。同一份 `bench.cpp` 三种跑法：
+
+| 负载 | driver，设备 | driver，CPU | 产物（CPU） |
+|---|---|---|---|
+| softmax 32×128（4 个算子） | 2.23 ms | 0.061 ms | 0.035 ms |
+| layernorm 32×128（6 个算子） | 2.49 ms | 0.034 ms | 0.015 ms |
+| matmul 32×128 · 128×32 | 0.44 ms | 0.38 ms | 0.22 ms |
+| map-add 262144（运行时缓冲） | 0.51 ms | 0.15 ms | 0.12 ms |
+
+怎么读这张表：
+
+- **这个尺寸下设备更慢，而且慢得不是一点点。** softmax 在设备上 2.23 ms、在 CPU 上
+  0.061 ms：每个算子一次 `gpu.alloc host_shared` + 两次 `memref.copy` + 一次同步，而数据只有
+  16 KB。UVM 的迁移开销在首次触页时付，之后每次调用仍然要为进出拷贝付一次。表里唯一接近的
+  是 matmul（一次调用、数据量对得上），managed 的 map-add 也仍然慢 3 倍——1 MB 的 UVM 在
+  第一次迁移之后仍有开销。
+- **结论不是"放置没用"，而是"这些负载太小"。** 每次算子调用的固定成本（分配、拷贝、同步）
+  约 0.5 ms 量级，要摊薄它需要每个算子几十 MB 以上的数据；这正是 roadmap「先正确性、后性能」
+  的下一步要面对的问题，也是 `operators.md` §2 说「跨算子边界开销要等真实负载才知道」的那笔账。
+- **产物比 driver 快 1.7–2.3 倍（CPU）。** 两条路都按 O2 配置，但产物是 AOT 一次性编译，
+  driver 的 host 走 LLJIT；具体差在优化管线的哪一段没有查，不在 roadmap 完成判据内，记在这里
+  供后续追。
 
 ## 5. 压力与正确性验证
 
-见 §6。
+| 项 | 做法 | 结果 |
+|---|---|---|
+| 重复运行 | 同一份 `cpp-softmax`（GPU）连续跑 10 次 | 10/10 通过，数值一致 |
+| 并发进程 | 4 个 `cpp-softmax`（GPU）同时跑 | 4/4 通过，互不干扰 |
+| 大缓冲 | `map-add` 262144 个 float（1 MB，运行时缓冲） | 数值正确，见 §4 |
+| 多单元 | `GPU/driver-multi-unit-gpu`（同一进程两个 GPU 单元） | 通过 |
+| 放置回退 | `GPU/driver-adaptive`（GPU → CPU → GPU）、`GPU/driver-memory-fallback`（显存放不下） | 通过 |
+| 内存检查 | `compute-sanitizer --tool memcheck` 跑 benchmark、`cpp-softmax`、`cpp-managed-add` | **0 errors** |
+
+`compute-sanitizer` 的 0 errors 是这条线上最重要的一条证据：早先报出的 2000 多条都是
+`CUDA_ERROR_INVALID_CONTEXT`——运行时反复 push 一个已经 current 的 context、以及在拿不到
+可用 context 时读空闲显存——不是内存错误，但会把真问题埋掉。两处都改掉之后归零，细节见
+[`finish-roadmap-decisions.md`](finish-roadmap-decisions.md) D8/D9。
 
 ## 6. 复现
 

@@ -110,6 +110,37 @@ bufferization。
 
 **放弃**：把 `buffer` 做成可变秩。见上。
 
+### D8 CUDA 上下文自己建、自己管
+
+**背景**：`skeleton_rt_alloc` 与 `skeleton_rt_sync` 都要一个 current CUDA context。
+实现过程中发现这台机器的驱动拒绝 `cuCtxPushCurrent` 一个已经 current 的 context（返回
+`CUDA_ERROR_INVALID_CONTEXT`），而 MLIR 的 CUDA 运行时 wrapper 每次调用都 push 一次它自己
+retain 的 primary context——push 失败，析构里的 pop 却照常执行，把别人压栈的 context 弹掉。
+
+**选择**：运行时在第一次需要时 `cuCtxCreate_v2` 建一个自己的 context（创建后即 current），
+之后只在 current 不是它时才 push、用完 pop。alloc 与 sync 都走这一条路。
+
+**理由**：managed memory 属于设备而不属于 context，所以自建 context 分配的内存，主 context
+里加载并启动的 kernel 仍然可以访问（`cpp-managed-add` 验证过）。自建 context 让行为不再
+依赖别人压栈的顺序。
+
+**放弃**：只用 primary context。它在本机拿不到可用句柄（retain 成功但 handle 被 push 拒绝）。
+
+### D9 探测不再读空闲显存
+
+**背景**：`skeleton_rt_probe` 以前用 `cuMemGetInfo` 读空闲显存，供「放不下就回退 CPU」用。
+上面的 context 顺序问题让这个读在每个 probe 上都失败（`compute-sanitizer` 记为 error），
+而"读不到"本来就有一个既定含义：`free=-1`，跳过显存判断。
+
+**选择**：probe 报告空闲显存未知，不再调用驱动。`skeleton_rt_set_free_bytes` 保留，
+`driver-memory-fallback` 仍用强制值验证决策路径。
+
+**理由**：一个每次都失败、且失败原因不在本模块控制范围内的驱动调用，只会制造噪音；
+把它降级成"未知"是运行时已经支持的状态，代价诚实可见。
+
+**代价**：生产路径上不再因为显存放不下而回退 CPU，只有在显式设置强制值时才会。这写进
+`runtime.md` §8 与本文；要做真正的显存判断，需要一个能稳定取到 context 的探测实现。
+
 ## 3. 可观测性与形态
 
 ### D6 executor 只加只读字段，不做多 executor
