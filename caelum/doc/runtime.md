@@ -224,10 +224,11 @@ host-only 程序也是合法输入，driver 会跳过单元表直接执行。
 
 ## 8. 探测与决策
 
-- **probe 内容（v1）**：设备是否存在（`cuDeviceGetCount`）、显存余量（`cuMemGetInfo`）。
-  没有 GPU 时不触碰 CUDA（`dlopen` 驱动 API，失败即视为不可用）。`cuMemGetInfo` 需要当前
-  CUDA context：第一次 GPU 探测（还没分配过 GPU 内存）时读不到，运行时把空闲显存记为
-  unknown 并跳过显存放不下时的回退；有了 context 之后的 probe 就能读到。
+- **probe 内容（v1）**：设备是否存在（`cuDeviceGetCount`）。没有 GPU 时不触碰 CUDA
+  （`dlopen` 驱动 API，失败即视为不可用）。空闲显存记 unknown：读它需要当前 CUDA context，
+  而进程里其它组件会 push/pop context，读到的句柄可能已经不被驱动接受，于是每次 probe 都
+  报 `CUDA_ERROR_INVALID_CONTEXT`（见 §14 的 2026-11-07 决策）。unknown 是运行时本来就支持
+  的状态——跳过显存放不下时的回退。
 - **缓存**：probe 结果（可用性 + 空闲显存）带刷新间隔（默认 10ms，
   `SKELETON_PROBE_REFRESH_MS` 可调）。`resolve` 本身是 O(1) 查表，绝不在每次调用上做驱动 API。
 - **策略（v1）**：preference 对应设备可用且放得下 operands 时用 preference，否则 CPU；
@@ -390,6 +391,8 @@ CPU）、`driver-nested`（嵌套图被 `skeleton-to-linalg` 拒绝）、`driver
 | 2026-11-07 | GPU 内核异步、host 立刻读回 | `skeleton_rt_sync`，lowering 在 GPU 单元调用后插入 | 同步属于运行时，插在哪属于 lowering |
 | 2026-11-07 | 分配应归运行时 | `skeleton_rt_alloc` / `free`，C++ 侧是 `skeleton_detail::buffer<T>` | UVM 由运行时给，managed 单元不再分配/拷贝 |
 | 2026-11-07 | executor 在代码里没有锚点 | trace/stats 末尾追加 `exec=<id>` | 只加可观测字段，v1 仍是一个进程一个 executor |
+| 2026-11-07 | CUDA context 该由谁持有 | 运行时 `cuCtxCreate` 一个自己的，只在 current 不是它时 push | 这台驱动拒绝 push 已 current 的 context；别人的 pop 会弹掉别人的压栈 |
+| 2026-11-07 | 空闲显存读不稳 | probe 记 unknown，不再调用驱动 | 每次失败只会埋掉真问题；`set_free_bytes` 保留决策路径的测试 |
 
 细节与放弃的做法见 [`finish-roadmap-decisions.md`](finish-roadmap-decisions.md) D3–D6。
 
