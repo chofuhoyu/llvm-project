@@ -131,6 +131,12 @@ struct CudaDriver {
   /// The retained primary context. Retained once and never released: the
   /// modules the runtime hands memory to keep using it.
   void *primaryContext = nullptr;
+  /// A context created when the primary one cannot be made current. Managed
+  /// memory belongs to the device, not to the context, so an allocation made
+  /// here is still visible to the modules the driver loaded.
+  void *fallbackContext = nullptr;
+  int device = 0;
+  int contextError = 0;
   bool contextReady = false;
 };
 
@@ -217,15 +223,26 @@ bool withPrimaryContext(const std::function<bool(CudaDriver &)> &fn) {
   // CUDA_ERROR_INVALID_CONTEXT.
   if (!driver.contextReady) {
     driver.contextReady = true;
-    int device = 0;
     if (driver.deviceGet)
-      driver.deviceGet(&device, 0);
+      driver.deviceGet(&driver.device, 0);
     if (driver.primaryCtxRetain)
-      driver.primaryCtxRetain(&driver.primaryContext, device);
+      driver.primaryCtxRetain(&driver.primaryContext, driver.device);
   }
 
-  bool pushed = driver.primaryContext && driver.ctxPushCurrent &&
-                driver.ctxPushCurrent(driver.primaryContext) == 0;
+  bool pushed = false;
+  driver.contextError = 0;
+  if (driver.primaryContext && driver.ctxPushCurrent) {
+    driver.contextError = driver.ctxPushCurrent(driver.primaryContext);
+    pushed = driver.contextError == 0;
+  }
+  if (!pushed && driver.ctxCreate && driver.ctxPushCurrent) {
+    if (!driver.fallbackContext)
+      driver.ctxCreate(&driver.fallbackContext, 0, driver.device);
+    if (driver.fallbackContext) {
+      driver.contextError = driver.ctxPushCurrent(driver.fallbackContext);
+      pushed = driver.contextError == 0;
+    }
+  }
   bool result = fn(driver);
   if (pushed && driver.ctxPopCurrent) {
     void *popped = nullptr;
@@ -346,8 +363,9 @@ void *skeleton_rt_alloc(int32_t device, int64_t bytes) {
       // into a fault inside a kernel later.
       std::fprintf(stderr,
                    "[skeleton-rt] error: cannot allocate %lld bytes of managed "
-                   "memory (CUDA error %d; %s)\n",
-                   static_cast<long long>(bytes), error, contextStateText());
+                   "memory (CUDA error %d; %s; context error %d)\n",
+                   static_cast<long long>(bytes), error, contextStateText(),
+                   cudaDriver().contextError);
       std::exit(1);
     }
     s.allocations[ptr] = {device, /*managed=*/true};
