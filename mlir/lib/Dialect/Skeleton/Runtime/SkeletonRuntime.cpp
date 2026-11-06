@@ -230,17 +230,26 @@ bool withPrimaryContext(const std::function<bool(CudaDriver &)> &fn) {
     // driver errors. Managed memory belongs to the device rather than to the
     // context, so memory allocated here is still visible to the modules the
     // driver loaded.
-    if (driver.ctxCreate)
+    if (driver.ctxCreate) {
       driver.ctxCreate(&driver.privateContext, 0, driver.device);
+      // The created context is current from here on, which is what the rest of
+      // the runtime relies on.
+    }
     if (!driver.privateContext && driver.primaryCtxRetain)
       driver.primaryCtxRetain(&driver.primaryContext, driver.device);
   }
 
+  // cuCtxCreate makes its context current, and pushing a context that is
+  // already current is an error on the driver this ran against. Only push when
+  // there is nothing current.
+  void *current = nullptr;
+  bool haveCurrent =
+      driver.ctxGetCurrent && driver.ctxGetCurrent(&current) == 0 && current;
   void *context =
       driver.privateContext ? driver.privateContext : driver.primaryContext;
   bool pushed = false;
   driver.contextError = 0;
-  if (context && driver.ctxPushCurrent) {
+  if (!haveCurrent && context && driver.ctxPushCurrent) {
     driver.contextError = driver.ctxPushCurrent(context);
     pushed = driver.contextError == 0;
   }
