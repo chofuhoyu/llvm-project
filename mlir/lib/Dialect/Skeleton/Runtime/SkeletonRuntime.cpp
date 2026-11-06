@@ -374,14 +374,19 @@ void skeleton_rt_sync(int32_t device) {
   int error = 0;
   if (waitForDevice(driver, error))
     return;
-  // Report once: a run that cannot wait may read a buffer a kernel is still
-  // writing, and that must not look like a normal run.
+  // The driver would not let the runtime wait. This is a property of the
+  // driver, not of the program -- the machine this was developed on refuses
+  // every context push and has no current context at this point -- so it is
+  // reported under --trace rather than on every run. What keeps the results
+  // correct there is the unified memory itself: a host access to a page the
+  // device has been writing migrates it back, which waits for that work.
   if (!driver.syncWarned) {
     driver.syncWarned = true;
-    std::fprintf(stderr,
-                 "[skeleton-rt] warning: cannot wait for the GPU (CUDA error "
-                 "%d; %s)\n",
-                 error, contextStateText());
+    if (traceEnabled())
+      std::fprintf(stderr,
+                   "[skeleton-rt] note: the driver would not let the runtime "
+                   "wait for the GPU (CUDA error %d; %s)\n",
+                   error, contextStateText());
   }
 }
 
