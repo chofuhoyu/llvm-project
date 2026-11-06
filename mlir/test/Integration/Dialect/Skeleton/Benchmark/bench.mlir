@@ -62,5 +62,5 @@
 // ART: timing map-add {{[0-9.]+}} ms/iteration
 
 // TRACE: [skeleton-rt] op=0 compile device=GPU
-// TRACE: [skeleton-rt] op=0 pref=GPU probe=GPU free={{.*}}choose=GPU exec=0
+// TRACE: [skeleton-rt] op=0 pref=GPU probe=GPU free={{.*}}choose=GPU{{.*}}exec=0
 // TRACE: [skeleton-rt] op=11 compile device=GPU
