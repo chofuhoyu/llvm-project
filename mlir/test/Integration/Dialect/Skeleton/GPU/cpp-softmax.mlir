@@ -40,7 +40,7 @@
 // CHECK-NEXT: 0.0000
 
 // TRACE: [skeleton-rt] op=0 compile device=GPU
+// TRACE: [skeleton-rt] op=0 pref=GPU probe=GPU free={{.*}}choose=GPU
 // TRACE: [skeleton-rt] op=1 compile device=GPU
 // TRACE: [skeleton-rt] op=2 compile device=GPU
 // TRACE: [skeleton-rt] op=3 compile device=GPU
-// TRACE: [skeleton-rt] op=0 pref=GPU probe=GPU free={{.*}}choose=GPU
