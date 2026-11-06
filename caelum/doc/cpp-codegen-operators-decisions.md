@@ -281,17 +281,19 @@ reduce 够不够」这个问题。实现之后答案是：够，但需要补广�
 **GPU 状态**：`GPU/cpp-map-add-static` 从 C++ 一路编到 GPU 并跑出期望值（单元里是
 `gpu.launch_func`，host 侧是 UVM 分配与拷贝）。
 
-softmax 的 GPU 版本（`GPU/cpp-softmax`）现在标成 `XFAIL`：逐元素的 `map` 单元能上设备，但
-**归约不行**。归约单元里是一个带 `scf.reduce` 组合器的 `scf.parallel`，而 GPU 尾端
-（`gpu-map-parallel-loops` + `convert-parallel-loops-to-gpu`）把这个循环当成「迭代之间互相
-独立」映射成 block/thread，于是组合器在线程之间跑，kernel 非法访存。设备上的归约需要自己的
-lowering（共享内存树形归约），这属于 roadmap §5.4 那条 GPU 线，不塞进这条线的验收。
+softmax 的 GPU 版本（`GPU/cpp-softmax`）当时标成 `XFAIL`，原因写的是"归约不行"。**2026-11-07
+更正的结论**：归约本身没有问题——`linalg.reduce` 的迭代类型是
+`[parallel, reduction]`，`convert-linalg-to-parallel-loops` 生成「外层 `scf.parallel`、
+归约维 `scf.for`」，设备上每个输出元素一个线程、归约维串行。真正的原因是切分给归约的
+destination 用了不可写视图，bufferization 因此把结果写到宿主临时缓冲，内核访问宿主内存。
+改成可写视图之后 `XFAIL` 已删除。
 
 ## 6. 没做与遗留
 
 - **clang driver `-fskeleton`**：见 §4.3，等 API 稳定。
 - **一个 host 里多个骨架算子**：v1 明确报错（M5）。
-- **动态形状 GPU**：仍在 `skeleton-target-lower` 里被拒绝。
+- ~~动态形状 GPU~~：一维（`skeleton_detail::buffer<T>` / `span<T>`）已可上设备
+  （`GPU/cpp-managed-add`）；二维动态仍被拒绝。
 - **扁平图上的融合 pass**：没开始；现在的每一步中间结果都落内存。
 - **错误处理**：`skeleton_rt_resolve` 失败仍然 `exit(1)`；C++ 侧还没有可恢复的错误约定。
 - **`std::cout` / 静态对象**：JIT 路径不跑 `llvm.global_ctors`，v1 只用 `printf`。

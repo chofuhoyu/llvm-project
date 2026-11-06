@@ -1,6 +1,6 @@
 # 完成 roadmap：决策记录
 
-> v1 · 2026-11-06
+> v1 · 2026-11-06（2026-11-07 补 D8、D9）
 >
 > `plan/roadmap.md` 记方向，`plan/finish-roadmap-approach.md` 记差距与工作包
 > （WP0–WP9、E1–E11）。本文件只记实现这些工作包时**需要权衡的地方**：背景、选择、
@@ -110,37 +110,6 @@ bufferization。
 
 **放弃**：把 `buffer` 做成可变秩。见上。
 
-### D8 CUDA 上下文自己建、自己管
-
-**背景**：`skeleton_rt_alloc` 与 `skeleton_rt_sync` 都要一个 current CUDA context。
-实现过程中发现这台机器的驱动拒绝 `cuCtxPushCurrent` 一个已经 current 的 context（返回
-`CUDA_ERROR_INVALID_CONTEXT`），而 MLIR 的 CUDA 运行时 wrapper 每次调用都 push 一次它自己
-retain 的 primary context——push 失败，析构里的 pop 却照常执行，把别人压栈的 context 弹掉。
-
-**选择**：运行时在第一次需要时 `cuCtxCreate_v2` 建一个自己的 context（创建后即 current），
-之后只在 current 不是它时才 push、用完 pop。alloc 与 sync 都走这一条路。
-
-**理由**：managed memory 属于设备而不属于 context，所以自建 context 分配的内存，主 context
-里加载并启动的 kernel 仍然可以访问（`cpp-managed-add` 验证过）。自建 context 让行为不再
-依赖别人压栈的顺序。
-
-**放弃**：只用 primary context。它在本机拿不到可用句柄（retain 成功但 handle 被 push 拒绝）。
-
-### D9 探测不再读空闲显存
-
-**背景**：`skeleton_rt_probe` 以前用 `cuMemGetInfo` 读空闲显存，供「放不下就回退 CPU」用。
-上面的 context 顺序问题让这个读在每个 probe 上都失败（`compute-sanitizer` 记为 error），
-而"读不到"本来就有一个既定含义：`free=-1`，跳过显存判断。
-
-**选择**：probe 报告空闲显存未知，不再调用驱动。`skeleton_rt_set_free_bytes` 保留，
-`driver-memory-fallback` 仍用强制值验证决策路径。
-
-**理由**：一个每次都失败、且失败原因不在本模块控制范围内的驱动调用，只会制造噪音；
-把它降级成"未知"是运行时已经支持的状态，代价诚实可见。
-
-**代价**：生产路径上不再因为显存放不下而回退 CPU，只有在显式设置强制值时才会。这写进
-`runtime.md` §8 与本文；要做真正的显存判断，需要一个能稳定取到 context 的探测实现。
-
 ## 3. 可观测性与形态
 
 ### D6 executor 只加只读字段，不做多 executor
@@ -169,3 +138,40 @@ executor 时无法从现有日志判断“当时是哪个执行器”。字段�
 **理由**：driver 与单元测试共用它；收进 driver 意味着所有单元测试要改成 driver 级测试，
 换来的只是少一个 pass 注册。行为已经稳定（桥接、managed、同步都在这一层），契约写清比
 搬家有价值。
+
+### D8 用 kernel 所在的那个 CUDA context
+
+**背景**：`skeleton_rt_alloc` 与 `skeleton_rt_sync` 都要一个 current CUDA context。最初的写法
+是让运行时 `cuCtxCreate` 一个自己的 context，理由是这台机器的驱动会拒绝
+`cuCtxPushCurrent` 一个已经 current 的 context（`CUDA_ERROR_INVALID_CONTEXT`）。
+
+**这个写法是错的**：`cuCtxSynchronize` 只等待**当前 context** 上已提交的工作，而 kernel 是
+MLIR 的 CUDA wrapper 在它自己 retain 的 **primary context** 上启动的。运行时同步自己的
+context，等于什么都没等；managed 路径没有 copy-back 也没有 `gpu.dealloc`，那次同步是唯一
+的顺序保证，所以这是一条真正的竞态，不是理论问题。
+
+**选择**：运行时不再建 context，只用 primary context——也就是 kernel 所在的那个。每次操作前
+看 `cuCtxGetCurrent`：不是 primary 就 push，用完 pop；已经是就不 push（重复 push 才是那台
+机器报 201 的原因）。
+
+**代价与收益**：push 失败（驱动拒绝）时同步无法保证，`skeleton_rt_sync` 现在打印 CUDA 错误
+码与 context 状态并 `exit(1)`，而不是继续跑到读一个可能正在被写的缓冲。分配失败、释放失败也
+各自带诊断。
+
+**放弃**：自建 context。它在本机"能用"纯属偶然——kernel 恰好也落在它上面或者时序刚好——
+在正常驱动的机器上同步不到 kernel。
+
+### D9 探测不再读空闲显存
+
+**背景**：`skeleton_rt_probe` 以前用 `cuMemGetInfo` 读空闲显存，供「放不下就回退 CPU」用。
+上面的 context 顺序问题让这个读在每个 probe 上都失败（`compute-sanitizer` 记为 error），
+而"读不到"本来就有一个既定含义：`free=-1`，跳过显存判断。
+
+**选择**：probe 报告空闲显存未知，不再调用驱动。`skeleton_rt_set_free_bytes` 保留，
+`driver-memory-fallback` 仍用强制值验证决策路径。
+
+**理由**：一个每次都失败、且失败原因不在本模块控制范围内的驱动调用，只会制造噪音；
+把它降级成"未知"是运行时已经支持的状态，代价诚实可见。
+
+**代价**：生产路径上不再因为显存放不下而回退 CPU，只有在显式设置强制值时才会。这写进
+`runtime.md` §8 与本文；要做真正的显存判断，需要一个能稳定取到 context 的探测实现。

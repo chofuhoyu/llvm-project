@@ -171,7 +171,8 @@ void skeleton_rt_set_free_bytes(int32_t device, int64_t bytes);
   没有可用实现时打印 op/preference 和原因后以状态 1 退出。host 侧生成的代码因此可以直接调用
   返回值，不会在编译失败时执行到空函数指针。
 - `bytes` 是算子 operands 的静态字节数下界（动态 shape 时为 0）；运行时用它和 GPU 的空闲
-  显存比较，放不下就回退 CPU。它不是峰值工作集，也不传给 provider。
+  显存比较，放不下就回退 CPU。空闲显存在 v1 是 unknown（见 §8），因此这条检查只有在显式
+  设置 `skeleton_rt_set_free_bytes` 时生效。它不是峰值工作集，也不传给 provider。
 - host 侧用**带类型的间接调用**：`resolve` 返回 `!llvm.ptr`，host 用该 op 的真实签名调用它。
   不做 `void**` 参数打包——CPU 与 GPU impl 的签名本来就一样，打包只会让运行时去解释参数。
 - impl 无返回值也要支持（GPU 目标函数可能返回 void，见 `b5a2a03`）。结果通过 out buffer。
@@ -229,9 +230,10 @@ host-only 程序也是合法输入，driver 会跳过单元表直接执行。
   而进程里其它组件会 push/pop context，读到的句柄可能已经不被驱动接受，于是每次 probe 都
   报 `CUDA_ERROR_INVALID_CONTEXT`（见 §14 的 2026-11-07 决策）。unknown 是运行时本来就支持
   的状态——跳过显存放不下时的回退。
-- **缓存**：probe 结果（可用性 + 空闲显存）带刷新间隔（默认 10ms，
+- **缓存**：probe 结果（可用性，以及被显式设置的显存读数）带刷新间隔（默认 10ms，
   `SKELETON_PROBE_REFRESH_MS` 可调）。`resolve` 本身是 O(1) 查表，绝不在每次调用上做驱动 API。
-- **策略（v1）**：preference 对应设备可用且放得下 operands 时用 preference，否则 CPU；
+- **策略（v1）**：preference 对应设备可用且（显存读数已知时）放得下 operands 时用
+  preference，否则 CPU；
   两边都不可用时直接终止（不静默产出错误结果）。
 - **日志**：`--trace` 或 `SKELETON_TRACE=1`，每次 `resolve` 恰好一行决策：
   `op=<id> pref=<设备> probe=<设备> free=<n>MB choose=<设备> reason=<原因>`。

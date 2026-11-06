@@ -121,9 +121,9 @@
 
 ## 8. 实施记录（2026-11-07）
 
-- **算子矩阵定下**：见 [`../doc/benchmark.md`](../doc/benchmark.md)。方言与 C++ 入口新增
-  `skeleton.matmul` / `skeleton_matmul`——contraction 本身就是算子，没有纯函数；它落到
-  `linalg.matmul`，目标缓冲先清零（`linalg.matmul` 是累加语义）。
+- **算子矩阵定下**：见 [`../doc/benchmark.md`](../doc/benchmark.md)。C++ 入口新增
+  `skeleton_matmul`；它没有对应的方言 op——contraction 本身就是算子、没有纯函数，切分直接
+  生成 `linalg.fill` + `linalg.matmul`，目标缓冲先清零（`linalg.matmul` 是累加语义）。
 - **归约上设备**：不需要新的 device lowering。`linalg.reduce` 的迭代类型是
   `[parallel, reduction]`，`convert-linalg-to-parallel-loops` 已经生成「外层
   `scf.parallel`、归约维 `scf.for`」。此前失败的原因是归约单元的 destination 用了不可写视图，
