@@ -138,6 +138,9 @@ struct CudaDriver {
   int device = 0;
   int contextError = 0;
   bool syncWarned = false;
+  /// Set once the driver has refused a wait. Retrying it on every operator
+  /// would only repeat the same failed call.
+  bool waitUnavailable = false;
   bool contextReady = false;
 };
 
@@ -261,7 +264,7 @@ bool withContext(const std::function<bool(CudaDriver &)> &fn) {
 /// Returns false and leaves \p error set when no context could be waited on.
 bool waitForDevice(CudaDriver &driver, int &error) {
   error = 0;
-  if (!driver.ctxSynchronize)
+  if (!driver.ctxSynchronize || driver.waitUnavailable)
     return false;
   retainPrimaryContext(driver);
 
@@ -290,6 +293,8 @@ bool waitForDevice(CudaDriver &driver, int &error) {
   // context the launch ran under. Waiting on that is the only ordering left,
   // and it is what happens on the machine this was developed on.
   error = driver.ctxSynchronize();
+  if (error != 0)
+    driver.waitUnavailable = true;
   return error == 0;
 }
 
