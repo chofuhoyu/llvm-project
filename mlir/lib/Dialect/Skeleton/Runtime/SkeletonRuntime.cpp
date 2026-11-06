@@ -210,7 +210,8 @@ bool cudaAvailable() { return cudaDriver().available; }
 /// Allocating managed memory and synchronizing both need a current context, and
 /// the runtime cannot assume the caller left one in place. Returns false when
 /// the driver API is missing or the context cannot be made current.
-bool withPrimaryContext(const std::function<bool(CudaDriver &)> &fn) {
+bool withPrimaryContext(const std::function<bool(CudaDriver &)> &fn,
+                        bool *pushedOut = nullptr) {
   CudaDriver &driver = cudaDriver();
   if (!driver.available)
     return false;
@@ -256,6 +257,8 @@ bool withPrimaryContext(const std::function<bool(CudaDriver &)> &fn) {
     driver.contextError = driver.ctxPushCurrent(context);
     pushed = driver.contextError == 0;
   }
+  if (pushedOut)
+    *pushedOut = pushed;
   bool result = fn(driver);
   if (pushed && driver.ctxPopCurrent) {
     void *popped = nullptr;
@@ -283,17 +286,27 @@ const char *contextStateText() {
 /// API needs a current context; before the first GPU allocation there is none,
 /// in which case the memory check is skipped.
 int64_t cudaFreeBytes() {
+  // Only ask when this call made the context current itself. Another component
+  // may have popped what it did not push, and a handle that is still reported
+  // as current can be one the driver no longer accepts. An unreadable count is
+  // a supported answer: the placement decision then skips the memory check
+  // rather than guessing.
+  bool pushed = false;
   int64_t freeBytes = -1;
-  withPrimaryContext([&](CudaDriver &driver) {
-    if (!driver.memGetInfo)
-      return false;
-    size_t free = 0;
-    size_t total = 0;
-    if (driver.memGetInfo(&free, &total) != 0)
-      return false;
-    freeBytes = static_cast<int64_t>(free);
-    return true;
-  });
+  withPrimaryContext(
+      [&](CudaDriver &driver) {
+        if (!driver.memGetInfo)
+          return false;
+        size_t free = 0;
+        size_t total = 0;
+        if (driver.memGetInfo(&free, &total) != 0)
+          return false;
+        freeBytes = static_cast<int64_t>(free);
+        return true;
+      },
+      &pushed);
+  if (!pushed)
+    return -1;
   return freeBytes;
 }
 
