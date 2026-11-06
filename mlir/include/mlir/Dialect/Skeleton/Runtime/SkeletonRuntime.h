@@ -76,7 +76,9 @@ SKELETON_RT_EXPORT void skeleton_rt_sync(int32_t device);
 /// `device`. GPU memory is Unified Memory, so the host can read and write it
 /// too; without a GPU the runtime falls back to aligned host memory and still
 /// returns a valid pointer, which keeps a program that never reaches a device
-/// working. Returns NULL when the allocation itself fails.
+/// working. Prints a diagnostic and exits with status 1 when the allocation
+/// fails, the same contract resolve has: the result is never NULL, so the
+/// caller needs no failure path of its own.
 SKELETON_RT_EXPORT void *skeleton_rt_alloc(int32_t device, int64_t bytes);
 
 /// Release memory returned by skeleton_rt_alloc and allocated for `device`.

@@ -220,15 +220,16 @@ struct SkeletonTargetLowerPass
 
       // Phase B: synchronize, copy back, and deallocate after each GPU call.
       for (func::CallOp call : gpuCalls) {
-        builder.setInsertionPointAfter(call);
-
         // The launch has returned but the kernel has not necessarily finished.
         // The copy-backs below read what it wrote, so wait for the device
         // first; a kernel that faults otherwise shows up as a host read of
-        // half-written memory.
+        // half-written memory. The device number is materialized before the
+        // call so that the wait is the first thing after it.
+        builder.setInsertionPoint(call);
         Value device = arith::ConstantOp::create(
             builder, call.getLoc(), builder.getI32Type(),
             builder.getI32IntegerAttr(SKELETON_DEVICE_GPU));
+        builder.setInsertionPointAfter(call);
         func::CallOp::create(builder, call.getLoc(), "skeleton_rt_sync",
                              TypeRange{}, ValueRange{device});
 

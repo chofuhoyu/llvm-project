@@ -63,9 +63,6 @@
 
 #include "mlir/Dialect/Skeleton/Runtime/SkeletonRuntime.h"
 
-#include <cstdio>
-#include <cstdlib>
-
 namespace skeleton_detail {
 
 // A non-owning view of an array whose length is only known at run time. Passing
@@ -90,18 +87,12 @@ template <typename T> struct span {
 // copying it in and out. The type has the same two members as span, so a read
 // of `data` and `size` is all the boundary needs.
 template <typename T> struct buffer {
+  // skeleton_rt_alloc reports and exits when it cannot allocate, so the
+  // pointer is usable as soon as the constructor returns.
   explicit buffer(unsigned long length)
       : data(static_cast<T *>(
             skeleton_rt_alloc(allocationDevice(), length * sizeof(T)))),
-        size(length) {
-    if (!data) {
-      std::fprintf(stderr,
-                   "skeleton: cannot allocate %lu bytes for an operator "
-                   "buffer\n",
-                   length * sizeof(T));
-      std::abort();
-    }
-  }
+        size(length) {}
 
   ~buffer() { skeleton_rt_free(allocationDevice(), data); }
 

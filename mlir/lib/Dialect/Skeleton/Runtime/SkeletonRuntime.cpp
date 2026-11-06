@@ -290,7 +290,7 @@ void *skeleton_rt_alloc(int32_t device, int64_t bytes) {
   if (bytes < 1)
     bytes = 1;
 
-  if (device == SKELETON_DEVICE_GPU) {
+  if (device == SKELETON_DEVICE_GPU && cudaAvailable()) {
     void *ptr = nullptr;
     bool allocated = withPrimaryContext([&](CudaDriver &driver) {
       if (!driver.memAllocManaged)
@@ -300,21 +300,31 @@ void *skeleton_rt_alloc(int32_t device, int64_t bytes) {
       return driver.memAllocManaged(&ptr, static_cast<size_t>(bytes), 1) == 0 &&
              ptr != nullptr;
     });
-    if (allocated) {
-      s.allocations[ptr] = {device, /*managed=*/true};
-      return ptr;
+    if (!allocated) {
+      // There is a device, so handing back host memory would only turn this
+      // into a fault inside a kernel later.
+      std::fprintf(stderr,
+                   "[skeleton-rt] error: cannot allocate %lld bytes of managed "
+                   "memory\n",
+                   static_cast<long long>(bytes));
+      std::exit(1);
     }
-    // No driver, no free device memory: fall back to host memory so that a
-    // program which never reaches a device still runs. A unit placed on the
-    // GPU then fails to compile or to allocate, and the runtime falls back.
+    s.allocations[ptr] = {device, /*managed=*/true};
+    return ptr;
   }
+  // No device to allocate for: a program that never reaches one still has to
+  // run, and an artifact on a machine without CUDA has to allocate as well.
 
   const size_t alignment = 64;
   size_t size = static_cast<size_t>(bytes);
   size = (size + alignment - 1) / alignment * alignment;
   void *ptr = std::aligned_alloc(alignment, size);
-  if (!ptr)
-    return nullptr;
+  if (!ptr) {
+    std::fprintf(stderr,
+                 "[skeleton-rt] error: cannot allocate %lld bytes\n",
+                 static_cast<long long>(bytes));
+    std::exit(1);
+  }
   s.allocations[ptr] = {device, /*managed=*/false};
   return ptr;
 }
