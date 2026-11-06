@@ -1,15 +1,6 @@
 // REQUIRES: skeletonxx
 // REQUIRES: clang-cir
 //
-// XFAIL: *
-// A reduction does not reach the device yet. Its unit keeps an `scf.reduce`
-// combiner inside the `scf.parallel` loop, and the GPU tail
-// (`gpu-map-parallel-loops` + `convert-parallel-loops-to-gpu`) maps that loop
-// to blocks and threads as if every iteration were independent, so the
-// combiner runs across threads and the kernel faults with an illegal address.
-// A device reduction needs its own lowering (shared-memory tree reduction);
-// until then this test records the gap and turns into XPASS when it closes.
-//
 // The first real operator on the device: the same flat DAG of four operators
 // (rowmax, shift_exp, rowsum, normalize) as CPU/cpp-softmax, with every host
 // asking for the GPU. Each unit is compiled for the device on its own, so a
