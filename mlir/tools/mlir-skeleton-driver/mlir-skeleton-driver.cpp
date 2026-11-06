@@ -116,6 +116,12 @@ static llvm::cl::opt<bool>
                llvm::cl::desc("Print the lowered host module before execution"),
                llvm::cl::init(false));
 
+static llvm::cl::opt<bool>
+    dumpUnitIR("dump-unit-ir",
+               llvm::cl::desc("Print every operator unit after lowering it for "
+                              "a device, before it is JIT'ed"),
+               llvm::cl::init(false));
+
 // Operator units
 
 namespace {
@@ -423,6 +429,14 @@ void *compileUnit(UnitInfo &unit, int32_t device) {
                  << "\n  unit: " << unitFunc.getFunctionType() << "\n";
     unit.failed.insert(device);
     return nullptr;
+  }
+
+  if (dumpUnitIR) {
+    llvm::errs() << "[skeleton-driver] op=" << unit.id << " device="
+                 << (device == SKELETON_DEVICE_GPU ? "GPU" : "CPU")
+                 << " lowered unit IR:\n";
+    module->print(llvm::errs());
+    llvm::errs() << "\n";
   }
 
   auto engineOrErr = ExecutionEngine::create(
