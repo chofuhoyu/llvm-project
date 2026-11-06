@@ -483,4 +483,18 @@ W0–W7 做完了，W8 是本文。每一步的取舍记在
   调它就是普通调用，`cir-to-llvm` 能把它降到 `llvm.call`。`CPP/cpp-features` 覆盖了这条。
 
 **还没做的**：clang driver 的 `-fskeleton`（§W6 后半）、一个 host 里多个骨架算子（§6.3 M5）、
-动态形状 GPU（roadmap §5.4）、扁平图上的融合 pass、benchmark 的耗时基线。
+扁平图上的融合 pass。
+
+**2026-11-07 补的四项**（都在 §4.1/§4.4 的范围之内）：
+
+- **动态形状上设备**：`skeleton_detail::buffer<T>` 是运行时拥有的存储，与 `span` 同一套两个
+  成员，边界上是 `memref<?xT>`；单元带 `skeleton.managed` 时设备侧不做分配与拷贝。
+  `GPU/cpp-managed-add` 是这条路径的 e2e。
+- **标量参数**：§4.3 说标量按值传给单元，实际上 `skeleton_map` 的变参是引用，标量在调用点
+  是一个指向它的指针。切分现在把 destination 之后指向标量的指针当标量值，调用前 load；
+  原来这会让 `skeleton_map(fn, out, x, 1.0f)` 报“不是数据参数”。
+- **matmul 入口**：`skeleton_matmul(out, a, b)` 没有纯函数，落到 `linalg.matmul`；
+  destination 先清零（`linalg.matmul` 是累加语义）。
+- **destination 一律可写视图**：map/reduce/matmul 都不再经过 `tensor.empty` + empty tensor
+  elimination 或“写视图 + 丢弃结果”的写法。丢弃 fill 的结果会让它在 tensor 层变成死代码，
+  这正是“identity 没写进去”的根因。
