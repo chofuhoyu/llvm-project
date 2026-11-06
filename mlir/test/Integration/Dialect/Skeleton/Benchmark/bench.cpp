@@ -38,6 +38,11 @@ constexpr int kCols = 128;
 constexpr int kIterations = 32;
 constexpr unsigned long kAddElements = 1u << 18;
 
+/// The timing loops write one output element here every iteration. A volatile
+/// store cannot be hoisted, so the work inside the loop has to happen on every
+/// pass even when the compiler can see that its inputs do not change.
+volatile float g_sink = 0.0f;
+
 double nowMs() {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -253,37 +258,53 @@ void referenceLayernorm(const float (&x)[kRows][kCols], float (&out)[kRows][kCol
   }
 }
 
+/// One pass of the softmax DAG. Used to warm the units up before timing: the
+/// driver compiles a unit the first time it is resolved, and that compile is
+/// not what the measurement is about.
+void runSoftmax(const float (&x)[kRows][kCols], float (&out)[kRows][kCols]) {
+  float m[kRows];
+  float y[kRows][kCols];
+  float s[kRows];
+  softmax_rowmax(x, m);
+  softmax_shift_exp(x, m, y);
+  softmax_rowsum(y, s);
+  softmax_normalize(y, s, out);
+}
+
 double timeSoftmax(const float (&x)[kRows][kCols],
                    float (&out)[kRows][kCols]) {
+  runSoftmax(x, out);
   double begin = nowMs();
   for (int i = 0; i < kIterations; ++i) {
-    float m[kRows];
-    float y[kRows][kCols];
-    float s[kRows];
-    softmax_rowmax(x, m);
-    softmax_shift_exp(x, m, y);
-    softmax_rowsum(y, s);
-    softmax_normalize(y, s, out);
+    runSoftmax(x, out);
+    g_sink = out[0][0];
   }
   return (nowMs() - begin) / kIterations;
 }
 
+void runLayernorm(const float (&x)[kRows][kCols], float (&out)[kRows][kCols],
+                  float eps) {
+  const float inv_n = 1.0f / static_cast<float>(kCols);
+  float s[kRows];
+  float c[kRows][kCols];
+  float sq[kRows][kCols];
+  float ss[kRows];
+  float inv[kRows];
+  norm_rowsum(x, s);
+  norm_center(x, s, c, inv_n);
+  norm_square(c, sq);
+  norm_sumsq(sq, ss);
+  norm_stats(ss, inv, inv_n, eps);
+  norm_scale(c, inv, out);
+}
+
 double timeLayernorm(const float (&x)[kRows][kCols],
                      float (&out)[kRows][kCols], float eps) {
-  const float inv_n = 1.0f / static_cast<float>(kCols);
+  runLayernorm(x, out, eps);
   double begin = nowMs();
   for (int i = 0; i < kIterations; ++i) {
-    float s[kRows];
-    float c[kRows][kCols];
-    float sq[kRows][kCols];
-    float ss[kRows];
-    float inv[kRows];
-    norm_rowsum(x, s);
-    norm_center(x, s, c, inv_n);
-    norm_square(c, sq);
-    norm_sumsq(sq, ss);
-    norm_stats(ss, inv, inv_n, eps);
-    norm_scale(c, inv, out);
+    runLayernorm(x, out, eps);
+    g_sink = out[0][0];
   }
   return (nowMs() - begin) / kIterations;
 }
@@ -303,18 +324,24 @@ void referenceMatmul(const float (&a)[kRows][kCols],
 double timeMatmul(const float (&a)[kRows][kCols],
                   const float (&b)[kCols][kRows],
                   float (&out)[kRows][kRows]) {
+  matmul(a, b, out);
   double begin = nowMs();
-  for (int i = 0; i < kIterations; ++i)
+  for (int i = 0; i < kIterations; ++i) {
     matmul(a, b, out);
+    g_sink = out[0][0];
+  }
   return (nowMs() - begin) / kIterations;
 }
 
 double timeAddBuffers(skeleton_detail::buffer<float> &a,
                       skeleton_detail::buffer<float> &b,
                       skeleton_detail::buffer<float> &out) {
+  add_buffers(a, b, out);
   double begin = nowMs();
-  for (int i = 0; i < kIterations; ++i)
+  for (int i = 0; i < kIterations; ++i) {
     add_buffers(a, b, out);
+    g_sink = out.data[0];
+  }
   return (nowMs() - begin) / kIterations;
 }
 
