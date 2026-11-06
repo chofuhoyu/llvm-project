@@ -120,18 +120,16 @@ struct CudaDriver {
   int (*getCount)(int *) = nullptr;
   int (*ctxGetCurrent)(void **) = nullptr;
   int (*ctxSynchronize)() = nullptr;
-  int (*ctxCreate)(void **, unsigned, int) = nullptr;
   int (*deviceGet)(int *, int) = nullptr;
   int (*primaryCtxRetain)(void **, int) = nullptr;
   int (*ctxPushCurrent)(void *) = nullptr;
   int (*ctxPopCurrent)(void **) = nullptr;
   int (*memAllocManaged)(void **, size_t, unsigned) = nullptr;
   int (*memFree)(unsigned long long) = nullptr;
-  /// The retained primary context. Retained once and never released: the
-  /// modules the runtime hands memory to keep using it.
+  /// The retained primary context. This is the context the CUDA runtime
+  /// wrappers launch kernels on, so synchronizing it is what waits for a
+  /// kernel. Retained once and never released.
   void *primaryContext = nullptr;
-  /// A context the runtime created for its own driver calls.
-  void *privateContext = nullptr;
   int device = 0;
   int contextError = 0;
   bool contextReady = false;
@@ -153,8 +151,6 @@ CudaDriver &cudaDriver() {
     driver.ctxSynchronize =
         (int (*)())GetProcAddress(handle, "cuCtxSynchronize");
     driver.deviceGet = (int (*)(int *, int))GetProcAddress(handle, "cuDeviceGet");
-    driver.ctxCreate =
-        (int (*)(void **, unsigned, int))GetProcAddress(handle, "cuCtxCreate_v2");
     driver.primaryCtxRetain = (int (*)(void **, int))GetProcAddress(
         handle, "cuDevicePrimaryCtxRetain");
     driver.ctxPushCurrent =
@@ -176,8 +172,6 @@ CudaDriver &cudaDriver() {
     driver.ctxGetCurrent = (int (*)(void **))dlsym(handle, "cuCtxGetCurrent");
     driver.ctxSynchronize = (int (*)())dlsym(handle, "cuCtxSynchronize");
     driver.deviceGet = (int (*)(int *, int))dlsym(handle, "cuDeviceGet");
-    driver.ctxCreate =
-        (int (*)(void **, unsigned, int))dlsym(handle, "cuCtxCreate_v2");
     driver.primaryCtxRetain =
         (int (*)(void **, int))dlsym(handle, "cuDevicePrimaryCtxRetain");
     driver.ctxPushCurrent = (int (*)(void *))dlsym(handle, "cuCtxPushCurrent");
@@ -202,58 +196,41 @@ CudaDriver &cudaDriver() {
 bool cudaAvailable() { return cudaDriver().available; }
 
 /// Run `fn` with the primary CUDA context of the default device current.
-/// Allocating managed memory and synchronizing both need a current context, and
-/// the runtime cannot assume the caller left one in place. Returns false when
-/// the driver API is missing or the context cannot be made current.
-bool withPrimaryContext(const std::function<bool(CudaDriver &)> &fn,
-                        bool *pushedOut = nullptr) {
+///
+/// The GPU kernels run on that context: the CUDA runtime wrappers retain it and
+/// push it around every driver call they make, so a kernel is launched there.
+/// Synchronizing anything else would not wait for it, which matters because the
+/// managed path has no copy or deallocation to hide the ordering behind.
+///
+/// Returns false when the driver API is missing or the context cannot be made
+/// current.
+bool withContext(const std::function<bool(CudaDriver &)> &fn) {
   CudaDriver &driver = cudaDriver();
   if (!driver.available)
     return false;
 
   // The order matters: the primary context is only usable after the device has
-  // been looked up. Retaining it before any cuDeviceGet call leaves the caller
-  // without a context, and every allocation then fails with
-  // CUDA_ERROR_INVALID_CONTEXT.
+  // been looked up.
   if (!driver.contextReady) {
     driver.contextReady = true;
     if (driver.deviceGet)
       driver.deviceGet(&driver.device, 0);
-    // A context of the runtime's own comes first. The machine this was
-    // developed on hands out a primary context handle that
-    // cuCtxPushCurrent rejects with CUDA_ERROR_INVALID_CONTEXT, and retrying it
-    // on every operator would turn a workable situation into thousands of
-    // driver errors. Managed memory belongs to the device rather than to the
-    // context, so memory allocated here is still visible to the modules the
-    // driver loaded.
-    if (driver.ctxCreate) {
-      driver.ctxCreate(&driver.privateContext, 0, driver.device);
-      // The created context is current from here on, which is what the rest of
-      // the runtime relies on.
-    }
-    if (!driver.privateContext && driver.primaryCtxRetain)
+    if (driver.primaryCtxRetain)
       driver.primaryCtxRetain(&driver.primaryContext, driver.device);
   }
 
-  // cuCtxCreate makes its context current, and pushing a context that is
-  // already current is an error on the driver this ran against. Only push when
-  // there is nothing current.
   void *current = nullptr;
-  bool haveCurrent =
-      driver.ctxGetCurrent && driver.ctxGetCurrent(&current) == 0 && current;
-  void *context =
-      driver.privateContext ? driver.privateContext : driver.primaryContext;
+  if (driver.ctxGetCurrent)
+    driver.ctxGetCurrent(&current);
   bool pushed = false;
   driver.contextError = 0;
-  // Push unless this very context is already current: pushing a context that is
-  // current is an error, and any other current context may be a stale handle
-  // left behind by a caller that popped what it did not push.
-  if (context && driver.ctxPushCurrent && current != context) {
-    driver.contextError = driver.ctxPushCurrent(context);
+  // Pushing a context that is already current is an error; pushing over
+  // anything else is how the stack is supposed to be used.
+  if (driver.primaryContext && driver.ctxPushCurrent &&
+      current != driver.primaryContext) {
+    driver.contextError = driver.ctxPushCurrent(driver.primaryContext);
     pushed = driver.contextError == 0;
   }
-  if (pushedOut)
-    *pushedOut = pushed;
   bool result = fn(driver);
   if (pushed && driver.ctxPopCurrent) {
     void *popped = nullptr;
@@ -272,8 +249,8 @@ const char *contextStateText() {
       driver.ctxGetCurrent && driver.ctxGetCurrent(&current) == 0 && current;
   if (haveCurrent)
     return "a context is current";
-  if (driver.privateContext || driver.primaryContext)
-    return "a context is held but not current";
+  if (driver.primaryContext)
+    return "the primary context is retained but not current";
   return "no CUDA context";
 }
 
@@ -337,11 +314,22 @@ void skeleton_rt_register(int64_t opId, int32_t device, void *impl) {
 void skeleton_rt_sync(int32_t device) {
   if (device != SKELETON_DEVICE_GPU)
     return;
-  withPrimaryContext([](CudaDriver &driver) {
+  int error = 0;
+  bool synchronized = withContext([&](CudaDriver &driver) {
     if (!driver.ctxSynchronize)
       return false;
-    return driver.ctxSynchronize() == 0;
+    error = driver.ctxSynchronize();
+    return error == 0;
   });
+  if (!synchronized) {
+    // Carrying on would let the host read memory a kernel may still be
+    // writing, so this is reported rather than ignored.
+    std::fprintf(stderr,
+                 "[skeleton-rt] error: cannot wait for the GPU (CUDA error %d; "
+                 "%s)\n",
+                 error, contextStateText());
+    std::exit(1);
+  }
 }
 
 void *skeleton_rt_alloc(int32_t device, int64_t bytes) {
@@ -352,7 +340,7 @@ void *skeleton_rt_alloc(int32_t device, int64_t bytes) {
   if (device == SKELETON_DEVICE_GPU && cudaAvailable()) {
     void *ptr = nullptr;
     int error = 0;
-    bool allocated = withPrimaryContext([&](CudaDriver &driver) {
+    bool allocated = withContext([&](CudaDriver &driver) {
       if (!driver.memAllocManaged)
         return false;
       // CU_MEM_ATTACH_GLOBAL: the allocation is readable and writable from
@@ -400,10 +388,17 @@ void skeleton_rt_free(int32_t device, void *ptr) {
   bool managed = it->second.managed;
   s.allocations.erase(it);
   if (managed) {
-    withPrimaryContext([&](CudaDriver &driver) {
-      return driver.memFree &&
-             driver.memFree(reinterpret_cast<unsigned long long>(ptr)) == 0;
+    int error = 0;
+    bool freed = withContext([&](CudaDriver &driver) {
+      if (!driver.memFree)
+        return false;
+      error = driver.memFree(reinterpret_cast<unsigned long long>(ptr));
+      return error == 0;
     });
+    if (!freed)
+      std::fprintf(stderr,
+                   "[skeleton-rt] error: cannot free %p (CUDA error %d; %s)\n",
+                   ptr, error, contextStateText());
     return;
   }
   (void)device;

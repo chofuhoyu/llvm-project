@@ -11,15 +11,22 @@
 // placed it on. CPU targets use -convert-linalg-to-loops (scf.for), GPU
 // targets use -convert-linalg-to-parallel-loops (scf.parallel).
 //
-// Bufferization produces host memory (memref.get_global / memref.alloc).
-// GPU kernels cannot access plain host memory, so each GPU call operand is
-// given a Unified Memory (UVM) buffer instead: gpu.alloc with host_shared
-// lowers to cuMemAllocManaged, and the same allocation is visible to both the
-// host and the kernel. The host copies the initial contents in and the results
-// back out with memref.copy, which is a plain host memcpy into host-visible
+// Bufferization produces host memory (memref.get_global / memref.alloc). A GPU
+// kernel cannot access plain host memory, so a GPU call whose operands are host
+// buffers gets a Unified Memory (UVM) buffer per operand: gpu.alloc with
+// host_shared lowers to cuMemAllocManaged, and the same allocation is visible to
+// both the host and the kernel. The host copies the initial contents in and the
+// results back out with memref.copy, a plain host memcpy into host-visible
 // memory; no explicit device transfers (gpu.memcpy) or async streams are
-// involved. The kernel launch itself is asynchronous, so the generated code
-// synchronizes through the runtime before the first copy-back.
+// involved.
+//
+// A GPU target marked skeleton.managed takes its operands from memory the
+// runtime allocated, so none of that is emitted for it; its operands are
+// already visible to the device.
+//
+// The kernel launch itself is asynchronous either way, and for a managed target
+// there is no copy or deallocation after it, so the generated code always
+// synchronizes through the runtime before anything reads a result.
 //
 
 #include "mlir/Dialect/Arith/IR/Arith.h"

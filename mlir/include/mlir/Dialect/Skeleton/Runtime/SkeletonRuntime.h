@@ -53,9 +53,9 @@ typedef void *(*skeleton_rt_provider_fn)(int64_t opId, int32_t device);
 /// Declare an operator unit. `preference` is the placement preference that
 /// came from the source annotation (a `SkeletonDevice` value). `bytes` is an
 /// advisory lower bound on the operator's working set, or 0 when unknown. The
-/// runtime uses it to reject a GPU placement that cannot fit the operands in
-/// free device memory; it is recorded for experiments but is not passed to the
-/// provider.
+/// runtime compares it against the free memory of a GPU the operator would be
+/// placed on, when that value is known (see skeleton_rt_set_free_bytes); it is
+/// recorded for experiments but is not passed to the provider.
 SKELETON_RT_EXPORT void skeleton_rt_declare(int64_t opId, int32_t preference,
                                             int64_t bytes);
 
@@ -100,8 +100,8 @@ SKELETON_RT_EXPORT void *skeleton_rt_resolve(int64_t opId);
 
 /// Probe a device. Returns non-zero when the device can execute code. Results
 /// are cached for a short interval so that resolve does not issue a driver
-/// call per operator invocation. For the GPU the cached probe also records
-/// free device memory when a CUDA context already exists.
+/// call per operator invocation. The probe does not read free device memory:
+/// see skeleton_rt_set_free_bytes.
 SKELETON_RT_EXPORT int32_t skeleton_rt_probe(int32_t device);
 
 /// Force a device to be considered available or unavailable. Used by tests and
@@ -109,9 +109,11 @@ SKELETON_RT_EXPORT int32_t skeleton_rt_probe(int32_t device);
 SKELETON_RT_EXPORT void skeleton_rt_set_device_available(int32_t device,
                                                          int32_t available);
 
-/// Override the free-memory reading of `device` with `bytes`, or -1 to use the
-/// driver's reading again. Used by tests to make the placement decision see a
-/// device that is too small, without allocating the memory it describes.
+/// State how much memory `device` has free, or -1 for "unknown". The runtime
+/// does not ask the driver: reading it needs a current CUDA context, and the
+/// handle a driver reports can be one it no longer accepts, so the read fails
+/// on every probe. The value is unknown by default, which makes resolve skip
+/// the memory check; tests and experiments set it here.
 SKELETON_RT_EXPORT void skeleton_rt_set_free_bytes(int32_t device,
                                                    int64_t bytes);
 
