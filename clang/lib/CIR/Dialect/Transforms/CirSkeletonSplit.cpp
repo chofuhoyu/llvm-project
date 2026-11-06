@@ -305,9 +305,14 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
     Value zero = arith::ConstantOp::create(
         body, loc, cast<MemRefType>(dstMemref.getType()).getElementType(),
         body.getZeroAttr(cast<MemRefType>(dstMemref.getType()).getElementType()));
-    linalg::FillOp::create(body, loc, ValueRange{zero}, ValueRange{accumulate});
+    // The cleared tensor is what the contraction accumulates into; discarding
+    // the fill's result would leave it dead and let it be optimized away.
+    Value cleared =
+        linalg::FillOp::create(body, loc, ValueRange{zero},
+                               ValueRange{accumulate})
+            .getResult(0);
     result = linalg::MatmulOp::create(body, loc, ValueRange{lhs, rhs},
-                                      ValueRange{accumulate})
+                                      ValueRange{cleared})
                  .getResult(0);
     // The contraction accumulates in the destination, so there is nothing to
     // copy back; the write below only keeps it alive.
@@ -326,9 +331,16 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
     // device means the kernel writes host memory instead of the buffer the
     // runtime placed there.
     Value init = createToTensor(body, loc, dstMemref, /*writable=*/true);
-    linalg::FillOp::create(body, loc, ValueRange{identity}, ValueRange{init});
-    result = skeleton::ReduceOp::create(body, loc, inTensor, init, pureFnAttr,
-                                        prefAttr)
+    // The reduced value starts from the identity *value*: the fill's result is
+    // what the reduction takes as its accumulator. Writing the identity
+    // through the view and discarding the result would make the fill dead at
+    // the tensor level, and dead code is exactly what gets optimized away.
+    Value filled =
+        linalg::FillOp::create(body, loc, ValueRange{identity},
+                               ValueRange{init})
+            .getResult(0);
+    result = skeleton::ReduceOp::create(body, loc, inTensor, filled,
+                                        pureFnAttr, prefAttr)
                  .getResult();
     // The accumulator already lives in the destination, so this write is a
     // no-op for bufferization; it is what keeps the reduction alive.
