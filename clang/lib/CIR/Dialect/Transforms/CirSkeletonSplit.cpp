@@ -255,9 +255,6 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
   unsigned argIdx = 0;
 
   Value dstMemref = entry->getArgument(argIdx++);
-  auto dstType = cast<MemRefType>(dstMemref.getType());
-  auto dstTensorType =
-      RankedTensorType::get(dstType.getShape(), dstType.getElementType());
 
   auto pureFnAttr = SymbolRefAttr::get(ctx, info.pureFnName);
   auto prefAttr = skeleton::PreferenceAttr::get(
@@ -270,21 +267,12 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
   Value result;
   bool resultRestrict = true;
   if (info.opType == SkeletonOpType::Map) {
-    // A fresh tensor of the result shape; empty tensor elimination rewrites it
-    // into a writable view of the destination, so the map writes there
-    // directly rather than into a temporary that would then be copied -- which
-    // matters on a device, where a temporary is not reachable from the kernel.
-    SmallVector<Value> dynSizes;
-    for (int64_t dim = 0; dim < dstTensorType.getRank(); ++dim)
-      if (dstTensorType.isDynamicDim(dim))
-        dynSizes.push_back(memref::DimOp::create(
-            body, loc, dstMemref,
-            arith::ConstantIndexOp::create(body, loc, dim)));
-    result = tensor::EmptyOp::create(body, loc, dstTensorType.getShape(),
-                                     dstTensorType.getElementType(), dynSizes);
-  }
-
-  if (info.opType == SkeletonOpType::Map) {
+    // The result is the destination, through a writable view of it: the map
+    // writes the caller's buffer instead of a temporary that would then be
+    // copied back. A temporary is not reachable from a device kernel, and
+    // relying on empty tensor elimination to remove it only holds for the
+    // shapes it recognizes.
+    Value mapsInto = createToTensor(body, loc, dstMemref, /*writable=*/true);
     // One tensor per input data argument, then one rank-0 tensor per scalar:
     // skeleton.map broadcasts a scalar over the destination.
     SmallVector<Value> ins;
@@ -296,9 +284,12 @@ func::FuncOp CIRSkeletonSplitPass::createUnit(SkeletonCallInfo &info,
       ins.push_back(tensor::FromElementsOp::create(body, loc, scalarTy,
                                                    ValueRange{scalar}));
     }
-    result = skeleton::MapOp::create(body, loc, ValueRange(ins), result,
+    result = skeleton::MapOp::create(body, loc, ValueRange(ins), mapsInto,
                                      pureFnAttr, prefAttr)
                  .getResult();
+    // The materialize below is a no-op for bufferization; it is what keeps the
+    // map alive.
+    resultRestrict = false;
   } else if (info.opType == SkeletonOpType::Matmul) {
     // A matrix multiply writes the destination as `outs`. The writable view
     // keeps the contraction writing into the caller's buffer, which is what a
