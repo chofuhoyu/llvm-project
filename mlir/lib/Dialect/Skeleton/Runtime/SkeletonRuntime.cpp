@@ -131,10 +131,8 @@ struct CudaDriver {
   /// The retained primary context. Retained once and never released: the
   /// modules the runtime hands memory to keep using it.
   void *primaryContext = nullptr;
-  /// A context created when the primary one cannot be made current. Managed
-  /// memory belongs to the device, not to the context, so an allocation made
-  /// here is still visible to the modules the driver loaded.
-  void *fallbackContext = nullptr;
+  /// A context the runtime created for its own driver calls.
+  void *privateContext = nullptr;
   int device = 0;
   int contextError = 0;
   bool contextReady = false;
@@ -225,23 +223,26 @@ bool withPrimaryContext(const std::function<bool(CudaDriver &)> &fn) {
     driver.contextReady = true;
     if (driver.deviceGet)
       driver.deviceGet(&driver.device, 0);
-    if (driver.primaryCtxRetain)
+    // A context of the runtime's own comes first. The machine this was
+    // developed on hands out a primary context handle that
+    // cuCtxPushCurrent rejects with CUDA_ERROR_INVALID_CONTEXT, and retrying it
+    // on every operator would turn a workable situation into thousands of
+    // driver errors. Managed memory belongs to the device rather than to the
+    // context, so memory allocated here is still visible to the modules the
+    // driver loaded.
+    if (driver.ctxCreate)
+      driver.ctxCreate(&driver.privateContext, 0, driver.device);
+    if (!driver.privateContext && driver.primaryCtxRetain)
       driver.primaryCtxRetain(&driver.primaryContext, driver.device);
   }
 
+  void *context =
+      driver.privateContext ? driver.privateContext : driver.primaryContext;
   bool pushed = false;
   driver.contextError = 0;
-  if (driver.primaryContext && driver.ctxPushCurrent) {
-    driver.contextError = driver.ctxPushCurrent(driver.primaryContext);
+  if (context && driver.ctxPushCurrent) {
+    driver.contextError = driver.ctxPushCurrent(context);
     pushed = driver.contextError == 0;
-  }
-  if (!pushed && driver.ctxCreate && driver.ctxPushCurrent) {
-    if (!driver.fallbackContext)
-      driver.ctxCreate(&driver.fallbackContext, 0, driver.device);
-    if (driver.fallbackContext) {
-      driver.contextError = driver.ctxPushCurrent(driver.fallbackContext);
-      pushed = driver.contextError == 0;
-    }
   }
   bool result = fn(driver);
   if (pushed && driver.ctxPopCurrent) {
@@ -259,12 +260,10 @@ const char *contextStateText() {
   void *current = nullptr;
   bool haveCurrent =
       driver.ctxGetCurrent && driver.ctxGetCurrent(&current) == 0 && current;
-  if (haveCurrent && driver.primaryContext)
-    return "primary context current";
   if (haveCurrent)
-    return "a context is current, but not the retained one";
-  if (driver.primaryContext)
-    return "primary context retained but not current";
+    return "a context is current";
+  if (driver.privateContext || driver.primaryContext)
+    return "a context is held but not current";
   return "no CUDA context";
 }
 
