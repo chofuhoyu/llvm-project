@@ -84,12 +84,19 @@ lit 入口跑三次：driver + GPU 可用、driver + 强制 GPU 不可用（同�
 | 大缓冲 | `map-add` 262144 个 float（1 MB，运行时缓冲） | 数值正确，见 §4 |
 | 多单元 | `GPU/driver-multi-unit-gpu`（同一进程两个 GPU 单元） | 通过 |
 | 放置回退 | `GPU/driver-adaptive`（GPU → CPU → GPU）、`GPU/driver-memory-fallback`（显存放不下） | 通过 |
-| 内存检查 | `compute-sanitizer --tool memcheck` 跑 benchmark、`cpp-softmax`、`cpp-managed-add` | **0 errors** |
+| 内存检查 | `compute-sanitizer --tool memcheck` 跑 benchmark、`cpp-softmax`、`cpp-managed-add` | 0 个内存错误；每个进程 1–2 条驱动 API 错误 |
 
-`compute-sanitizer` 的 0 errors 是这条线上最重要的一条证据：早先报出的 2000 多条都是
-`CUDA_ERROR_INVALID_CONTEXT`——运行时反复 push 一个已经 current 的 context、以及在拿不到
-可用 context 时读空闲显存——不是内存错误，但会把真问题埋掉。两处都改掉之后归零，细节见
-[`finish-roadmap-decisions.md`](finish-roadmap-decisions.md) D8/D9。
+顺手记下 `compute-sanitizer` 的读法，因为它一开始报了两千多条：那些全是
+`CUDA_ERROR_INVALID_CONTEXT`，来自运行时反复 push 一个已经 current 的 context、以及在拿不到
+可用 context 时读空闲显存——不是内存错误，但会把真问题埋掉。现在剩下的 1–2 条是同一台机器的
+驱动拒绝 `cuCtxPushCurrent`/`cuCtxSynchronize`（见 D8），每次运行只尝试一次：等待路径按
+"当前就是 kernel 的 context → 把 kernel 的 context 压栈 → 等当前 context" 三步走，三步都被
+拒绝就记下来不再重试。**memcheck 本身 0 错误。**
+
+顺序这件事要单独说清：这台机器上三步等待都不可用，所以 managed 路径的"内核写、宿主紧接着读"
+在这台机器上靠的是 UVM 自己的语义（宿主访问设备刚写过的页会触发迁移，等于等那部分工作），
+而不是那行 `skeleton_rt_sync`。在能把 kernel 的 context 压栈的驱动上，等待才真正生效。两条都
+写进 D8，免得把"绿了"当成"证明了"。
 
 ## 6. 复现
 

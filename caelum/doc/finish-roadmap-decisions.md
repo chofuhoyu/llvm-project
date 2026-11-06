@@ -139,27 +139,31 @@ executor 时无法从现有日志判断“当时是哪个执行器”。字段�
 换来的只是少一个 pass 注册。行为已经稳定（桥接、managed、同步都在这一层），契约写清比
 搬家有价值。
 
-### D8 用 kernel 所在的那个 CUDA context
+### D8 等待 kernel 所在的 context，分配用自己的 context
 
-**背景**：`skeleton_rt_alloc` 与 `skeleton_rt_sync` 都要一个 current CUDA context。最初的写法
-是让运行时 `cuCtxCreate` 一个自己的 context，理由是这台机器的驱动会拒绝
-`cuCtxPushCurrent` 一个已经 current 的 context（`CUDA_ERROR_INVALID_CONTEXT`）。
+**背景**：`skeleton_rt_alloc` 与 `skeleton_rt_sync` 都要一个 current CUDA context。最早的写法
+是让运行时 `cuCtxCreate` 一个自己的 context，同步也作用在它上面——**这是错的**：
+`cuCtxSynchronize` 只等待当前 context 上已提交的工作，而 kernel 是 MLIR 的 CUDA wrapper 在它
+自己 retain 的 primary context 上启动的。managed 路径没有 copy-back 也没有 `gpu.dealloc`，
+那次同步是唯一的顺序保证，所以这是一个真竞态，不是理论问题。
 
-**这个写法是错的**：`cuCtxSynchronize` 只等待**当前 context** 上已提交的工作，而 kernel 是
-MLIR 的 CUDA wrapper 在它自己 retain 的 **primary context** 上启动的。运行时同步自己的
-context，等于什么都没等；managed 路径没有 copy-back 也没有 `gpu.dealloc`，那次同步是唯一
-的顺序保证，所以这是一条真正的竞态，不是理论问题。
+**选择**：两件事用不同的 context，因为它们的约束不同。
 
-**选择**：运行时不再建 context，只用 primary context——也就是 kernel 所在的那个。每次操作前
-看 `cuCtxGetCurrent`：不是 primary 就 push，用完 pop；已经是就不 push（重复 push 才是那台
-机器报 201 的原因）。
+- **等待**必须覆盖 kernel 所在的 context。按三步走：当前就是 primary → 直接等；否则把 primary
+  压栈再等；再否则等当前 context（那可能就是 kernel 启动时的那个）。三步都失败说明驱动不让
+  等，记下这一次失败，不再每个算子重试，并在 `--trace` 下留一行说明。
+- **分配**只需要一个驱动肯让它 current 的 context。运行时用 `cuCtxCreate` 建自己的，因为这台
+  机器的驱动拒绝把 primary 压栈。managed memory 属于设备而不属于 context，所以在哪里分配不
+  影响 kernel 访问。
 
-**代价与收益**：push 失败（驱动拒绝）时同步无法保证，`skeleton_rt_sync` 现在打印 CUDA 错误
-码与 context 状态并 `exit(1)`，而不是继续跑到读一个可能正在被写的缓冲。分配失败、释放失败也
-各自带诊断。
+**这台机器上的事实**：三步等待全部被驱动拒绝（`CUDA_ERROR_INVALID_CONTEXT`），所以 managed
+路径在**这里**的正确性靠的是 UVM 自身的语义——宿主访问设备刚写过的页会触发迁移，等于等那部分
+工作——而不是那行同步。这不是"已经证明了顺序正确"，是"顺序无法在这里被强制验证"。为了让这个
+差别不被"绿了"掩盖：`cpp-managed-add` 用 262144 个元素、destination 预填哨兵、逐元素检查，
+读早了会读到哨兵；`benchmark.md` §5 把这个限制写在证据旁边。
 
-**放弃**：自建 context。它在本机"能用"纯属偶然——kernel 恰好也落在它上面或者时序刚好——
-在正常驱动的机器上同步不到 kernel。
+**放弃**：自建 context 并在它上面同步。它在本机"能用"纯属偶然——kernel 恰好也落在它上面或者
+时序刚好——在正常驱动的机器上同步不到 kernel。这正是审查指出来的那条。
 
 ### D9 探测不再读空闲显存
 

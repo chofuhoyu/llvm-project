@@ -393,7 +393,7 @@ CPU）、`driver-nested`（嵌套图被 `skeleton-to-linalg` 拒绝）、`driver
 | 2026-11-07 | GPU 内核异步、host 立刻读回 | `skeleton_rt_sync`，lowering 在 GPU 单元调用后插入 | 同步属于运行时，插在哪属于 lowering |
 | 2026-11-07 | 分配应归运行时 | `skeleton_rt_alloc` / `free`，C++ 侧是 `skeleton_detail::buffer<T>` | UVM 由运行时给，managed 单元不再分配/拷贝 |
 | 2026-11-07 | executor 在代码里没有锚点 | trace/stats 末尾追加 `exec=<id>` | 只加可观测字段，v1 仍是一个进程一个 executor |
-| 2026-11-07 | CUDA context 该由谁持有 | 运行时 `cuCtxCreate` 一个自己的，只在 current 不是它时 push | 这台驱动拒绝 push 已 current 的 context；别人的 pop 会弹掉别人的压栈 |
+| 2026-11-07 | CUDA context 该由谁持有 | 等待用 kernel 所在的 primary context（三步回退），分配用运行时自建的 | 同步只覆盖当前 context；这台驱动拒绝 push primary，所以机器上只能等"当前"那个 |
 | 2026-11-07 | 空闲显存读不稳 | probe 记 unknown，不再调用驱动 | 每次失败只会埋掉真问题；`set_free_bytes` 保留决策路径的测试 |
 
 细节与放弃的做法见 [`finish-roadmap-decisions.md`](finish-roadmap-decisions.md) D3–D6。
