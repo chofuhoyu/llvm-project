@@ -305,3 +305,7 @@ LLJIT 的固有开销。
 4. **一次文档收口**：问题 1 的两处记录、`benchmark.md` 的两种解释、`cpp-managed-add.cpp` 与
    `cpp-softmax.mlir` 里与决策相反的注释、`runtime.md` 的 trace 格式与 D 编号、driver 里两处
    `tensor.empty` 注释。
+
+这份文件只覆盖增量。合并前还要一起看姊妹审查开头那张汇总表：那里在 finish 上仍然存在的 6 条
+（driver 的 `cast`、ABI 的 stride、ABI 没有用例、dispatch 静默跳过、span 长度宽度、`skeleton++`
+的临时目录）与本文的问题 4 是同一批动作。
