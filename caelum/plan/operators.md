@@ -1,12 +1,10 @@
 # 算子这条线：前端、组合方式、第一个真实算子、API
 
-> 2026-11-03 · 本文记算子相关的方向和待办；`roadmap.md` 只记运行时与合并这条线，
-> 运行时的设计与实施记录在 `../doc/runtime.md`。
+> 2026-11-03 · 本文记算子相关的方向和待办；`roadmap.md` 只记运行时与合并这条线，运行时的设计与实施记录在 `../doc/runtime.md`。
 
 ## 1. 为什么单独开一条线
 
-现在的算子库只有 `skeleton.map`、`skeleton.reduce`、`skeleton.vector.add`。没有一个是
-工业级负载，也没有一条"skeleton 算子 + 用户纯函数"写真实算子的完整例子。后果：
+现在的算子库只有 `skeleton.map`、`skeleton.reduce`、`skeleton.vector.add`。没有一个是工业级负载，也没有一条"skeleton 算子 + 用户纯函数"写真实算子的完整例子。后果：
 
 - 判断不了算子之间该怎么组合（见 §2），因为两种写法都没在真实负载上用过；
 - 判断不了 op 级放置是否合适、跨算子边界的开销能不能接受；
@@ -16,35 +14,19 @@
 
 ## 2. 组合方式：扁平 DAG
 
-- **默认写法是扁平 DAG**：一个算子是一段 tensor → tensor 的代码，算子之间通过 SSA 值
-  相连，没有算子嵌在另一个算子的 region 里。host 程序本来就是这种形状：每个算子对应
-  一个 op 单元、一次放置决策。
-- **region body 只表达标量 lambda**：`skeleton.map` / `skeleton.reduce` 的 body 是逐元素
-  或逐归约的标量计算，可以引用外层的 tensor 和标量。body 里再出现 tensor 级算子不支持
-  ——它的语义是"把这个算子整体嵌进内层循环"，与 body 的逐元素求值冲突，也没法降到
-  `linalg.generic` 的标量 region。
-- **大算子 = 大图，不是大单元**。softmax 这类算子写成 reduce → map → reduce → map 的
-  扁平图：每个节点独立编译、独立放置，中间结果走内存。
-- **代价要说清**：扁平图没有循环融合，每一步的中间结果都落内存。这是用性能换可组合性
-  和可切分性；真实负载上差多少，要等 §4 的算子做出来才知道。
-- **嵌套只作为融合的远期方向**：若以后要把整张图编成一个融合 kernel，应该在扁平图之上
-  做融合 pass，而不是回到 region 嵌套——嵌套会把放置粒度放大到整张图，与 op 级放置冲突。
+- **默认写法是扁平 DAG**：一个算子是一段 tensor → tensor 的代码，算子之间通过 SSA 值相连，没有算子嵌在另一个算子的 region 里。host 程序本来就是这种形状：每个算子对应一个 op 单元、一次放置决策。
+- **region body 只表达标量 lambda**：`skeleton.map` / `skeleton.reduce` 的 body 是逐元素或逐归约的标量计算，可以引用外层的 tensor 和标量。body 里再出现 tensor 级算子不支持——它的语义是"把这个算子整体嵌进内层循环"，与 body 的逐元素求值冲突，也没法降到 `linalg.generic` 的标量 region。
+- **大算子 = 大图，不是大单元**。softmax 这类算子写成 reduce → map → reduce → map 的扁平图：每个节点独立编译、独立放置，中间结果走内存。
+- **代价要说清**：扁平图没有循环融合，每一步的中间结果都落内存。这是用性能换可组合性和可切分性；真实负载上差多少，要等 §4 的算子做出来才知道。
+- **嵌套只作为融合的远期方向**：若以后要把整张图编成一个融合 kernel，应该在扁平图之上做融合 pass，而不是回到 region 嵌套——嵌套会把放置粒度放大到整张图，与 op 级放置冲突。
 
 ## 3. 前端：程序逻辑也要能用 C++ 写
 
-- **现状**：C++ 只能表达算子——被标注的纯函数，以及调用 skeleton 原语的包装函数。
-  `main`、控制流、内存分配、打印这些 host 侧代码必须手写 MLIR。四个 C++ e2e 都是这种
-  两段拼接：`.cpp` 只提供算子，`@main` 写在 `.driver` 文件里，靠 `cat` 拼成一个模块。
-- **缺口**：真实程序的业务逻辑也在 C++ 里，而且不该为了用 skeleton 去迁就框架——不能
-  要求用户为每个算子手写 MLIR glue，也不该限制 host 代码怎么写（控制流、分配、I/O、
-  错误处理）。
-- **这意味着**：CIR → Skeleton → LLVM 要覆盖**整个程序**，而不只是被标注的区域。现有
-  `cir-call-to-skeleton` / `cir-loop-to-skeleton` 只处理标注部分，其余 CIR 还没有降级
-  路径。
-- **对 API 的影响**：annotation 的粒度、host 与算子的边界、以及"哪些函数会被切成单元"
-  都要在这条约束下设计；否则 API 规范只对测试有效。
-- **判据**：一条 e2e，程序（算子 + main + 输出）全部用 C++ 写，经 driver 与产物两条路径
-  跑出期望数值。
+- **现状**：C++ 只能表达算子——被标注的纯函数，以及调用 skeleton 原语的包装函数。`main`、控制流、内存分配、打印这些 host 侧代码必须手写 MLIR。四个 C++ e2e 都是这种两段拼接：`.cpp` 只提供算子，`@main` 写在 `.driver` 文件里，靠 `cat` 拼成一个模块。
+- **缺口**：真实程序的业务逻辑也在 C++ 里，而且不该为了用 skeleton 去迁就框架——不能要求用户为每个算子手写 MLIR glue，也不该限制 host 代码怎么写（控制流、分配、I/O、错误处理）。
+- **这意味着**：CIR → Skeleton → LLVM 要覆盖**整个程序**，而不只是被标注的区域。现有 `cir-call-to-skeleton` / `cir-loop-to-skeleton` 只处理标注部分，其余 CIR 还没有降级路径。
+- **对 API 的影响**：annotation 的粒度、host 与算子的边界、以及"哪些函数会被切成单元"都要在这条约束下设计；否则 API 规范只对测试有效。
+- **判据**：一条 e2e，程序（算子 + main + 输出）全部用 C++ 写，经 driver 与产物两条路径跑出期望数值。
 
 这条线的现状、缺口拆分与实施顺序见 [`cpp_codegen.md`](cpp_codegen.md)。
 
@@ -54,15 +36,13 @@
 
 选定之后要先定三件事，再动手实现：
 
-1. **skeleton 侧怎么表示**：扁平图由哪些算子组成，需要补哪些 skeleton 原语（现有
-   map / reduce 够不够，缺什么）；
+1. **skeleton 侧怎么表示**：扁平图由哪些算子组成，需要补哪些 skeleton 原语（现有 map / reduce 够不够，缺什么）；
 2. **前端入口**：C++/CIR 侧怎么产生它，annotation 写在哪、写什么（这块的缺口见 §3）；
 3. **host 侧怎么调用**：返回值、内存布局、错误处理。
 
 ## 5. 验收：一条完整 e2e
 
-- **整个程序用 C++ 写**：算子、main、输出都是 C++（见 §3）。这条还不可用时，先退一步用
-  "算子 C++ + main 手写 MLIR"验证算子本身，并在测试里标明这是临时形态。
+- **整个程序用 C++ 写**：算子、main、输出都是 C++（见 §3）。这条还不可用时，先退一步用"算子 C++ + main 手写 MLIR"验证算子本身，并在测试里标明这是临时形态。
 - 输入固定，**有数值期望**（和参考实现对比，不能只打印出来看）；
 - **driver 路径与产物路径**各跑一次（`./prog` 与 `driver prog`）；
 - CPU 与 GPU 各一次（GPU 只在有 CUDA runner 的机器上跑）；
@@ -80,55 +60,29 @@
 
 §4 的三件事都定了，§5 的验收在前两条上完成，第三条（GPU）只覆盖了静态形状。
 
-**§4.1 第一个算子：softmax**，写成 `rowmax → shift_exp → rowsum → normalize` 四个骨架
-算子（`reduce max` / `map exp(x-max)` / `reduce add` / `map y/sum`）的扁平 DAG，没有新增
-`skeleton.softmax`。四个算子各是一个 host 函数、一个单元、一次放置决策，与 §2 一致。
-选定理由与形状规则的细节见 [`../doc/cpp-codegen-operators-decisions.md`](../doc/cpp-codegen-operators-decisions.md) §5。
+**§4.1 第一个算子：softmax**，写成 `rowmax → shift_exp → rowsum → normalize` 四个骨架算子（`reduce max` / `map exp(x-max)` / `reduce add` / `map y/sum`）的扁平 DAG，没有新增 `skeleton.softmax`。四个算子各是一个 host 函数、一个单元、一次放置决策，与 §2 一致。选定理由与形状规则的细节见 [`../doc/cpp-codegen-operators-decisions.md`](../doc/cpp-codegen-operators-decisions.md) §5。
 
 **§4.1 现有原语够不够：不够，补了两条形状规则。**
-- `skeleton.map` 的输入可以比结果秩低：低秩输入对齐结果的**前导**维广播，秩 0 广播到所有
-  元素。归约结果因此可以直接喂给下一步逐元素计算。
-- `skeleton.reduce` 降的是**输入有、目的地没有的尾部维**：目的地秩 k、输入秩 n 时降
-  `[k, n)`。`float (&m)[3]` 从 `float (&x)[3][4]` 归约就是「降最后一维」。
-另外归约的 identity 从「从零开始」改成显式传入（`skeleton_reduce(fn, out, in, init)`），
-否则 max / min / product 都是错的。
+- `skeleton.map` 的输入可以比结果秩低：低秩输入对齐结果的**前导**维广播，秩 0 广播到所有元素。归约结果因此可以直接喂给下一步逐元素计算。
+- `skeleton.reduce` 降的是**输入有、目的地没有的尾部维**：目的地秩 k、输入秩 n 时降 `[k, n)`。`float (&m)[3]` 从 `float (&x)[3][4]` 归约就是「降最后一维」。另外归约的 identity 从「从零开始」改成显式传入（`skeleton_reduce(fn, out, in, init)`），否则 max / min / product 都是错的。
 
-**§4.2 前端入口**：annotation 仍是 `__attribute__((annotate("skeleton.region", "CPU")))`，
-标在被调用的 host 函数上；`skeleton.pure` 标纯函数。边界是目的地式：
-第一个数据参数是输出缓冲，形状来自参数类型（`T (&)[N]` 编译期、`span<T>&` 运行时、
-`T&` 单个元素）。一个 host 里只能有一次骨架调用（§2 的扁平 DAG 由多个 host 函数表达）。
+**§4.2 前端入口**：annotation 仍是 `__attribute__((annotate("skeleton.region", "CPU")))`，标在被调用的 host 函数上；`skeleton.pure` 标纯函数。边界是目的地式：第一个数据参数是输出缓冲，形状来自参数类型（`T (&)[N]` 编译期、`span<T>&` 运行时、`T&` 单个元素）。一个 host 里只能有一次骨架调用（§2 的扁平 DAG 由多个 host 函数表达）。
 
-**§4.3 host 侧怎么调用**：调用方分配缓冲、传 span/数组引用，函数返回 void；纯函数只能被
-单元引用。详见决策文档 §1。
+**§4.3 host 侧怎么调用**：调用方分配缓冲、传 span/数组引用，函数返回 void；纯函数只能被单元引用。详见决策文档 §1。
 
 **§5 验收状态**（2026-11-07 更新，全部满足）：
-- 整个程序 C++（算子 + `main` + 输出）：通过。`CPU/cpp-softmax` 是一条命令编出来、
-  driver 与产物各跑一次的数值 e2e；`CPU/cpp-features` 覆盖 `std::vector` / `std::string` /
-  模板 / 递归 / 函数指针 / `printf`。
-- 数值期望：softmax 三行（递增、全等、双峰）与参考值逐位比对（`FileCheck`）；
-  `Benchmark/bench` 另有 softmax、layernorm、matmul、逐元素 add 四个负载与 C++ 参考实现
-  逐元素比对。
+- 整个程序 C++（算子 + `main` + 输出）：通过。`CPU/cpp-softmax` 是一条命令编出来、driver 与产物各跑一次的数值 e2e；`CPU/cpp-features` 覆盖 `std::vector` / `std::string` / 模板 / 递归 / 函数指针 / `printf`。
+- 数值期望：softmax 三行（递增、全等、双峰）与参考值逐位比对（`FileCheck`）；`Benchmark/bench` 另有 softmax、layernorm、matmul、逐元素 add 四个负载与 C++ 参考实现逐元素比对。
 - CPU：通过。
-- GPU：通过。`GPU/cpp-map-add-static`（宿主缓冲 + 桥接）与 `GPU/cpp-managed-add`
-  （运行时缓冲、无拷贝）各一条；`GPU/cpp-softmax` 的四个算子全部在设备上跑出期望值，
-  原来的 `XFAIL` 已删除。
-- 动态形状：一维（`skeleton_detail::buffer<T>` / `span<T>`）可以上设备；二维动态仍是
-  明确拒绝的非目标。
+- GPU：通过。`GPU/cpp-map-add-static`（宿主缓冲 + 桥接）与 `GPU/cpp-managed-add`（运行时缓冲、无拷贝）各一条；`GPU/cpp-softmax` 的四个算子全部在设备上跑出期望值，原来的 `XFAIL` 已删除。
+- 动态形状：一维（`skeleton_detail::buffer<T>` / `span<T>`）可以上设备；二维动态仍是明确拒绝的非目标。
 - 耗时：记录在 [`../doc/benchmark.md`](../doc/benchmark.md)。
 
-**§6 原本未定的两项**：CIR 覆盖到什么程度——现在是整个程序（`main`、控制流、标准库调用、
-`printf` 都经 CIR→LLVM）；融合 pass——没做，仍然每步落内存。
+**§6 原本未定的两项**：CIR 覆盖到什么程度——现在是整个程序（`main`、控制流、标准库调用、`printf` 都经 CIR→LLVM）；融合 pass——没做，仍然每步落内存。
 
 ## 8. 实施记录（2026-11-07）
 
-- **算子矩阵定下**：见 [`../doc/benchmark.md`](../doc/benchmark.md)。C++ 入口新增
-  `skeleton_matmul`；它没有对应的方言 op——contraction 本身就是算子、没有纯函数，切分直接
-  生成 `linalg.fill` + `linalg.matmul`，目标缓冲先清零（`linalg.matmul` 是累加语义）。
-- **归约上设备**：不需要新的 device lowering。`linalg.reduce` 的迭代类型是
-  `[parallel, reduction]`，`convert-linalg-to-parallel-loops` 已经生成「外层
-  `scf.parallel`、归约维 `scf.for`」。此前失败的原因是归约单元的 destination 用了不可写视图，
-  bufferization 把结果写到宿主临时缓冲里，内核访问宿主内存。
-- **标量参数**：`skeleton_map` 的变参是引用，标量在调用点成为指向它的指针；切分现在把
-  destination 之后的指向标量的指针当标量值处理，并在调用前 load。
-- **运行时缓冲**：`skeleton_detail::buffer<T>` 提供运行时拥有的存储，单元带
-  `skeleton.managed` 时设备侧不做分配与拷贝。
+- **算子矩阵定下**：见 [`../doc/benchmark.md`](../doc/benchmark.md)。C++ 入口新增 `skeleton_matmul`；它没有对应的方言 op——contraction 本身就是算子、没有纯函数，切分直接生成 `linalg.fill` + `linalg.matmul`，目标缓冲先清零（`linalg.matmul` 是累加语义）。
+- **归约上设备**：不需要新的 device lowering。`linalg.reduce` 的迭代类型是 `[parallel, reduction]`，`convert-linalg-to-parallel-loops` 已经生成「外层 `scf.parallel`、归约维 `scf.for`」。此前失败的原因是归约单元的 destination 用了不可写视图，bufferization 把结果写到宿主临时缓冲里，内核访问宿主内存。
+- **标量参数**：`skeleton_map` 的变参是引用，标量在调用点成为指向它的指针；切分现在把 destination 之后的指向标量的指针当标量值处理，并在调用前 load。
+- **运行时缓冲**：`skeleton_detail::buffer<T>` 提供运行时拥有的存储，单元带 `skeleton.managed` 时设备侧不做分配与拷贝。

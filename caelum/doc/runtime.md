@@ -2,9 +2,7 @@
 
 > 2026-10-28 · 分支 `caelum/skeleton-minimal-runtime`
 >
-> 本文是这条工作线的**基准文档**：架构、ABI、产物格式、测试判据、已否决的方案都在这里。
-> 实现过程中每次需要权衡，都追加到 §14 决策记录，并在对应提交信息里说明。
-> 与 `caelum/review/`、`caelum/report/` 冲突时以本文和 `caelum/plan/roadmap.md` 为准。
+> 本文是这条工作线的**基准文档**：架构、ABI、产物格式、测试判据、已否决的方案都在这里。实现过程中每次需要权衡，都追加到 §14 决策记录，并在对应提交信息里说明。与 `caelum/review/`、`caelum/report/` 冲突时以本文和 `caelum/plan/roadmap.md` 为准。
 
 ## 1. 目标与非目标
 
@@ -12,11 +10,9 @@
 
 - **算子级运行期放置**：每个算子单独决策，同一个程序里不同算子可以落在不同设备上。
 - **driver 是系统入口**：它拥有从 skeleton IR 往下的整条编译管线，并在自己的进程里执行程序。
-- **运行期可以回到编译期**：执行到某个算子时，按当时的设备状态决定设备，必要时从该算子的
-  skeleton IR 重新编译，而不是在编译期就把设备定死。
+- **运行期可以回到编译期**：执行到某个算子时，按当时的设备状态决定设备，必要时从该算子的 skeleton IR 重新编译，而不是在编译期就把设备定死。
 - **产物自带运行时**：生成的程序是独立可执行文件，离线也能跑；有 driver 时解锁重编译。
-- **单机 v1**：一台机器、一个 executor、CPU + 可选 GPU；接口为以后的多设备、多机留好位置，
-  但 v1 不实现分布式。
+- **单机 v1**：一台机器、一个 executor、CPU + 可选 GPU；接口为以后的多设备、多机留好位置，但 v1 不实现分布式。
 
 非目标（v1 明确不做）：
 
@@ -66,10 +62,8 @@ driver（mlir-skeleton-driver）
 
 关键性质：
 
-- GPU 代码的唯一来源是运行期重编译。产物里没有 GPU 代码，所以“重编译”不是兜底，
-  而是获取 GPU 能力的唯一路径。
-- 决策发生在每次解析点，且 probe 结果带刷新间隔；同一进程内设备状态变化后，
-  同一个 op 的后续调用可以拿到不同 impl。这是“决策真在运行期”的可验证证据。
+- GPU 代码的唯一来源是运行期重编译。产物里没有 GPU 代码，所以“重编译”不是兜底，而是获取 GPU 能力的唯一路径。
+- 决策发生在每次解析点，且 probe 结果带刷新间隔；同一进程内设备状态变化后，同一个 op 的后续调用可以拿到不同 impl。这是“决策真在运行期”的可验证证据。
 
 ## 4. 输入与产物
 
@@ -92,8 +86,7 @@ driver 只需要三样东西就能完整描述程序：
 
 preference 缺失按 CPU 处理。其余一律是 host。
 
-> 这一条按 roadmap §1 的“把每个算子分配到 CPU / GPU 上执行”执行：所有骨架算子都成为
-> op 单元，不是只挑带 preference 的。
+> 这一条按 roadmap §1 的“把每个算子分配到 CPU / GPU 上执行”执行：所有骨架算子都成为 op 单元，不是只挑带 preference 的。
 
 ### 4.3 产物格式
 
@@ -103,24 +96,19 @@ preference 缺失按 CPU 处理。其余一律是 host。
 - 自定义 section `.skeleton.ir`：op 单元已编号的 skeleton 层模块，MLIR bytecode；
 - 静态链接的运行时（`MLIRSkeletonRuntime`）。
 
-**op id 必须在构建产物时就写进内嵌 IR**（`skeleton.op_id = <n>` 属性）。原因是产物里已经
-链好了 CPU impl，driver 重读 IR 时必须得到同一组 id，否则注册对错位置。不依赖遍历顺序。
+**op id 必须在构建产物时就写进内嵌 IR**（`skeleton.op_id = <n>` 属性）。原因是产物里已经链好了 CPU impl，driver 重读 IR 时必须得到同一组 id，否则注册对错位置。不依赖遍历顺序。
 
-driver 读 IR 用 LLVM 的 object 库按 section 名取内容，不 dlopen、不起子进程
-（Linux 上 PIE 也不能 dlopen）。
+driver 读 IR 用 LLVM 的 object 库按 section 名取内容，不 dlopen、不起子进程（Linux 上 PIE 也不能 dlopen）。
 
 ### 4.4 op 单元的抽取
 
 `skeleton-outline` pass：
 
-- 对每个 op 单元创建 `func.func @__skeleton_op_<id>(<tensor operands>) -> <tensor result>`，
-  函数体是那个算子（保留 skeleton 形态），函数上带 `skeleton.op_id`；
+- 对每个 op 单元创建 `func.func @__skeleton_op_<id>(<tensor operands>) -> <tensor result>`，函数体是那个算子（保留 skeleton 形态），函数上带 `skeleton.op_id`；
 - 原位置替换成对该函数的调用；
-- 输出模块里同时有 host 和 outline 出来的函数，driver 再把它们切成
-  “host 模块 + 每个 op 一个模块”。
+- 输出模块里同时有 host 和 outline 出来的函数，driver 再把它们切成“host 模块 + 每个 op 一个模块”。
 
-偏好 GPU 的多结果算子在这一步直接报错：GPU 桥接给每个算子一个输出 memref。偏好 CPU 的
-单元可以有多结果——它在运行期的候选设备只有 CPU，不会被编译成 GPU 代码。
+偏好 GPU 的多结果算子在这一步直接报错：GPU 桥接给每个算子一个输出 memref。偏好 CPU 的单元可以有多结果——它在运行期的候选设备只有 CPU，不会被编译成 GPU 代码。
 
 ## 5. 运行时 ABI
 
@@ -167,130 +155,82 @@ void skeleton_rt_set_free_bytes(int32_t device, int64_t bytes);
 
 约定：
 
-- `resolve` 每次调用都做一次决策，但不一定重新探测（见 §8）。`resolve` 不做空指针返回：
-  没有可用实现时打印 op/preference 和原因后以状态 1 退出。host 侧生成的代码因此可以直接调用
-  返回值，不会在编译失败时执行到空函数指针。
-- `bytes` 是算子 operands 的静态字节数下界（动态 shape 时为 0）；运行时用它和 GPU 的空闲
-  显存比较，放不下就回退 CPU。空闲显存在 v1 是 unknown（见 §8），因此这条检查只有在显式
-  设置 `skeleton_rt_set_free_bytes` 时生效。它不是峰值工作集，也不传给 provider。
-- host 侧用**带类型的间接调用**：`resolve` 返回 `!llvm.ptr`，host 用该 op 的真实签名调用它。
-  不做 `void**` 参数打包——CPU 与 GPU impl 的签名本来就一样，打包只会让运行时去解释参数。
+- `resolve` 每次调用都做一次决策，但不一定重新探测（见 §8）。`resolve` 不做空指针返回：没有可用实现时打印 op/preference 和原因后以状态 1 退出。host 侧生成的代码因此可以直接调用返回值，不会在编译失败时执行到空函数指针。
+- `bytes` 是算子 operands 的静态字节数下界（动态 shape 时为 0）；运行时用它和 GPU 的空闲显存比较，放不下就回退 CPU。空闲显存在 v1 是 unknown（见 §8），因此这条检查只有在显式设置 `skeleton_rt_set_free_bytes` 时生效。它不是峰值工作集，也不传给 provider。
+- host 侧用**带类型的间接调用**：`resolve` 返回 `!llvm.ptr`，host 用该 op 的真实签名调用它。不做 `void**` 参数打包——CPU 与 GPU impl 的签名本来就一样，打包只会让运行时去解释参数。
 - impl 无返回值也要支持（GPU 目标函数可能返回 void，见 `b5a2a03`）。结果通过 out buffer。
 - 运行时状态不是线程安全的：host 程序不能在多个线程里同时 resolve 算子。
-- provider 只通过**返回值**安装实现；`skeleton_rt_register` 用于产物启动时登记已经链接进去的
-  实现，以及原地替换实现。运行时不做负缓存：provider 返回 NULL 后，下一次 `resolve` 会再问
-  一次，所以失败的记忆必须留在 provider 里（driver 用 `(op, device)` 失败表实现）。
+- provider 只通过**返回值**安装实现；`skeleton_rt_register` 用于产物启动时登记已经链接进去的实现，以及原地替换实现。运行时不做负缓存：provider 返回 NULL 后，下一次 `resolve` 会再问一次，所以失败的记忆必须留在 provider 里（driver 用 `(op, device)` 失败表实现）。
 
 可替换点：以后要支持别的设备，只增 device 枚举值与 impl 注册，ABI 不变。
 
 ## 6. op 单元的编译
 
-输入：该 op 单元的 skeleton IR（一个函数）。
-步骤：
+输入：该 op 单元的 skeleton IR（一个函数）。步骤：
 
-1. `skeleton-to-linalg`（`map`/`reduce` 的 `pure_fn` 与 `body` 两种形式都支持；
-   body 里的嵌套 skeleton 算子会在这个 pass 里报错）；
-2. `one-shot-bufferize`（`bufferizeFunctionBoundaries=true`、identity layout）——
-   与 host 侧同一套配置，保证跨模块 ABI 一致；
+1. `skeleton-to-linalg`（`map`/`reduce` 的 `pure_fn` 与 `body` 两种形式都支持；body 里的嵌套 skeleton 算子会在这个 pass 里报错）；
+2. `one-shot-bufferize`（`bufferizeFunctionBoundaries=true`、identity layout）——与 host 侧同一套配置，保证跨模块 ABI 一致；
 3. 按目标设备 lower：
-   - **CPU**：`convert-linalg-to-loops`、`convert-scf-to-cf`、`convert-arith-to-llvm`、
-     `convert-func-to-llvm`、`convert-cf-to-llvm`、`finalize-memref-to-llvm`、
-     `reconcile-unrealized-casts`；
-   - **GPU**：`convert-linalg-to-parallel-loops` → 在该函数内生成 UVM 包装
-     （alloc host_shared → host `memref.copy` 进 → kernel → host `memref.copy` 出 → dealloc）
-     → `convert-parallel-loops-to-gpu` → `gpu-kernel-outlining` →
-     `gpu-lower-to-nvvm-pipeline` → host 侧 LLVM lower。
-4. 校验单元函数 lower 后的 `LLVMFunctionType` 与 host 里对应声明完全一致，不一致直接报错
-   （见 §16）；
+   - **CPU**：`convert-linalg-to-loops`、`convert-scf-to-cf`、`convert-arith-to-llvm`、`convert-func-to-llvm`、`convert-cf-to-llvm`、`finalize-memref-to-llvm`、`reconcile-unrealized-casts`；
+   - **GPU**：`convert-linalg-to-parallel-loops` → 在该函数内生成 UVM 包装（alloc host_shared → host `memref.copy` 进 → kernel → host `memref.copy` 出 → dealloc）→ `convert-parallel-loops-to-gpu` → `gpu-kernel-outlining` → `gpu-lower-to-nvvm-pipeline` → host 侧 LLVM lower。
+4. 校验单元函数 lower 后的 `LLVMFunctionType` 与 host 里对应声明完全一致，不一致直接报错（见 §16）；
 5. 返回函数指针，运行时把它记入表（`skeleton_rt_register` 只用于产物启动时登记已链接的实现）。
 
-每个 `(op, device)` 的 `ExecutionEngine` 都保活：host 可能还持有另一个设备的函数指针。
-编译失败按 `(op, device)` 缓存，后续调用不再重试（运行时回退到另一个设备）。
+每个 `(op, device)` 的 `ExecutionEngine` 都保活：host 可能还持有另一个设备的函数指针。编译失败按 `(op, device)` 缓存，后续调用不再重试（运行时回退到另一个设备）。
 
-GPU 包装放在 op 单元内部，而不是调用点：host 必须与设备无关。等运行时接管分配
-（分配器钩子）之后，这层包装和 host 拷贝会被去掉。
+GPU 包装放在 op 单元内部，而不是调用点：host 必须与设备无关。等运行时接管分配（分配器钩子）之后，这层包装和 host 拷贝会被去掉。
 
 ## 7. host 侧
 
 1. `skeleton-outline`；
-2. host 模块走原有 lower 管线：`convert-linalg-to-loops`（host 里剩下的 linalg）、
-   bufferize、arith/func/cf/memref → LLVM、`reconcile-unrealized-casts`；
-3. 把对 `@__skeleton_op_<id>` 的直接 `llvm.call` 改写成
-   `%impl = llvm.call @skeleton_rt_resolve(op_id)` + 带类型的间接 `llvm.call`；
+2. host 模块走原有 lower 管线：`convert-linalg-to-loops`（host 里剩下的 linalg）、bufferize、arith/func/cf/memref → LLVM、`reconcile-unrealized-casts`；
+3. 把对 `@__skeleton_op_<id>` 的直接 `llvm.call` 改写成 `%impl = llvm.call @skeleton_rt_resolve(op_id)` + 带类型的间接 `llvm.call`；
 4. `ExecutionEngine` JIT host，调用 entry。
 
-host 在 driver 模式是 JIT 的；在产物模式是 AOT 的。两条路共用同一套 pass，只有最后一步不同。
-entry 必须是 `() -> ()`：driver 用 `invokePacked` 直接调用它，不解释参数。没有 op 单元的
-host-only 程序也是合法输入，driver 会跳过单元表直接执行。
+host 在 driver 模式是 JIT 的；在产物模式是 AOT 的。两条路共用同一套 pass，只有最后一步不同。entry 必须是 `() -> ()`：driver 用 `invokePacked` 直接调用它，不解释参数。没有 op 单元的 host-only 程序也是合法输入，driver 会跳过单元表直接执行。
 
 ## 8. 探测与决策
 
-- **probe 内容（v1）**：设备是否存在（`cuDeviceGetCount`）。没有 GPU 时不触碰 CUDA
-  （`dlopen` 驱动 API，失败即视为不可用）。空闲显存记 unknown：读它需要当前 CUDA context，
-  而进程里其它组件会 push/pop context，读到的句柄可能已经不被驱动接受，于是每次 probe 都
-  报 `CUDA_ERROR_INVALID_CONTEXT`（见 §14 的 2026-11-07 决策）。unknown 是运行时本来就支持
-  的状态——跳过显存放不下时的回退。
-- **缓存**：probe 结果（可用性，以及被显式设置的显存读数）带刷新间隔（默认 10ms，
-  `SKELETON_PROBE_REFRESH_MS` 可调）。`resolve` 本身是 O(1) 查表，绝不在每次调用上做驱动 API。
-- **策略（v1）**：preference 对应设备可用且（显存读数已知时）放得下 operands 时用
-  preference，否则 CPU；
-  两边都不可用时直接终止（不静默产出错误结果）。
-- **日志**：`--trace` 或 `SKELETON_TRACE=1`，每次 `resolve` 恰好一行决策：
-  `op=<id> pref=<设备> probe=<设备> free=<n>MB choose=<设备> reason=<原因>`。
-  `probe` 与 `free` 描述被探测的偏好设备（没有显存读数时 `free=-`），`choose` 是最终落点，
-  `reason` 说明为什么没用偏好设备，用了就是 `-`；取值为 `device-unavailable`、
-  `insufficient-memory`、`no-implementation`。另有一行编译事件：
-  `op=<id> compile device=<CPU> impl=<ptr>`。driver 只有显式给 `--trace` 时才调用
-  `set_trace(1)`，所以环境变量在 driver 模式下也生效。
-- **测试钩子**：`set_device_available` 与 `set_free_bytes` 强制探测结果，让「设备不可用」和
-  「显存放不下」两条回退分支不依赖真实硬件就能测（见 `driver-adaptive`、
-  `driver-memory-fallback`）。两者都会让该设备的下一次探测绕过驱动 API。
+- **probe 内容（v1）**：设备是否存在（`cuDeviceGetCount`）。没有 GPU 时不触碰 CUDA（`dlopen` 驱动 API，失败即视为不可用）。空闲显存记 unknown：读它需要当前 CUDA context，而进程里其它组件会 push/pop context，读到的句柄可能已经不被驱动接受，于是每次 probe 都报 `CUDA_ERROR_INVALID_CONTEXT`（见 §14 的 2026-11-07 决策）。unknown 是运行时本来就支持的状态——跳过显存放不下时的回退。
+- **缓存**：probe 结果（可用性，以及被显式设置的显存读数）带刷新间隔（默认 10ms，`SKELETON_PROBE_REFRESH_MS` 可调）。`resolve` 本身是 O(1) 查表，绝不在每次调用上做驱动 API。
+- **策略（v1）**：preference 对应设备可用且（显存读数已知时）放得下 operands 时用 preference，否则 CPU；两边都不可用时直接终止（不静默产出错误结果）。
+- **日志**：`--trace` 或 `SKELETON_TRACE=1`，每次 `resolve` 恰好一行决策：`op=<id> pref=<设备> probe=<设备> free=<n>MB choose=<设备> reason=<原因>`。`probe` 与 `free` 描述被探测的偏好设备（没有显存读数时 `free=-`），`choose` 是最终落点，`reason` 说明为什么没用偏好设备，用了就是 `-`；取值为 `device-unavailable`、`insufficient-memory`、`no-implementation`。另有一行编译事件：`op=<id> compile device=<CPU> impl=<ptr>`。driver 只有显式给 `--trace` 时才调用 `set_trace(1)`，所以环境变量在 driver 模式下也生效。
+- **测试钩子**：`set_device_available` 与 `set_free_bytes` 强制探测结果，让「设备不可用」和「显存放不下」两条回退分支不依赖真实硬件就能测（见 `driver-adaptive`、`driver-memory-fallback`）。两者都会让该设备的下一次探测绕过驱动 API。
 
 ## 9. 缓存与重编译
 
 - 缓存键 `(op_id, device)`；进程内有效。
 - 每次解析点重新决策；impl 已注册则直接用。
-- 重编译只发生在缓存未命中；失败也按 `(op, device)` 缓存，避免每次调用都重复
-  parse/lower/JIT。v1 没有 `--recompile=always` 入口。
+- 重编译只发生在缓存未命中；失败也按 `(op, device)` 缓存，避免每次调用都重复 parse/lower/JIT。v1 没有 `--recompile=always` 入口。
 
 ## 10. 性能
 
 三笔账，实现时要能量出来：
 
-1. **启动**：host 的 JIT 编译（一次性）。codegen 级别用 LLJIT 默认（约 O2）。
-   退路依次是：磁盘 object cache；产物内嵌预链接的 host 目标文件，driver 用 ORC 直接 link
-   而不重新 codegen。产物自己运行没有这笔开销。
-2. **代码质量**：JIT 侧用 LLJIT 默认（约 O2）；产物侧在 codegen 前跑标准 O2 管线，
-   因此 `./prog` 与 `driver prog` 的优化级别一致。跨 op 边界不内联是设计使然。
+1. **启动**：host 的 JIT 编译（一次性）。codegen 级别用 LLJIT 默认（约 O2）。退路依次是：磁盘 object cache；产物内嵌预链接的 host 目标文件，driver 用 ORC 直接 link 而不重新 codegen。产物自己运行没有这笔开销。
+2. **代码质量**：JIT 侧用 LLJIT 默认（约 O2）；产物侧在 codegen 前跑标准 O2 管线，因此 `./prog` 与 `driver prog` 的优化级别一致。跨 op 边界不内联是设计使然。
 3. **每次调用**：一次间接调用（纳秒级）+ 一次 O(1) `resolve`。probe 必须缓存。
 
 ## 11. 测试与验收
 
 验收判据：
 
-1. 远端：`mlir-skeleton-driver x.mlir` 跑通 `skeleton-matmul.mlir`（CPU），
-   日志里有每个 op 的 resolve 与编译记录；
+1. 远端：`mlir-skeleton-driver x.mlir` 跑通 `skeleton-matmul.mlir`（CPU），日志里有每个 op 的 resolve 与编译记录；
 2. 产物 `prog` 单独运行（CPU）输出正确；
 3. 远端 GPU：`mlir-skeleton-driver prog` 从产物 IR 重编 GPU impl 并执行，结果正确；
-4. 同一进程内同一个 op 的两次调用可以拿到不同 impl（设备可用性变化后重新决策生效，
-   并且切回原设备时旧的 JIT 引擎仍然有效）；
+4. 同一进程内同一个 op 的两次调用可以拿到不同 impl（设备可用性变化后重新决策生效，并且切回原设备时旧的 JIT 引擎仍然有效）；
 5. 原有测试在**新路径**上等价通过（见下）。
 
 “不回归”在旧 pass 删除后的确切含义：
 
-- 删除：`skeleton-preference-partition.mlir`、`skeleton-finalize-memref-to-gpu.mlir`
-  （随 pass 一起删）；`skeleton-target-lower*.mlir` 保留，因为 `target-lower` 仍是
-  driver 编译 GPU 单元的工具；
-- 原样保留：`skeleton-ops-valid/invalid.mlir`、`skeleton-pattern-merge.mlir`、
-  `skeleton-to-linalg.mlir`、clang 侧 CIR 用例；
+- 删除：`skeleton-preference-partition.mlir`、`skeleton-finalize-memref-to-gpu.mlir`（随 pass 一起删）；`skeleton-target-lower*.mlir` 保留，因为 `target-lower` 仍是 driver 编译 GPU 单元的工具；
+- 原样保留：`skeleton-ops-valid/invalid.mlir`、`skeleton-pattern-merge.mlir`、`skeleton-to-linalg.mlir`、clang 侧 CIR 用例；
 - 改写：CPU/GPU 的 e2e 与 C++ → 运行的 e2e，输入与期望输出不变，RUN 行改走 driver。
 
 删除清单（新路径覆盖后执行）：
 
-- `SkeletonPreferencePartition.cpp`、`SkeletonFinalizeMemRefToGpu.cpp` 及其
-  `Passes.td` / `Passes.h` 条目；
-- 对应单元测试（`skeleton-preference-partition.mlir`、
-  `skeleton-finalize-memref-to-gpu.mlir`）；
+- `SkeletonPreferencePartition.cpp`、`SkeletonFinalizeMemRefToGpu.cpp` 及其 `Passes.td` / `Passes.h` 条目；
+- 对应单元测试（`skeleton-preference-partition.mlir`、`skeleton-finalize-memref-to-gpu.mlir`）；
 - 上面的 e2e 迁移。
 
 ## 12. 里程碑与提交
@@ -311,48 +251,27 @@ host-only 程序也是合法输入，driver 会跳过单元表直接执行。
 - M0 完成：本文与 roadmap 更新。
 - M1 完成：`MLIRSkeletonRuntime`、`skeleton-outline`、`skeleton-lower-dispatch`。
 - M2 完成：driver 读入、切分、host 降级 + JIT、按需编译 CPU 实现、决策日志。
-- M3 完成：`--emit` 产物（AOT CPU 实现 + 内嵌 IR + 运行时 + 生成 `main`），
-  产物可直接运行。
-- M4 完成：driver 读产物 IR、按需重编 GPU 实现；GPU 单元走
-  wrapper + `skeleton-target-lower` 的 UVM 桥接 + NVVM 管线。
-- M5 完成：`preference-partition` 与 `finalize-memref-to-gpu` 及其测试已删除；
-  CPU/GPU 全部 e2e 已迁到 driver（输入与期望输出不变）；`target-lower` 保留，
-  作为 driver 编译单个 GPU 单元时的 lowering 工具，不再做放置决策。
+- M3 完成：`--emit` 产物（AOT CPU 实现 + 内嵌 IR + 运行时 + 生成 `main`），产物可直接运行。
+- M4 完成：driver 读产物 IR、按需重编 GPU 实现；GPU 单元走 wrapper + `skeleton-target-lower` 的 UVM 桥接 + NVVM 管线。
+- M5 完成：`preference-partition` 与 `finalize-memref-to-gpu` 及其测试已删除；CPU/GPU 全部 e2e 已迁到 driver（输入与期望输出不变）；`target-lower` 保留，作为 driver 编译单个 GPU 单元时的 lowering 工具，不再做放置决策。
 
-远端验证（2026-10-28、2026-10-31、2026-11-03）：单元、集成、CIR 三组全绿。用例个数
-以 `remote.sh` 的过滤规则为准，不在本文记录。
+远端验证（2026-10-28、2026-10-31、2026-11-03）：单元、集成、CIR 三组全绿。用例个数以 `remote.sh` 的过滤规则为准，不在本文记录。
 
-集成测试：`driver-matmul`（driver 跑 CPU 闭环）、`driver-artifact`（产物自运行 + driver
-读产物 IR）、`driver-matmul-gpu`（GPU 重编译 + 产物三种用法）、`driver-adaptive`（同一
-算子在同一进程内 GPU → CPU → GPU）、`driver-body`（body-region 算子的完整 runtime 路径）、
-`driver-host-only`（没有 op 单元的 host 程序，driver 与产物两条路径）、`driver-multi-unit-gpu`
-（同一进程内两个 GPU 单元）、`driver-error`（无法编译的单元干净终止，而不是空指针调用）、
-`driver-multi-result`（偏好 CPU 的多结果单元）、`driver-memory-fallback`（显存放不下时回退
-CPU）、`driver-nested`（嵌套图被 `skeleton-to-linalg` 拒绝）、`driver-unit-call` 与
-`driver-duplicate-id`（单元互调、重复 id 被拒绝）。
+集成测试：`driver-matmul`（driver 跑 CPU 闭环）、`driver-artifact`（产物自运行 + driver 读产物 IR）、`driver-matmul-gpu`（GPU 重编译 + 产物三种用法）、`driver-adaptive`（同一算子在同一进程内 GPU → CPU → GPU）、`driver-body`（body-region 算子的完整 runtime 路径）、`driver-host-only`（没有 op 单元的 host 程序，driver 与产物两条路径）、`driver-multi-unit-gpu`（同一进程内两个 GPU 单元）、`driver-error`（无法编译的单元干净终止，而不是空指针调用）、`driver-multi-result`（偏好 CPU 的多结果单元）、`driver-memory-fallback`（显存放不下时回退 CPU）、`driver-nested`（嵌套图被 `skeleton-to-linalg` 拒绝）、`driver-unit-call` 与 `driver-duplicate-id`（单元互调、重复 id 被拒绝）。
 
-单元测试：`skeleton-outline`（id、属性、没有偏好的 linalg 留在 host、零结果单元）、
-`skeleton-outline-invalid`（偏好 GPU 的多结果拒绝）、`skeleton-outline-nested`（嵌套算子
-留在外层单元）、`skeleton-lower-dispatch`（resolve + 间接调用、声明清理）；
-`skeleton-to-linalg` 覆盖 body region 与嵌套 skeleton 算子的诊断。
+单元测试：`skeleton-outline`（id、属性、没有偏好的 linalg 留在 host、零结果单元）、`skeleton-outline-invalid`（偏好 GPU 的多结果拒绝）、`skeleton-outline-nested`（嵌套算子留在外层单元）、`skeleton-lower-dispatch`（resolve + 间接调用、声明清理）；`skeleton-to-linalg` 覆盖 body region 与嵌套 skeleton 算子的诊断。
 
 2026-10-31 与 2026-11-03 审查修复的内容见 §14 的决策记录和 §15。
 
 ## 13. 已否决的方案
 
-- **产物里带 PTX / cubin**：把“生成什么代码”在构建期固化，运行期只剩选变体，
-  与“从 skeleton IR 重编译”的主张矛盾。以后只作为论文的静态基线开关。
+- **产物里带 PTX / cubin**：把“生成什么代码”在构建期固化，运行期只剩选变体，与“从 skeleton IR 重编译”的主张矛盾。以后只作为论文的静态基线开关。
 - **编译期生成双变体 + 运行期选**：同上，决策退化为选择；且无 GPU 机器上的加载问题难解。
-- **`agent` 术语**：行业里指部署在节点上的运维组件，不是节点本身。统一用 executor；
-  跨进程形态以后再命名。
-- **子进程 / driver 监督目标进程**：换实现要求被换的代码配合，进程内最短路径；
-  子进程只是把回调机制拆成两个进程。v1 不做。
-- **driver dlopen 产物**：Linux 不允许 dlopen PIE；产物做成单文件 ELF 并由 driver 读 IR，
-  避开这个问题。
-- **运行时拥有调用（`void**` 参数打包）**：CPU/GPU 签名相同，打包只会让运行时解释参数；
-  用带类型的间接调用。
-- **进程内 lld 链接产物**：crt/动态链接器配置复杂；v1 调外部 `clang`
-  （lit 环境下 `clang` 已在 PATH，现有 e2e 也这么用）。
+- **`agent` 术语**：行业里指部署在节点上的运维组件，不是节点本身。统一用 executor；跨进程形态以后再命名。
+- **子进程 / driver 监督目标进程**：换实现要求被换的代码配合，进程内最短路径；子进程只是把回调机制拆成两个进程。v1 不做。
+- **driver dlopen 产物**：Linux 不允许 dlopen PIE；产物做成单文件 ELF 并由 driver 读 IR，避开这个问题。
+- **运行时拥有调用（`void**` 参数打包）**：CPU/GPU 签名相同，打包只会让运行时解释参数；用带类型的间接调用。
+- **进程内 lld 链接产物**：crt/动态链接器配置复杂；v1 调外部 `clang`（lit 环境下 `clang` 已在 PATH，现有 e2e 也这么用）。
 
 ## 14. 决策记录
 
@@ -400,70 +319,32 @@ CPU）、`driver-nested`（嵌套图被 `skeleton-to-linalg` 拒绝）、`driver
 
 ## 15. 修掉的问题
 
-- **CPU reduce 从零开始**（2026-10-28 修复）：手动路径给 `skeleton.reduce` 的
-  `init` 生成的是 `tensor.empty()`，而 `linalg.reduce` 会把 `outs` 的当前内容当作
-  累加初值，于是结果取决于 malloc 是否恰好返回清零的页。表现为
-  `cpp-reduce-sum.mlir` 约 10% 的运行输出 `[-3.07e+38]` 而不是 `[10]`。
-  修法是给 reduce 生成元素类型零值的 `arith.constant`（`[cir]` 提交），
-  并记录该入口点暂不提供自定义初值这一限制。修复后远端重复 100 次 0 失败。
-  这与本节早先记录的 GPU 20% 垃圾输出是同一类“读未初始化内存”的症状，
-  但根因不同、互相独立。
-- **切回原设备时旧 JIT 代码已释放**（2026-10-31 修复）：每个单元只有一个
-  `ExecutionEngine`，编译第二个设备时销毁第一个，`impls[device]` 里的函数指针悬空。
-  `driver-adaptive` 的 GPU → CPU → GPU 路径会 SIGSEGV。改为每个 `(op, device)` 一个引擎
-  并全部保活。
-- **resolve 失败返回 NULL**（2026-10-31 修复）：编译失败时生成代码调用空指针。
-  `resolve` 现在打印原因并以状态 1 退出。
-- **body region 算子无法编译**（2026-10-31 修复）：`skeleton-to-linalg` 只处理 `pure_fn`，
-  body 形式会走到 bufferization 才报 `op was not bufferized`。现在支持标量 body，
-  并对嵌套 skeleton 图给出明确诊断。
-- **`SKELETON_TRACE=1` 在 driver 里失效**（2026-10-31 修复）：driver 无条件调用
-  `set_trace(0)`，把环境变量标成已读。现在只在 `--trace` 时调用 `set_trace(1)`。
-- **编译失败没有负缓存**（2026-10-31 修复）：GPU 编译失败但 CPU 回退成功时，每次调用都
-  重新编译 GPU。现在按 `(op, device)` 缓存失败。
-- **产物没有优化、内嵌 IR 是文本**（2026-10-31 修复）：codegen 前跑标准 O2；内嵌 IR 改为
-  MLIR bytecode，并用 external linkage 防止 GlobalDCE 删除。
-- **单元切分丢模块属性和 global**（2026-10-31 修复）：单元模块现在复制 host 的模块属性，
-  并把被引用的 global 一起克隆。
-- **跨模块 ABI 没有校验**（2026-10-31 修复）：JIT 前比较单元与 host 声明 lower 后的
-  `LLVMFunctionType`，不一致直接报错。
+- **CPU reduce 从零开始**（2026-10-28 修复）：手动路径给 `skeleton.reduce` 的 `init` 生成的是 `tensor.empty()`，而 `linalg.reduce` 会把 `outs` 的当前内容当作累加初值，于是结果取决于 malloc 是否恰好返回清零的页。表现为 `cpp-reduce-sum.mlir` 约 10% 的运行输出 `[-3.07e+38]` 而不是 `[10]`。修法是给 reduce 生成元素类型零值的 `arith.constant`（`[cir]` 提交），并记录该入口点暂不提供自定义初值这一限制。修复后远端重复 100 次 0 失败。这与本节早先记录的 GPU 20% 垃圾输出是同一类“读未初始化内存”的症状，但根因不同、互相独立。
+- **切回原设备时旧 JIT 代码已释放**（2026-10-31 修复）：每个单元只有一个 `ExecutionEngine`，编译第二个设备时销毁第一个，`impls[device]` 里的函数指针悬空。`driver-adaptive` 的 GPU → CPU → GPU 路径会 SIGSEGV。改为每个 `(op, device)` 一个引擎并全部保活。
+- **resolve 失败返回 NULL**（2026-10-31 修复）：编译失败时生成代码调用空指针。`resolve` 现在打印原因并以状态 1 退出。
+- **body region 算子无法编译**（2026-10-31 修复）：`skeleton-to-linalg` 只处理 `pure_fn`，body 形式会走到 bufferization 才报 `op was not bufferized`。现在支持标量 body，并对嵌套 skeleton 图给出明确诊断。
+- **`SKELETON_TRACE=1` 在 driver 里失效**（2026-10-31 修复）：driver 无条件调用 `set_trace(0)`，把环境变量标成已读。现在只在 `--trace` 时调用 `set_trace(1)`。
+- **编译失败没有负缓存**（2026-10-31 修复）：GPU 编译失败但 CPU 回退成功时，每次调用都重新编译 GPU。现在按 `(op, device)` 缓存失败。
+- **产物没有优化、内嵌 IR 是文本**（2026-10-31 修复）：codegen 前跑标准 O2；内嵌 IR 改为 MLIR bytecode，并用 external linkage 防止 GlobalDCE 删除。
+- **单元切分丢模块属性和 global**（2026-10-31 修复）：单元模块现在复制 host 的模块属性，并把被引用的 global 一起克隆。
+- **跨模块 ABI 没有校验**（2026-10-31 修复）：JIT 前比较单元与 host 声明 lower 后的 `LLVMFunctionType`，不一致直接报错。
 - **没有 op 单元的程序跑不了**（2026-10-31 修复）：`splitUnits` 和 `--emit` 都允许空单元表。
-- **多结果算子在 GPU 路径静默丢结果**（2026-10-31 修复）：outline 阶段拒绝偏好 GPU 的
-  多结果单元，GPU 桥接也加了防御性检查。2026-11-03 进一步把拒绝范围收窄到偏好 GPU 的
-  单元（见 §14）。
-- **entry 签名未检查、trace 日志与文档不一致**（2026-10-31 修复）：driver 与 `--emit`
-  都要求 `() -> ()`；日志增加 `free=` 字段，文档同步。
-- **嵌套图被切成互不引用的单元**（2026-11-03 修复）：outline 把算子 body 里的嵌套算子
-  也当成独立单元，结果产生一个没人调用的单元，外层单元的克隆则拿到被掏空的声明，JIT 报
-  `Symbols not found`。现在收集时不下钻，嵌套图留在同一个单元里，由 `skeleton-to-linalg`
-  报「nested skeleton operators in a body region are not supported」。
+- **多结果算子在 GPU 路径静默丢结果**（2026-10-31 修复）：outline 阶段拒绝偏好 GPU 的多结果单元，GPU 桥接也加了防御性检查。2026-11-03 进一步把拒绝范围收窄到偏好 GPU 的单元（见 §14）。
+- **entry 签名未检查、trace 日志与文档不一致**（2026-10-31 修复）：driver 与 `--emit` 都要求 `() -> ()`；日志增加 `free=` 字段，文档同步。
+- **嵌套图被切成互不引用的单元**（2026-11-03 修复）：outline 把算子 body 里的嵌套算子也当成独立单元，结果产生一个没人调用的单元，外层单元的克隆则拿到被掏空的声明，JIT 报 `Symbols not found`。现在收集时不下钻，嵌套图留在同一个单元里，由 `skeleton-to-linalg` 报「nested skeleton operators in a body region are not supported」。
 
 ## 16. 已知风险
 
-- **跨模块 ABI 一致性**：host 与 op 单元分别 bufferize；driver 在 JIT 前比较两者 lower 后的
-  `LLVMFunctionType`，不一致直接报错。类型相同但 data layout/非 identity layout 仍有风险，
-  目前靠同一套 bufferize 配置和 GPU 侧的 dynamic/non-identity 检查来兜底。
-- **JIT 实例数量**：每个 op 单元一个 `ExecutionEngine`；op 多时内存与启动成本要观察，
-  必要时改成“一个 engine + 多模块”（需要 MLIR 暴露接口）。
-- **运行期符号解析**：host 模块要能解析 `skeleton_rt_*`；用 `ExecutionEngine::registerSymbols`
-  显式注册，不依赖可执行文件导出符号。
-- **GPU 每 op 一个模块**：kernel 名冲突、常量 global、cubin 加载时机都要在实现里确认；
-  `driver-multi-unit-gpu.mlir` 覆盖了两个 GPU 单元的同一进程执行。
+- **跨模块 ABI 一致性**：host 与 op 单元分别 bufferize；driver 在 JIT 前比较两者 lower 后的 `LLVMFunctionType`，不一致直接报错。类型相同但 data layout/非 identity layout 仍有风险，目前靠同一套 bufferize 配置和 GPU 侧的 dynamic/non-identity 检查来兜底。
+- **JIT 实例数量**：每个 op 单元一个 `ExecutionEngine`；op 多时内存与启动成本要观察，必要时改成“一个 engine + 多模块”（需要 MLIR 暴露接口）。
+- **运行期符号解析**：host 模块要能解析 `skeleton_rt_*`；用 `ExecutionEngine::registerSymbols` 显式注册，不依赖可执行文件导出符号。
+- **GPU 每 op 一个模块**：kernel 名冲突、常量 global、cubin 加载时机都要在实现里确认；`driver-multi-unit-gpu.mlir` 覆盖了两个 GPU 单元的同一进程执行。
 - **无 GPU 机器**：driver 不能链接 libcuda；必须 `dlopen`，失败即视为不可用。
 - **旧 pass 删除时的迁移**：先让新路径覆盖同样用例，再删，保持树可构建。
-- **并发构建会损坏远程静态库**：一次只跑一个 `remote.sh`；中断后若
-  `libLLVMAsmPrinter.a` 之类的归档损坏，删除该归档再重建。
-- **不可恢复的失败**：`resolve` 在没有可用实现时直接 `exit(1)`，运行时库不提供「返回错误、
-  由调用方决定」的路径。产物需要这一条（生成的 host 代码直接调用返回值），代价是它不能作为
-  普通库嵌进需要恢复的宿主。
-- **热插拔与换卡**：设备按类别（CPU / GPU）寻址，不区分具体实例；实现按 `(算子, 类别)`
-  缓存且永不失效，编译失败也永久缓存。运行期插上或拔掉设备、换一张卡、多卡都不支持——
-  要支持需要设备实例标识、缓存失效接口和重试策略；v1 接受这个代价。
+- **并发构建会损坏远程静态库**：一次只跑一个 `remote.sh`；中断后若 `libLLVMAsmPrinter.a` 之类的归档损坏，删除该归档再重建。
+- **不可恢复的失败**：`resolve` 在没有可用实现时直接 `exit(1)`，运行时库不提供「返回错误、由调用方决定」的路径。产物需要这一条（生成的 host 代码直接调用返回值），代价是它不能作为普通库嵌进需要恢复的宿主。
+- **热插拔与换卡**：设备按类别（CPU / GPU）寻址，不区分具体实例；实现按 `(算子, 类别)` 缓存且永不失效，编译失败也永久缓存。运行期插上或拔掉设备、换一张卡、多卡都不支持——要支持需要设备实例标识、缓存失效接口和重试策略；v1 接受这个代价。
 - **线程安全**：运行时用进程级全局表，v1 不支持多线程同时 resolve；需要时再加锁。
-- **平台**：产物链接固定用外部 `clang` + `-no-pie -ldl -lstdc++ -lm`，目前只针对
-  Linux/libstdc++ 验证；换平台要重新确认链接参数和 C++ 运行库。
-- **body region 的嵌套图**：`skeleton.map/reduce` 的 body 只支持标量算术，嵌套 skeleton
-  算子会被 `skeleton-to-linalg` 拒绝；真正的嵌套计算图还没实现。
-- **reduce 的初值**：C++/CIR 入口没有初值参数，自动路径把累加器初始化为元素类型的零值；
-  这对 sum/add 正确，但 min/max/product 的 identity 不是零。需要这些算子的用户必须走手写
-  `skeleton.reduce` 并给 `outs` 一个正确的初值；头文件 `SkeletonOps.h` 已注明这一点。
+- **平台**：产物链接固定用外部 `clang` + `-no-pie -ldl -lstdc++ -lm`，目前只针对 Linux/libstdc++ 验证；换平台要重新确认链接参数和 C++ 运行库。
+- **body region 的嵌套图**：`skeleton.map/reduce` 的 body 只支持标量算术，嵌套 skeleton 算子会被 `skeleton-to-linalg` 拒绝；真正的嵌套计算图还没实现。
+- **reduce 的初值**：C++/CIR 入口没有初值参数，自动路径把累加器初始化为元素类型的零值；这对 sum/add 正确，但 min/max/product 的 identity 不是零。需要这些算子的用户必须走手写 `skeleton.reduce` 并给 `outs` 一个正确的初值；头文件 `SkeletonOps.h` 已注明这一点。
